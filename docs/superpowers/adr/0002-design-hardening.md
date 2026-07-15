@@ -46,6 +46,9 @@ Phase 0 keeps `SiloStore`/`LedgerStore` concrete (rusqlite) but **behind the `Ba
 ### D10 — Networked leader/follower (deferred, but constraints recorded)
 Election/lease/quorum and **ledger replication** are unspecified and conflict with "never merge". **Deferred** to Server/Remote scheduling (completeness bucket C), with a recorded requirement: a reconciliation path for offline-Local work is unavoidable, and a leadership hand-off needs ledger replication.
 
+### D11 — Native-loop fallback (stack de-risking)
+The functional requirements (LoopController hooks per step, exact per-turn I/O capture, MCP proxying, resumable steps) may exceed what goosed/the embedded crate expose. **Fallback decided now**: if the T000 spike finds no turn-level API, Skein implements its **own native loop** in the Rust core — direct Gateway (OpenAI-compat) calls + its own MCP client (using the official Rust MCP SDK / Goose's MCP crates as libraries). This is a bounded effort (LiteLLM does provider heavy-lifting; MCP does tool heavy-lifting), not a harness rewrite. Goose then remains a *component source and inspiration* (extensions, recipes format), not the runtime. Positioning: **a core between OpenClaw / Claude Code / Hermes / Goose** — the loop is ours, the ecosystem is reused. The spike's exit criteria: choose `goosed` / `embedded crate` / `native loop` with evidence.
+
 ## Phase 0 readiness fixes (bucket B — do now)
 - **F1** `sprint-status.yaml` → BMAD-compatible `development_status:` schema (flat map, `epic-1`, `1-1-slug: backlog`, status vocab `backlog/ready-for-dev/in-progress/review/done`) — OR declare Spec-Kit tasks the sole tracker. **Decision**: adopt the BMAD schema (we committed to the bridge).
 - **F2** plan001 Constitution Check: add **Principle VIII** and justify the Phase-0 loop-control deferral in **Complexity Tracking** ("Goose owns the loop in Phase 0 pending D1; LoopController lands with FR-16 in Epic 6").

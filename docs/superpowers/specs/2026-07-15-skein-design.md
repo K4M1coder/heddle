@@ -68,6 +68,8 @@ v1 is **text**. Multimodal and collaborative evolution is planned across version
 | **Task tracking** | **Pluggable `TaskTracker`**: local (silo) / **Vikunja** (embedded OSS) / **Jira** (MCP) — §4.13 | Build on Jira OR an embeddable OSS; bound by the config hierarchy. |
 | **Hierarchy** | **Silo ▸ Team ▸ Project ▸ Conversation** (Local: without Team); config "highest locks lowest" — §5.5 | A single resolution/lock mechanism for harness, tracker, egress, providers. |
 | **Loop engineering** | **Engine-enforced loop control** (§4.14): external termination/budgets + ground-truth-anchored reflect/retry; node types ReAct/Reflexion/Self-Refine/evaluator-optimizer | Verified patterns (`docs/research/loop-engineering.md`); never trust the model to stop or self-judge. |
+| **Component enablement** | **Embedded but disabled by default** (connectors, IdPs, trackers, controllers); enabling = **scope-owner authorization** via the hierarchy; **default posture = full local** — §4.3 | One enablement mechanism for every pluggable component; shipped ≠ enabled. |
+| **Computer access** | Scoped grants: **Project (default) ▸ Folder ▸ FullComputer** — §4.9 | Least privilege by default; widening is owner-granted, hierarchy-capped, audited. |
 
 ### 2.1 Sources (state verified as of 2026-07-15)
 - Goose: https://github.com/aaif-goose/goose · https://block-goose.mintlify.app/
@@ -134,6 +136,12 @@ Depends on: `ModelGateway`, `Backend`, MCP extensions, skill engine. The agent l
 ### 4.3 Connectors (`connectors/`, MCP servers)
 Each connector = one MCP server (Jira/Bitbucket/Confluence, Outlook/SharePoint/Teams, `fs`, `git`, `shell`). Added by **config**, no core code. Protocol: MCP (`tools/list`, `tools/call`, `resources/*`).
 
+**Embedded connectors + hierarchical enablement (default: full local).** Skein **ships a curated set of MCP connectors embedded** (bundled binaries/configs from the trust registry §7.6) so no external install is needed. But **shipped ≠ enabled**:
+- **Default posture = full local**: out of the box, only offline connectors (`fs`, `git`, `shell`) are active; every network connector is present but **disabled**.
+- **Enablement is an authorization** made by the **owner of the scope**, resolved through the hierarchy (§5.5): silo owner ▸ project owner ▸ conversation owner — a connector enabled/locked at a higher level binds lower levels; security stays a **monotonic floor** (a lower level can disable, never enable beyond what's allowed above; ADR 0002 D3).
+- Enabling a network connector is subject to the **egress boundary** (ADR 0002 D4: `requires_network()` on every connector, checked at enable-time, enforced by the network sandbox in Local mode).
+- This same **enablement policy applies to every pluggable component**: identity providers (§7.9), secret backends (§7.13), task trackers (§4.13), model providers/routes (§4.5), and controllers (§4.9). One mechanism, all components.
+
 ### 4.4 Skills / recipes engine (`skills/`)
 Loads BMAD (21+ agents, artifacts), Spec-Kit (Spec→Plan→Tasks→Implement), powerskills/superpowers as invocable **Goose YAML recipes** (`/spec`, `/bmad`, …).
 ```
@@ -171,6 +179,17 @@ impl BrowserController       // compagnon navigateur (extension Chrome/Edge, typ
 ```
 All three uses — captures as input (grounding, v2), PC control, and browser companion (v3) — reuse **the same visual grounding building block**. These are three implementations of one trait, not three separate developments.
 **Cross-platform**: `enigo`/`xcap` cover Windows/macOS/Linux. On **macOS**, the `LocalController` requires the system permissions **Accessibility** and **Screen Recording** (requested explicitly from the user, never bypassed); on Linux, handle X11 **and** Wayland (portals).
+
+**Computer-access scopes (hierarchically granted, default = narrowest).** Access to the machine is itself a scoped, owner-granted authorization (same enablement policy as §4.3):
+```rust
+enum AccessScope {
+  Project,            // default: the project's working directory only
+  Folder(PathBuf),    // an explicitly chosen folder tree
+  FullComputer,       // whole PC: filesystem + Controller (screen/keyboard/mouse)
+}
+```
+- **Default = `Project`** (the conversation's project directory). Widening to `Folder` or `FullComputer` is granted by the scope owner, resolved through the hierarchy (§5.5) — a silo/project lock caps what any conversation may request; security remains a monotonic floor.
+- `FullComputer` gates both broad filesystem access **and** the cowork `Controller`; it always keeps per-action confirmations for destructive/irreversible operations (§7.4) and is audited (§7.11).
 
 ### 4.10 Generative modalities, omni orchestration & real-time streams (v4+)
 - **Generation** (v4/v5): specialized tools/connectors — image (model via Gateway), **TTS** (audio), **Office files** (docx/pptx/xlsx via mature libraries), **video** (v5). Each output is a typed `Content` produced by a tool; the core does not depend on it.
