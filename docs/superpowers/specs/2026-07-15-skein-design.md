@@ -1,6 +1,6 @@
-# Forge — Document de conception (Spec)
+# Skein — Document de conception (Spec)
 
-- **Nom de code** : Forge *(provisoire, à renommer)*
+- **Nom de code** : Skein *(« a skein of geese » = une volée d'oies, clin d'œil à Goose ; et un écheveau de fils entrelacés = les connecteurs/modèles tissés ensemble)*
 - **Date** : 2026-07-15
 - **Statut** : Conception validée — en attente de relecture avant plan d'implémentation
 - **Auteur** : cthedrez@sodiuswillert.com (avec assistance Claude Code)
@@ -90,7 +90,7 @@ Chaque composant : **un rôle**, une **interface explicite**, **testable isolém
 
 ### 4.1 Surfaces d'accès
 - **Cœur headless** : expose l'`Agent` via API locale (JSON-RPC + HTTP optionnel). Surface unique.
-- **CLI** (`forge …`) : client complet, faisant foi ; 100% scriptable ; base des tests E2E.
+- **CLI** (`skein …`) : client complet, faisant foi ; 100% scriptable ; base des tests E2E.
 - **API** : même surface, pour automatisation/CI/tiers ; soumise à l'exposition/authz du mode.
 - **UI (Tauri)** : n'émet que des commandes CLI/API, affiche des événements. Aucune logique métier.
 
@@ -230,7 +230,7 @@ SSO/OIDC, audit avancé, RAG avancé, vLLM GPU, connecteurs additionnels, catalo
 - **Qualité par langage** : Rust (`fmt`/`clippy -D warnings`/`cargo audit`/`cargo deny`) · Python (`ruff`/`mypy`/`pytest`/`pip-audit`) · TS (`eslint`/`prettier`/`vitest`/`playwright`/`tsc`). Pre-commit unifié.
 - **Pipeline** : lint → build 3 langages → unit → intégration → E2E CLI → **scans sécurité (SAST, deps, secrets, SBOM)** → artefacts. Matrice OS : **Windows primaire**, Linux/macOS secondaires.
 - **Release** : SemVer, changelog auto, **signature de code** (indispensable pour un agent qui pilote le PC), canaux nightly/stable.
-- **Méthode** : dogfooding — Forge est conçu avec Spec-Kit + BMAD ; ADR pour les décisions d'archi.
+- **Méthode** : dogfooding — Skein est conçu avec Spec-Kit + BMAD ; ADR pour les décisions d'archi.
 
 ---
 
