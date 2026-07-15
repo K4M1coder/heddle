@@ -1,0 +1,28 @@
+# BMAD sprint status — mémoire persistante du découpage (source de vérité, pas le chat)
+project: Skein
+updated: 2026-07-15
+current_epic: 1
+
+epics:
+  - id: 1
+    title: "Phase 0 — Squelette vertical (Walking Skeleton)"
+    status: planned            # planned | in_progress | done
+    spec: specs/001-phase0-walking-skeleton/
+    stories:
+      - { id: "1.0",  title: "Spike d'intégration Goose (ADR)",           status: planned }
+      - { id: "1.1",  title: "Scaffolding workspace + CI tri-OS",          status: planned }
+      - { id: "1.2",  title: "Types de domaine (Content/Message/Event)",   status: planned }
+      - { id: "1.3",  title: "SiloStore SQLite (isolation)",              status: planned }
+      - { id: "1.4",  title: "GatewayClient + config LiteLLM",            status: planned }
+      - { id: "1.5",  title: "GooseRuntime (adaptateur CLI headless)",     status: planned }
+      - { id: "1.6",  title: "ChatService (orchestration + persistance)",  status: planned }
+      - { id: "1.7",  title: "CLI de référence (chat, session)",          status: planned }
+      - { id: "1.8",  title: "Ledger event-sourced (capture & inspection)", status: planned }
+      - { id: "1.9",  title: "Fondation SecretProvider (JIT)",            status: planned }
+      - { id: "1.10", title: "Vérification critère de sortie (smoke)",     status: planned }
+
+  - { id: 2, title: "v1/1a Assistant de code agentique",         status: backlog, stories: [] }
+  - { id: 3, title: "v1/1b Multi-provider + inférence locale",   status: backlog, stories: [] }
+  - { id: 4, title: "v1/1c Connecteurs Atlassian + M365",        status: backlog, stories: [] }
+  - { id: 5, title: "v1/1d Frameworks BMAD/Spec-Kit/powerskills", status: backlog, stories: [] }
+  - { id: 6, title: "v1 Modes/silos réseau + UI Chat/Code",      status: backlog, stories: [] }

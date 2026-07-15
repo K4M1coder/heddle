@@ -425,7 +425,7 @@ IdP externes (LDAP/OIDC/Entra/Google) + **RBAC avancé** (§7.9-7.10), audit ava
 - **Qualité par langage** : Rust (`fmt`/`clippy -D warnings`/`cargo audit`/`cargo deny`) · Python (`ruff`/`mypy`/`pytest`/`pip-audit`) · TS (`eslint`/`prettier`/`vitest`/`playwright`/`tsc`). Pre-commit unifié.
 - **Pipeline** : lint → build 3 langages → unit → intégration → E2E CLI → **scans sécurité (SAST, deps, secrets, SBOM)** → artefacts. **Cross-platform de premier ordre** : matrice CI **Windows + macOS + Linux** (les trois traités à égalité ; tests verts requis sur les trois avant merge).
 - **Release** : SemVer, changelog auto, **signature de code par OS** — Authenticode (Windows) **et** Developer ID + notarisation (macOS) — indispensable pour un agent qui pilote le PC ; artefacts par OS (Tauri) ; canaux nightly/stable.
-- **Méthode** : dogfooding — Skein est conçu avec Spec-Kit + BMAD ; ADR pour les décisions d'archi.
+- **Méthode** : dogfooding via le **bridge BMAD × Spec-Kit** (BMAD planifie → Spec-Kit exécute), tous deux **réellement installés** (`.specify/`, `_bmad/`, `_bmad-output/`). Artefacts conformes : PRD/architecture/epics/sprint-status (BMAD) + constitution + `specs/001-*/spec|plan|tasks` (Spec-Kit). Voir `docs/METHODOLOGY.md`. Ce design reste la référence exhaustive ; ADR pour les décisions d'archi (`docs/superpowers/adr/`).
 
 ---
 
