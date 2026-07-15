@@ -8,6 +8,8 @@
 
 > ⚠️ This document describes **what** to build and **why**. The **detailed how** (tasks, sequencing) will be the subject of a separate implementation plan, produced after review of this spec.
 
+> 🔧 **Hardened by adversarial review — read `docs/superpowers/adr/0002-design-hardening.md` alongside this spec.** ADR 0002 is authoritative where it corrects sections below (loop ownership D1, event-schema D2, config resolution D3, egress D4, GDPR erasure D5, ledger redaction D6, ground-truth enforcement D7, loop budgets D8). Design completeness is governed by `docs/DESIGN-COMPLETENESS-POLICY.md` (not 100% up-front by design).
+
 ---
 
 ## 1. Vision & objectives
@@ -207,7 +209,7 @@ trait Ledger {
   fn branch(&self, from: StepId) -> SessionId;   // explorer une alternative
 }
 ```
-- **Capture point**: model inputs/outputs are captured at the **Gateway (§4.5)** — a single chokepoint traversed by every runtime (Goose included) → no model I/O escapes the journal.
+- **Capture point**: model inputs/outputs are captured at the **Gateway (§4.5)** — a single chokepoint traversed by every runtime → no model I/O escapes the journal. ⚠️ **Corrected by ADR 0002 (D1/D2)**: valid only if **Skein owns the loop** and Goose is a per-turn executor (goosed/embedded) with a propagated `trace_id`; a `goose run` *subprocess* hides the exact prompt and tool calls. Tool ground truth is captured via a **Skein MCP proxy**. Step identity = surrogate id + content-hash integrity field (not hash-as-PK), with effect-class + idempotency key for safe resume/replay/branch, plus loop event kinds (Reflection/Evaluation/IterationBoundary/BudgetSpent/Exit/Approval).
 - **Honest reversibility**: internal effects (files/session) **undoable** via snapshot; irreversible external effects (email sent, ticket created) **recorded and flagged** as non-undoable (compensating action proposed, never automatic).
 - **Isolation & security**: the journal lives **within the silo** (§5.3); it contains potentially sensitive prompts → subject to the **keychain/redaction, egress and retention** (§7). It is also the centerpiece of GDPR/AI Act traceability (§7.11-7.12).
 - **Surfaces**: `skein ledger log|show|replay|revert|branch` (reference CLI); the UI is merely a view of this journal.

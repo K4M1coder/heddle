@@ -59,6 +59,17 @@ As a user, I can see everything sent to/received from the model (Ledger) and no 
 - **FR-007**: The system MUST resolve secrets **just-in-time** via `SecretProvider` (OS keyring), without ever persisting/displaying them, with `redact` applied before logging.
 - **FR-008**: In Local mode, the system MUST NOT reach the network (local providers only; offline secrets).
 
+### Traceability crosswalk (this feature's FRs → PRD / architecture)
+| This spec | PRD | Architecture AD |
+|---|---|---|
+| FR-001 (headless core + CLI) | FR-1 | AD-1 |
+| FR-002 (agentic loop via Goose) | FR-1 | AD-3 (loop ownership per ADR 0002 D1) |
+| FR-003 (Gateway/provider) | FR-3 | AD-3, AD-4 |
+| FR-004/005 (silo persistence + isolation) | FR-6 | AD-2 |
+| FR-006 (Ledger) | FR-10 | AD-5 (schema per ADR 0002 D2) |
+| FR-007 (secrets JIT) | FR-11 | AD-4, AD-5 |
+| FR-008 (Local egress OFF) | FR-3 | AD-4 (boundary per ADR 0002 D4) |
+
 ### Key Entities
 - **Session**: an ordered sequence of `Message` within a silo (id `s%06d`).
 - **Message**: `{role, parts: [Content]}`; typed Content (text in Phase 0).

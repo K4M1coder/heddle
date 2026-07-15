@@ -80,16 +80,17 @@ goose run --no-session -t "Write the text 'skein-ok' to a file named probe.txt i
 ```
 Verify that `probe.txt` is created (Goose's developer/filesystem extension is acting).
 
-- [ ] **Step 3: Evaluate the 3 integration paths**
+- [ ] **Step 3: Evaluate the integration paths against the loop-ownership requirement (ADR 0002 D1)**
 
-Compare, with evidence from Steps 1-2:
-1. **CLI subprocess** (`goose run`) — simplicity, stability, zero fork.
-2. **REST `goosed`** (`:3000`) — streaming, rich sessions; JSON schema to be mapped out.
-3. **Embedded crate** (`goose`/`goose-cli` as a Cargo dependency) — maximum control; tight coupling to upstream.
+**Hard requirement (from adversarial review):** Skein must OWN the reason→act→observe loop so that (a) `LoopController` can enforce termination/budgets per step, (b) the Ledger can capture exact per-turn model I/O with a propagated `trace_id`, and (c) tool calls/results are captured as ground truth. A `goose run` **CLI subprocess runs its own opaque loop → it CANNOT satisfy (a)(b)(c)** and is therefore rejected for the core loop. Evaluate, with evidence:
+1. **`goosed` HTTP/streaming API** (`:3000`) — can Skein drive one turn at a time and read per-turn model I/O? Map the request/response schema and confirm a correlation id can be threaded.
+2. **Embedded `goose` crate** — can Skein call a single model+tool turn and own iteration itself? Preferred if the API exposes turn-level primitives.
+3. **Skein-hosted MCP proxy** — route Goose's tool traffic through a Skein MCP endpoint so `ToolCall`/`ToolResult` become Ledger events regardless of path.
+(CLI subprocess remains acceptable ONLY for a throwaway smoke check, never as the core runtime.)
 
 - [ ] **Step 4: Write the ADR and decide for Phase 0**
 
-Write `docs/superpowers/adr/0001-goose-integration.md`: context, options, decision. **Expected default decision: CLI subprocess for Phase 0**, with possible migration to `goosed`/crate in later phases (upstream dependency; fork+PR only if a core need is missing). Record the **exact CLI flags** observed (they parameterize Task 5).
+Write `docs/superpowers/adr/0001-goose-integration.md`: context, options, decision. **Expected decision (per ADR 0002 D1): Skein owns the loop** — Goose as a per-turn / tool executor via goosed or the embedded crate (whichever exposes turn-level model I/O + correlation), with tool traffic via the MCP proxy. Record the exact API surface + how `trace_id` is propagated (these parameterize Task 5). If neither path exposes turn-level I/O, escalate: the loop-ownership promises (LoopController, per-step Ledger) must be re-scoped before proceeding.
 
 - [ ] **Step 5: Commit**
 
@@ -688,7 +689,9 @@ git commit -m "feat(core): OpenAI-compat GatewayClient + local LiteLLM config"
 
 ---
 
-### Task 5: Agentic Runtime (headless Goose adapter)
+### Task 5: Agentic Runtime (Goose per-turn executor adapter)
+
+> ⚠️ **Re-scoped by ADR 0002 (D1).** The batch `Command::output()` subprocess shown below is a **stub for the stub-binary test only**. The real `GooseRuntime` must be a **per-turn executor** (goosed/embedded, per the T000 spike) that (a) returns a **streaming** `EventStream` (not `Vec<Event>` collected after exit), (b) emits per-turn `Event`s so the `LoopController` (Epic 6) and the Ledger see each step, and (c) propagates a `trace_id`. The `AgentRuntime` trait signature should be `fn run(...) -> EventStream` accordingly. Keep the stub-binary unit test (it validates process wiring), but do not ship the batch design as the core runtime.
 
 **Files:**
 - Create: `crates/skein-core/src/runtime.rs`

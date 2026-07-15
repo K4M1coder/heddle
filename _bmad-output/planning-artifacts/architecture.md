@@ -8,7 +8,7 @@ scope: "Headless agentic core, modes/silos, connectors, providers, identity, sec
 status: draft
 created: '2026-07-15'
 updated: '2026-07-15'
-binds: [FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15]
+binds: [FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16]
 sources: ['docs/superpowers/specs/2026-07-15-skein-design.md', '_bmad-output/planning-artifacts/PRD.md']
 companions: ['.specify/memory/constitution.md']
 ---

@@ -25,8 +25,9 @@ Prove Skein's vertical slice (CLI → headless core → headless Goose → LiteL
 - **V. Traceability (event sourcing)**: ✅ Ledger from Phase 0 (Story 1.8).
 - **VI. Security / secrets by reference**: ✅ JIT SecretProvider + redact (Story 1.9).
 - **VII. Neutrality / YAGNI**: ✅ Goose/LiteLLM reused; advanced secret back-ends deferred.
+- **VIII. Loop discipline (NON-NEGOTIABLE)**: ⚠️ **Partial in Phase 0** — see Complexity Tracking. Phase 0 has a wall-clock/kill bound but no per-step `LoopController`; full loop control lands with FR-16 (Epic 6). Depends on ADR 0001/0002 D1 (loop ownership).
 - **Cross-platform**: ✅ tri-OS CI matrix.
-→ **No violations.**
+→ **One justified deferral (Principle VIII), recorded below.**
 
 ## Project Structure
 
@@ -38,6 +39,8 @@ specs/001-phase0-walking-skeleton/
 └── tasks.md     # executable breakdown
 ```
 The **exhaustive bite-sized** TDD plan (complete code per step) lives in `docs/superpowers/plans/2026-07-15-skein-phase0-walking-skeleton.md` and is authoritative for execution; `tasks.md` is its Spec-Kit index.
+
+> **Deviation note (recorded)**: the Spec-Kit `research.md` / `data-model.md` / `quickstart.md` / `contracts/` artifacts are **intentionally consolidated** into `docs/superpowers/*` (design + exhaustive plan) and, for the Goose spike, into ADR 0001. `contracts/` is waived (this is a CLI/library; the CLI surface in FR-001/Task T007 is the contract). This is a conscious deviation from the template, not an omission.
 
 ### Source Code (repository root)
 ```text
@@ -53,8 +56,7 @@ config/litellm.config.yaml
 **Structure Decision**: a two-crate Cargo workspace (core + CLI). Additional sidecar/UI/connectors arrive in later phases.
 
 ## Complexity Tracking
-*No constitution violation → empty table.*
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
-| — | — | — |
+| Principle VIII (loop discipline) only partially satisfied in Phase 0 (wall-clock bound, no per-step `LoopController`) | Phase 0's job is the vertical skeleton; per-step loop control depends on the loop-ownership decision (ADR 0002 D1: Skein owns the loop via goosed/embedded + MCP proxy), which the T000 spike resolves. Building `LoopController` before that decision would be rework. | Implementing full `LoopController` now would either force the loop-ownership decision prematurely or be built against a stub that cannot provide per-step hooks — net rework. Deferred to Epic 6 (FR-16), tracked in DESIGN-COMPLETENESS-POLICY bucket C. |

@@ -1,29 +1,28 @@
-# BMAD sprint status — persistent memory of the breakdown (source of truth, not the chat)
+# BMAD sprint status — persistent memory of the breakdown (source of truth, not the chat).
+# Schema compatible with bmad-create-story / bmad-dev-story (flat development_status map).
+# Status vocabulary: backlog | ready-for-dev | in-progress | review | done
 project: Skein
 updated: 2026-07-15
-current_epic: 1
 
-epics:
-  - id: 1
-    title: "Phase 0 — Vertical skeleton (Walking Skeleton)"
-    status: planned            # planned | in_progress | done
-    spec: specs/001-phase0-walking-skeleton/
-    stories:
-      - { id: "1.0",  title: "Goose integration spike (ADR)",             status: planned }
-      - { id: "1.1",  title: "Workspace scaffolding + tri-OS CI",          status: planned }
-      - { id: "1.2",  title: "Domain types (Content/Message/Event)",       status: planned }
-      - { id: "1.3",  title: "SiloStore SQLite (isolation)",              status: planned }
-      - { id: "1.4",  title: "GatewayClient + LiteLLM config",            status: planned }
-      - { id: "1.5",  title: "GooseRuntime (headless CLI adapter)",        status: planned }
-      - { id: "1.6",  title: "ChatService (orchestration + persistence)",  status: planned }
-      - { id: "1.7",  title: "Reference CLI (chat, session)",             status: planned }
-      - { id: "1.8",  title: "Event-sourced Ledger (capture & inspection)", status: planned }
-      - { id: "1.9",  title: "SecretProvider foundation (JIT)",           status: planned }
-      - { id: "1.10", title: "Exit-criteria verification (smoke)",         status: planned }
+development_status:
+  # Epic 1 — Phase 0: Vertical skeleton (spec: specs/001-phase0-walking-skeleton/)
+  epic-1: in-progress
+  1-1-goose-integration-spike-adr: backlog
+  1-2-workspace-scaffolding-tri-os-ci: backlog
+  1-3-domain-types-content-message-event: backlog
+  1-4-silostore-sqlite-isolation: backlog
+  1-5-gatewayclient-litellm-config: backlog
+  1-6-gooseruntime-per-turn-executor: backlog       # re-scoped per ADR 0002 D1 (was CLI subprocess)
+  1-7-chatservice-orchestration-persistence: backlog
+  1-8-reference-cli-chat-session: backlog
+  1-9-event-sourced-ledger-capture: backlog
+  1-10-secretprovider-foundation-jit: backlog
+  1-11-exit-criteria-smoke-test: backlog
 
-  - { id: 2, title: "v1/1a Agentic code assistant",              status: backlog, stories: [] }
-  - { id: 3, title: "v1/1b Multi-provider + local inference",    status: backlog, stories: [] }
-  - { id: 4, title: "v1/1c Atlassian + M365 connectors",         status: backlog, stories: [] }
-  - { id: 5, title: "v1/1d BMAD/Spec-Kit/powerskills frameworks", status: backlog, stories: [] }
-  - { id: 6, title: "v1/1e Workflow engine + TaskTracker + hierarchy", status: backlog, spec: "specs/002-workflow-engine/", stories: [] }
-  - { id: 7, title: "v1 Networked modes/silos + Chat/Code UI",   status: backlog, stories: [] }
+  # Epic 2+ — not yet decomposed into stories (deferred per DESIGN-COMPLETENESS-POLICY bucket C)
+  epic-2: backlog   # v1/1a Agentic code assistant
+  epic-3: backlog   # v1/1b Multi-provider + local inference
+  epic-4: backlog   # v1/1c Atlassian + M365 connectors
+  epic-5: backlog   # v1/1d BMAD/Spec-Kit/powerskills frameworks
+  epic-6: backlog   # v1/1e Workflow engine + LoopController + TaskTracker + hierarchy (spec: specs/002-workflow-engine/)
+  epic-7: backlog   # v1 Networked modes/silos + Chat/Code UI
