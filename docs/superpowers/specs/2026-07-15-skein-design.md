@@ -362,8 +362,8 @@ Autorisation **deny-by-default**, évaluée à trois niveaux imbriqués :
 ## 8. Phasage & jalons (critères de sortie vérifiables)
 
 ### Phase 0 — Squelette qui marche (tranche verticale)
-Cœur headless + contrat d'API/événements figés ; CLI minimale ; 1 provider via LiteLLM ; connecteur `filesystem` ; persistance silo Local.
-**Sortie** : au terminal, conversation qui lit/écrit un fichier, persistée & rechargée.
+Cœur headless + contrat d'API/événements figés ; CLI minimale ; 1 provider via LiteLLM ; connecteur `filesystem` ; persistance silo Local ; **Ledger** (capture niveau étape) ; **fondation `SecretProvider`** (trousseau OS + résolution JIT de la clé Gateway + rédaction) — les autres back-ends secrets arrivent avec les providers cloud/connecteurs.
+**Sortie** : au terminal, conversation qui lit/écrit un fichier, persistée & rechargée ; clé Gateway résolue depuis le trousseau (jamais en clair) ; journal inspectable via `skein ledger`.
 
 ### Phase 1 — MVP (4 axes)
 - **1a** Code agentique (`fs`/`git`/`shell` sandbox, édition+diff, TDD, subagents).

@@ -15,6 +15,7 @@
 - **Isolation par silo** : toute donnée persistée est préfixée/namespacée par le silo (`local` en Phase 0). Aucune lecture hors silo.
 - **Observabilité dès v1** : chaque crate initialise `tracing` ; les événements clés (démarrage run, tool-call, persistance) sont tracés.
 - **Ledger dès v1 (event sourcing)** : chaque étape (prompt envoyé / réponse reçue) est capturée dans un journal **append-only, chaîné par hachage** (§4.11 du spec). Phase 0 = capture *au niveau étape* + inspection (`skein ledger log|show`) ; revert/branch/capture token-level via Gateway = phases suivantes.
+- **Secrets par référence dès Phase 0** : jamais de secret en clair dans la config/le code ; résolution **juste-à-temps** via `SecretProvider` (back-end trousseau OS en Phase 0), valeur zeroïsée après usage, **rédaction avant journalisation** (§7.13 du spec).
 - **Qualité** : `cargo fmt`, `cargo clippy -D warnings`, `cargo test` doivent passer. TDD strict (test rouge → code → test vert → commit).
 - **Commits** : Conventional Commits. Commit fréquent (à chaque tâche minimum).
 - **Édition Rust** : 2021. **MSRV** : 1.79.
@@ -40,6 +41,7 @@ skein/
 │  │     ├─ gateway.rs             # GatewayClient (OpenAI-compat)
 │  │     ├─ runtime.rs             # AgentRuntime trait + GooseRuntime
 │  │     ├─ ledger.rs              # LedgerStore (append-only, chaîné par hachage)
+│  │     ├─ secrets.rs             # SecretProvider + OsKeychain + redact (résolution JIT)
 │  │     └─ error.rs               # SkeinError
 │  └─ skein-cli/
 │     ├─ Cargo.toml
@@ -1384,7 +1386,224 @@ git commit -m "feat(ledger): journal event-sourced chaîné par hachage + captur
 
 ---
 
-### Task 9: Vérification du critère de sortie Phase 0 (smoke test réel + doc)
+### Task 9: Fondation `SecretProvider` (trousseau OS, résolution JIT)
+
+**Files:**
+- Create: `crates/skein-core/src/secrets.rs`
+- Modify: `crates/skein-core/src/lib.rs` (`pub mod secrets;`), `crates/skein-core/Cargo.toml` (`keyring`, `zeroize`), `crates/skein-cli/src/main.rs` (commandes `secret set`, `gateway health`)
+
+**Interfaces:**
+- Consumes: `SkeinError`/`Result` (Task 2), `GatewayClient` (Task 4).
+- Produces:
+  - `struct SecretRef(String)` (forme `keychain://service/key`)
+  - `struct SecretValue` (`Debug` rédigé, zeroïsé au drop, `expose(&self) -> &str`)
+  - `trait SecretProvider { fn resolve(&self, r: &SecretRef) -> Result<SecretValue>; fn requires_network(&self) -> bool; }`
+  - `struct OsKeychain` (impl `SecretProvider`, `requires_network()==false`) + `OsKeychain::store(&SecretRef, &str) -> Result<()>`
+  - `fn redact(text: &str, secrets: &[&SecretValue]) -> String`
+
+- [ ] **Step 1: Ajouter les dépendances**
+
+Dans `crates/skein-core/Cargo.toml`, `[dependencies]` :
+```toml
+keyring = "3"
+zeroize = "1"
+```
+
+- [ ] **Step 2: Écrire le test rouge (rédaction, parse, provider mock)**
+
+`crates/skein-core/src/secrets.rs` :
+```rust
+use crate::error::{Result, SkeinError};
+use std::fmt;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    struct MockProvider(HashMap<String, String>);
+    impl SecretProvider for MockProvider {
+        fn resolve(&self, r: &SecretRef) -> Result<SecretValue> {
+            self.0.get(&r.0).cloned().map(SecretValue::new)
+                .ok_or_else(|| SkeinError::NotFound(r.0.clone()))
+        }
+        fn requires_network(&self) -> bool { false }
+    }
+
+    #[test]
+    fn debug_is_redacted_and_expose_works() {
+        let v = SecretValue::new("s3cr3t".into());
+        assert_eq!(format!("{v:?}"), "SecretValue(***)");
+        assert_eq!(v.expose(), "s3cr3t");
+    }
+
+    #[test]
+    fn redact_masks_secret_in_text() {
+        let v = SecretValue::new("sk-skein-local".into());
+        let out = redact("appel avec clé sk-skein-local ok", &[&v]);
+        assert_eq!(out, "appel avec clé *** ok");
+    }
+
+    #[test]
+    fn keychain_ref_parses() {
+        let (svc, key) = OsKeychain::parse(&SecretRef("keychain://skein/gateway-key".into())).unwrap();
+        assert_eq!(svc, "skein");
+        assert_eq!(key, "gateway-key");
+    }
+
+    #[test]
+    fn mock_provider_resolves_jit() {
+        let mut m = HashMap::new();
+        m.insert("keychain://skein/gateway-key".to_string(), "sk-skein-local".to_string());
+        let p = MockProvider(m);
+        let v = p.resolve(&SecretRef("keychain://skein/gateway-key".into())).unwrap();
+        assert_eq!(v.expose(), "sk-skein-local");
+    }
+}
+```
+
+- [ ] **Step 3: Lancer le test (échec attendu)**
+
+Run: `cargo test -p skein-core secrets`
+Expected: FAIL (types non définis).
+
+- [ ] **Step 4: Implémenter `secrets.rs`**
+
+Ajouter au-dessus du bloc `#[cfg(test)]` :
+```rust
+/// Référence de secret — jamais la valeur. Forme : "keychain://service/key".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretRef(pub String);
+
+/// Valeur résolue, éphémère : `Debug` rédige, mémoire zeroïsée au drop.
+pub struct SecretValue(String);
+
+impl SecretValue {
+    pub fn new(s: String) -> Self { SecretValue(s) }
+    pub fn expose(&self) -> &str { &self.0 }
+}
+impl Clone for SecretValue {
+    fn clone(&self) -> Self { SecretValue(self.0.clone()) }
+}
+impl fmt::Debug for SecretValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "SecretValue(***)") }
+}
+impl Drop for SecretValue {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.0.zeroize();
+    }
+}
+
+pub trait SecretProvider {
+    /// Résout une référence en valeur, juste-à-temps. La valeur n'est jamais persistée.
+    fn resolve(&self, r: &SecretRef) -> Result<SecretValue>;
+    /// Vrai si le back-end exige le réseau (gouverne la politique egress).
+    fn requires_network(&self) -> bool;
+}
+
+/// Back-end trousseau OS (Windows Credential Manager / Keychain / secret-service).
+pub struct OsKeychain;
+
+impl OsKeychain {
+    pub fn parse(r: &SecretRef) -> Result<(String, String)> {
+        let rest = r.0.strip_prefix("keychain://")
+            .ok_or_else(|| SkeinError::Runtime(format!("réf non keychain: {}", r.0)))?;
+        let (service, key) = rest.split_once('/')
+            .ok_or_else(|| SkeinError::Runtime(format!("réf invalide: {}", r.0)))?;
+        Ok((service.to_string(), key.to_string()))
+    }
+
+    pub fn store(&self, r: &SecretRef, value: &str) -> Result<()> {
+        let (service, key) = Self::parse(r)?;
+        let entry = keyring::Entry::new(&service, &key)
+            .map_err(|e| SkeinError::Runtime(format!("keyring: {e}")))?;
+        entry.set_password(value).map_err(|e| SkeinError::Runtime(format!("keyring set: {e}")))
+    }
+}
+
+impl SecretProvider for OsKeychain {
+    fn resolve(&self, r: &SecretRef) -> Result<SecretValue> {
+        let (service, key) = Self::parse(r)?;
+        let entry = keyring::Entry::new(&service, &key)
+            .map_err(|e| SkeinError::Runtime(format!("keyring: {e}")))?;
+        let secret = entry.get_password()
+            .map_err(|e| SkeinError::NotFound(format!("secret {}: {e}", r.0)))?;
+        Ok(SecretValue::new(secret))
+    }
+    fn requires_network(&self) -> bool { false }
+}
+
+/// Masque toute occurrence d'un secret dans un texte avant journalisation (Ledger/logs).
+pub fn redact(text: &str, secrets: &[&SecretValue]) -> String {
+    let mut out = text.to_string();
+    for s in secrets {
+        if !s.expose().is_empty() {
+            out = out.replace(s.expose(), "***");
+        }
+    }
+    out
+}
+```
+
+- [ ] **Step 5: Déclarer le module**
+
+Dans `crates/skein-core/src/lib.rs`, ajouter :
+```rust
+pub mod secrets;
+```
+
+- [ ] **Step 6: Lancer les tests (vert attendu)**
+
+Run: `cargo test -p skein-core secrets`
+Expected: PASS (les 4 tests ; sans toucher le vrai trousseau — provider mock).
+
+- [ ] **Step 7: Câbler la CLI (`secret set`, `gateway health` avec résolution JIT)**
+
+Dans `crates/skein-cli/src/main.rs`, ajouter à l'`enum Cmd` :
+```rust
+    /// Stocke un secret dans le trousseau OS (réf keychain://service/key)
+    SecretSet { reference: String, value: String },
+    /// Vérifie la Gateway en résolvant sa clé JIT depuis le trousseau
+    GatewayHealth {
+        #[arg(long, default_value = "http://localhost:4000/v1")]
+        base_url: String,
+        #[arg(long, default_value = "keychain://skein/gateway-key")]
+        key_ref: String,
+    },
+```
+Ajouter les bras correspondants :
+```rust
+        Cmd::SecretSet { reference, value } => {
+            use skein_core::secrets::{OsKeychain, SecretRef};
+            OsKeychain.store(&SecretRef(reference.clone()), &value)?;
+            println!("secret stocké: {reference}");
+        }
+        Cmd::GatewayHealth { base_url, key_ref } => {
+            use skein_core::secrets::{OsKeychain, SecretProvider, SecretRef};
+            let secret = OsKeychain.resolve(&SecretRef(key_ref))?;   // résolution JIT
+            let client = skein_core::gateway::GatewayClient::new(&base_url, secret.expose());
+            let ok = client.health().await?;
+            println!("gateway health: {}", if ok { "OK" } else { "KO" });
+            // `secret` est droppé ici → zeroïsé. Jamais persisté, jamais loggé en clair.
+        }
+```
+
+- [ ] **Step 8: Vérifier compilation + fmt + clippy**
+
+Run: `cargo build --all && cargo fmt --all && cargo clippy --all-targets -- -D warnings`
+Expected: OK, aucun warning.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add crates/skein-core/src/secrets.rs crates/skein-core/src/lib.rs crates/skein-core/Cargo.toml crates/skein-cli/src/main.rs
+git commit -m "feat(secrets): SecretProvider + OsKeychain + résolution JIT clé Gateway + redact"
+```
+
+---
+
+### Task 10: Vérification du critère de sortie Phase 0 (smoke test réel + doc)
 
 **Files:**
 - Create: `docs/superpowers/plans/phase0-smoke-test.md`
@@ -1398,7 +1617,15 @@ git commit -m "feat(ledger): journal event-sourced chaîné par hachage + captur
 - Installer LiteLLM (`pip install litellm`) et démarrer : `litellm --config config/litellm.config.yaml` (écoute sur `:4000`).
 - Configurer Goose pour utiliser un provider OpenAI-compatible `http://localhost:4000/v1` (clé `sk-skein-local`), extension developer/filesystem activée (réf. ADR 0001).
 
-- [ ] **Step 2: Exécuter le scénario de bout en bout**
+- [ ] **Step 2: Stocker le secret Gateway et vérifier la résolution JIT**
+
+```bash
+./target/release/skein secret-set keychain://skein/gateway-key sk-skein-local
+./target/release/skein gateway-health
+```
+Attendu : `gateway health: OK`. Confirmer que la clé **n'apparaît en clair ni dans les logs ni à l'écran** (seule sa résolution JIT est utilisée). Consigner.
+
+- [ ] **Step 3: Exécuter le scénario de bout en bout**
 
 Documenter et exécuter :
 ```bash
@@ -1407,7 +1634,7 @@ cargo build --release
 ```
 Attendu : Goose (via LiteLLM+Ollama) crée `hello.txt` ; la CLI affiche la sortie + `session s000001`.
 
-- [ ] **Step 3: Vérifier la persistance et l'isolation**
+- [ ] **Step 4: Vérifier la persistance et l'isolation**
 
 ```bash
 cat hello.txt                                   # contient "skein"
@@ -1416,7 +1643,7 @@ cat hello.txt                                   # contient "skein"
 ```
 Consigner les résultats dans le doc (capture de sortie).
 
-- [ ] **Step 4: Vérifier le Ledger (transparence in/out) + capture token-level via Gateway**
+- [ ] **Step 5: Vérifier le Ledger (transparence in/out) + capture token-level via Gateway**
 
 ```bash
 ./target/release/skein ledger log s000001    # montre LlmRequest ET LlmResponse
@@ -1424,11 +1651,11 @@ Consigner les résultats dans le doc (capture de sortie).
 ```
 Pour la capture **token-level** de l'I/O modèle réelle (au-delà du niveau étape), activer la journalisation LiteLLM (callback fichier JSONL) dans `config/litellm.config.yaml` et confirmer qu'une paire requête/réponse par appel est écrite. Consigner le format observé (il paramétrera l'ingestion Gateway→Ledger d'une phase ultérieure). *Limite Phase 0 assumée : le ledger CLI capture le niveau étape ; l'ingestion token-level complète via la Gateway est une phase suivante.*
 
-- [ ] **Step 5: Vérifier l'egress OFF (local uniquement)**
+- [ ] **Step 6: Vérifier l'egress OFF (local uniquement)**
 
-Confirmer dans `config/litellm.config.yaml` qu'aucun provider cloud n'est listé ; le run fonctionne hors ligne (couper le réseau et refaire le Step 2). Consigner.
+Confirmer dans `config/litellm.config.yaml` qu'aucun provider cloud n'est listé ; le run fonctionne hors ligne (couper le réseau et refaire le Step 3). Le back-end secret `OsKeychain` étant hors-ligne (`requires_network()==false`), la résolution JIT fonctionne aussi sans réseau. Consigner.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add docs/superpowers/plans/phase0-smoke-test.md
@@ -1441,17 +1668,18 @@ git commit -m "docs: procédure et résultats du smoke test Phase 0 (critère de
 
 - **Cœur headless + contrat d'événements** → Tasks 2 (Event), 6 (ChatService), 7 (CLI consomme le core). ✅
 - **CLI = client de référence** → Task 7. ✅
-- **1 provider via LiteLLM** → Task 4 + Task 9 (Ollama). ✅
-- **Connecteur filesystem** → assuré par l'extension developer/filesystem de **Goose** (Task 0 spike + Task 9) ; Skein orchestre. ✅
+- **1 provider via LiteLLM** → Task 4 + Task 10 (Ollama). ✅
+- **Connecteur filesystem** → assuré par l'extension developer/filesystem de **Goose** (Task 0 spike + Task 10) ; Skein orchestre. ✅
 - **Persistance silo Local** → Task 3 + Task 6. ✅
 - **Isolation par silo** → Task 3 (test `namespaces_are_isolated`) + Task 8 (test ledger namespace). ✅
-- **Ledger event-sourced dès v1** (§4.11 : capture in/out modèles, inspectable) → Task 8 (`LedgerStore` + `skein ledger log|show`) + Task 9 Step 4. ✅
-- **Egress OFF / local-first** → Task 4 (config locale) + Task 9 Step 5. ✅
+- **Ledger event-sourced dès v1** (§4.11 : capture in/out modèles, inspectable) → Task 8 (`LedgerStore` + `skein ledger log|show`) + Task 10 Step 5. ✅
+- **Gestion des secrets `SecretProvider` (fondation)** (§7.13 : référence-pas-valeur, résolution JIT, rédaction) → Task 9 (`SecretProvider`/`OsKeychain`/`redact` + `skein secret-set`/`gateway-health`) + Task 10 Step 2. ✅
+- **Egress OFF / local-first** → Task 4 (config locale) + Task 9 (`requires_network()`) + Task 10 Step 6. ✅
 - **Observabilité dès v1** → `init_tracing` (Task 1) + `tracing::info!` (Task 5). ✅
 - **Décision Goose (dépendance upstream)** → Task 0 (ADR). ✅
-- **Critère de sortie Phase 0** (conversation qui lit/écrit un fichier, persistée & rechargée) → Task 9. ✅
+- **Critère de sortie Phase 0** (conversation qui lit/écrit un fichier, persistée & rechargée) → Task 10. ✅
 
-**Hors périmètre Phase 0 (phases suivantes, non couverts ici volontairement)** : UI Tauri, sidecar Python/RAG, modes Serveur/Remote, RBAC/IdP, connecteurs Atlassian/M365, skills BMAD/Spec-Kit, multimodal v2+, **gestion des secrets `SecretProvider`** (§7.13 du spec — arrive avec les premiers secrets réels : providers cloud & connecteurs ; la Phase 0 n'utilise qu'Ollama local sans clé). Le principe *référence-pas-valeur* + rédaction du ledger est néanmoins un invariant dès qu'un secret existe. Chacun aura son propre plan.
+**Hors périmètre Phase 0 (phases suivantes, non couverts ici volontairement)** : UI Tauri, sidecar Python/RAG, modes Serveur/Remote, RBAC/IdP, connecteurs Atlassian/M365, skills BMAD/Spec-Kit, multimodal v2+. Pour les **secrets** : seule la **fondation** (`SecretProvider` + `OsKeychain` + rédaction, Task 9) est en Phase 0 ; les back-ends **SOPS+age / 1Password / OpenBao / Infisical** (§7.13) arrivent avec les providers cloud & connecteurs. Chacun aura son propre plan.
 
 ## Notes de risque (Phase 0)
 
