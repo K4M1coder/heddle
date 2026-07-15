@@ -65,6 +65,7 @@ v1 is **text**. Multimodal and collaborative evolution is planned across version
 | **Workflow** | **Native engine** (inspired by Archon) **event-sourced on the Ledger**; optional durable back-end (Temporal/Windmill) — §4.12 | Native multi-agentic sequencing across the whole SDLC chain; durability/replay free via the Ledger. |
 | **Task tracking** | **Pluggable `TaskTracker`**: local (silo) / **Vikunja** (embedded OSS) / **Jira** (MCP) — §4.13 | Build on Jira OR an embeddable OSS; bound by the config hierarchy. |
 | **Hierarchy** | **Silo ▸ Team ▸ Project ▸ Conversation** (Local: without Team); config "highest locks lowest" — §5.5 | A single resolution/lock mechanism for harness, tracker, egress, providers. |
+| **Loop engineering** | **Engine-enforced loop control** (§4.14): external termination/budgets + ground-truth-anchored reflect/retry; node types ReAct/Reflexion/Self-Refine/evaluator-optimizer | Verified patterns (`docs/research/loop-engineering.md`); never trust the model to stop or self-judge. |
 
 ### 2.1 Sources (state verified as of 2026-07-15)
 - Goose: https://github.com/aaif-goose/goose · https://block-goose.mintlify.app/
@@ -124,7 +125,7 @@ trait Agent {
   fn register_skill(&mut self, skill: Recipe);         // = BMAD/Spec-Kit/…
 }
 ```
-Depends on: `ModelGateway`, `Backend`, MCP extensions, skill engine.
+Depends on: `ModelGateway`, `Backend`, MCP extensions, skill engine. The agent loop is governed by a **`LoopController`** (loop engineering, §4.14): engine-enforced termination/budgets and ground-truth-anchored reflect/retry.
 
 **Typed content abstraction** (introduced in v2, cross-cutting): a `Message` carries `parts` of types `text | image | audio | doc | video`. This is the **only core addition** required by the entire multimodal roadmap; concrete modalities are then provider capabilities (Gateway) or specialized tools — never a rewrite of the agentic loop.
 
@@ -240,6 +241,27 @@ impl JiraTracker     // via the Jira MCP connector (cloud/enterprise)
 // (Plane possible later for team scale)
 ```
 The **active back-end is resolved by the config hierarchy (§5.5)**: choice between Vikunja (local/embedded) and Jira cloud, settable at the silo/project/conversation level. Workflow progress is reflected in the tracker.
+
+### 4.14 Loop engineering (agent-loop control) — transversal
+Loop control is a **first-class, engine-enforced layer** (not prompt text), sitting around both the core agent loop (§4.2) and each Workflow node (§4.12). Grounded in verified patterns — see `docs/research/loop-engineering.md`. Two load-bearing constraints drive the design:
+1. **Externally-enforced termination** — the engine, not the model, decides when to stop.
+2. **Ground-truth-anchored reflection** — reflect/retry is anchored to external feedback (MCP tool results, code execution, tests, linters, type-checkers), never model self-judgment (intrinsic self-correction is unreliable and can degrade output).
+
+```rust
+struct LoopBudget { max_iters: u32, max_tokens: u64, max_cost: Cents, wall_clock: Duration }
+enum Exit { FinalOutput, MaxIters, NoProgress, Error, HumanReject, BudgetExceeded }
+trait LoopController {                              // middleware/hooks around each step
+  fn before_step(&self, s: &LoopState) -> Directive;   // proceed | inject | short-circuit
+  fn observe(&self, out: &StepResult) -> GroundTruth;  // tool/test/compiler feedback
+  fn evaluate(&self, gt: &GroundTruth) -> Verdict;     // pass | retry | reflect | escalate
+  fn should_exit(&self, s: &LoopState) -> Option<Exit>;// budget/termination, engine-enforced
+}
+```
+- **Loop node types** (Workflow §4.12): `ReAct` (plan-act-observe), `Reflexion` (act→evaluate→reflect→retry, reflections persisted in the **Ledger** as episodic memory), `SelfRefine` (single-model generate→critique→refine), `EvaluatorOptimizer` (separate evaluator LLM in the loop).
+- **Three verification levels**: **action** (each step), **iteration** (each turn vs criteria), **terminal** (full acceptance before "done").
+- **Loop budgets & no-progress detection** are engine primitives (`LoopBudget`, `Exit`), persisted to the Ledger → resumable/inspectable.
+- **HITL escalation**: on budget/failure-threshold breach or `needsApproval` tools → pause as a durable Ledger event, await human approve/reject (reuses §7.4 confirmations).
+- **Simplicity gate** (Anthropic): prefer the simplest solution; add loop autonomy only when it earns measurable value.
 
 ---
 
@@ -422,7 +444,7 @@ Headless core + frozen API/event contract; minimal CLI; 1 provider via LiteLLM; 
 - **1b** Multi-provider + local inference (LiteLLM + embedded Ollama/llama.cpp, switching, Local egress).
 - **1c** Atlassian + M365 connectors (MCP).
 - **1d** BMAD + Spec-Kit + powerskills frameworks (recipes/skills).
-- **1e** **Native workflow engine** (§4.12) event-sourced on the Ledger + **TaskTracker** (§4.13: local/Vikunja/Jira) — multi-agentic sequencing across the SDLC chain.
+- **1e** **Native workflow engine** (§4.12) event-sourced on the Ledger + **TaskTracker** (§4.13: local/Vikunja/Jira) + **loop-engineering controls** (§4.14: `LoopController`, budgets, ground-truth reflect/retry, 3 verification levels) — multi-agentic sequencing across the SDLC chain.
 - **Cross-cutting** Modes & silos + **Silo▸Team▸Project▸Conversation hierarchy** & config resolution (§5.5) (supervisor, strict isolation, complete Local; basic Server/Remote + team authz).
 - **UI** Tauri (Chat + Code).
 **Exit**: from UI *and* CLI *and* API, a real scenario — "read Confluence spec → Spec-Kit plan → TDD code → Bitbucket PR → Jira ticket", switching cloud↔local, silo isolation verified by test.
@@ -523,3 +545,6 @@ External IdPs (LDAP/OIDC/Entra/Google) + **advanced RBAC** (§7.9-7.10), advance
 - **Workflow**: graph of typed nodes (agent/tool/subagent/approval/condition/parallel/loop) sequencing multi-agentic actions, event-sourced on the Ledger (durable, replayable, resumable).
 - **Organizational hierarchy**: Silo ▸ Team ▸ Project ▸ Conversation (Local mode: without Team); unit of config resolution/lock, "highest wins".
 - **TaskTracker**: pluggable task-tracking back-end (local silo / embedded Vikunja OSS / Jira via MCP), bound by the hierarchy.
+- **Loop engineering**: deliberate design/control/instrumentation of the agent's reason→act→observe→reflect→retry loop; engine-enforced termination + ground-truth-anchored reflection (see §4.14).
+- **Ground truth (loop)**: external feedback (tool result, code execution, tests, linters, type-checkers) the loop evaluates against — the antidote to unreliable intrinsic self-correction.
+- **Loop budget**: engine-enforced limits (max iterations, tokens, cost, wall-clock) plus no-progress detection; the model never decides when to stop.

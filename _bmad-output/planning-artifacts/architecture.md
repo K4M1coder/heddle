@@ -57,6 +57,11 @@ Layers → directories: `crates/skein-core/` (domain + ports), `crates/skein-*-a
 - **Prevents:** non-resumable / non-traceable orchestration; a proprietary engine being tightly coupled.
 - **Rule:** every workflow executes by logging each step as a Ledger `Step`; resumption happens from the last Step; the concrete engine sits behind the `WorkflowEngine` trait (native by default; Temporal/Windmill optional).
 
+### AD-9 — Engine-enforced loop control (loop engineering)
+- **Binds:** FR-16, FR-13, FR-1
+- **Prevents:** runaway loops; reflect/retry that trusts model self-judgment (unreliable, can degrade output).
+- **Rule:** every agent loop / loop node runs under a `LoopController` — termination/budgets are engine-enforced (the model never decides to stop), and reflect/retry is anchored to external ground truth (tests/compiler/linters/tool results). Loop state + reflections persist to the Ledger (AD-5, AD-7); breaches escalate to a human (AD-6, §7.4). Verify at 3 levels: action / iteration / terminal.
+
 ### AD-8 — Hierarchical config resolution, "the highest level locks"
 - **Binds:** FR-14, FR-15, FR-7 (harness), FR-3/FR-11 (egress/secrets)
 - **Prevents:** config divergence between levels; bypassing a higher-level lock.

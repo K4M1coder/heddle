@@ -40,5 +40,16 @@ Available commands (within an agent): Spec-Kit `/speckit-constitution|specify|pl
 
 **Honest compliance note:** the `docs/superpowers/specs|plans/` documents (produced by the brainstorming→writing-plans flow) remain the **exhaustive reference** (complete TDD code for each step). The BMAD/Spec-Kit artifacts above are the **compliant view** for both frameworks, derived from that reference. In case of divergence, the constitution + the PRD take precedence over intent; the superpowers plan takes precedence over implementation detail.
 
+## Loop discipline in our development process
+
+We apply **loop engineering** (Constitution VIII; research in `docs/research/loop-engineering.md`) not only inside Skein but to how we build it. Every agentic build loop (a Spec-Kit `/implement`, a BMAD `dev-story`, a review pass) MUST:
+
+1. **Have an explicit exit / budget** — a bounded number of iterations; stop on no-progress; never let the loop decide its own end.
+2. **Verify against ground truth each iteration** — `cargo test` / `clippy` / type-checks / real tool output, not the agent's self-assessment (intrinsic self-correction is unreliable).
+3. **Verify at three levels** — action (each edit compiles/passes its test), iteration (the task's tests go green), terminal (the feature's acceptance criteria + full suite before "done").
+4. **Escalate to a human** when budget or failure thresholds are exceeded, and at `needsApproval` boundaries.
+
+This mirrors the deep-research harness we already use (generate → adversarially verify → keep only 2/3-confirmed) — loop discipline applied to research.
+
 ## Reference bridge
 Documented hybrid pattern (BMAD plans → Spec-Kit executes) and a concrete implementation: `oimiragieo/BMAD-SPEC-KIT`. See also the official docs: `github/spec-kit`, `docs.bmad-method.org`.

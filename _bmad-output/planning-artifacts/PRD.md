@@ -85,6 +85,9 @@ The user can route to a cloud OR local provider; in Local mode, only local provi
 #### FR-13: Event-sourced workflow
 The user/agent can define and execute a workflow (agent/tool/subagent/approval/condition/parallel/loop nodes); each step is logged in the Ledger (durable, replayable, resumable). Goose recipes and BMAD/Spec-Kit flows are workflows.
 - **Consequences (testable):** an interrupted workflow can be resumed from the last Ledger Step.
+#### FR-16: Engine-enforced loop control (loop engineering)
+Every agent loop and loop node is governed by a `LoopController`: externally-enforced termination (iteration/token/cost budget + no-progress detection), ground-truth-anchored reflect/retry (tests/compiler/tools, not self-judgment), three verification levels (action/iteration/terminal), and human escalation on threshold breach. Node types: ReAct, Reflexion, Self-Refine, evaluator-optimizer. See design §4.14, research `docs/research/loop-engineering.md`.
+- **Consequences (testable):** a loop stops at its budget even if the model would continue; a reflect/retry step consumes external ground truth (e.g. a failing test) rather than model self-assessment.
 
 ### 4.11 Task tracking & hierarchy
 #### FR-14: Pluggable TaskTracker

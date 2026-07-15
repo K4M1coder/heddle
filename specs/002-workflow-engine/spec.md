@@ -52,6 +52,7 @@ As a user, a workflow's progress creates/updates tasks in the active tracker.
 - **FR-014**: The system MUST provide a pluggable `TaskTracker`: local (silo), Vikunja (embedded), Jira (via MCP).
 - **FR-015**: Config (including the TaskTracker) MUST be resolved according to the Silo▸Team▸Project▸Conversation hierarchy, a setting fixed at one level **locking** the lower levels.
 - **FR-016**: Workflows MUST be able to orchestrate the SDLC through MCP connectors (design, dev/git, tests, packaging, deployment) and the TaskTracker.
+- **FR-017**: Loop nodes and the agent loop MUST run under an engine-enforced `LoopController` (loop engineering, design §4.14): externally-enforced termination (iteration/token/cost budget + no-progress detection), ground-truth-anchored reflect/retry (tests/compiler/tools, never model self-judgment), three verification levels (action/iteration/terminal), and human escalation on threshold breach. Node types: ReAct, Reflexion (reflections persisted to the Ledger), Self-Refine, evaluator-optimizer.
 
 ### Key Entities
 - **Workflow**: `{name, params, graph: [Node]}`; **Node**: agent/tool/subagent/approval/cond/parallel/loop.

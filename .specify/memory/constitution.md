@@ -25,6 +25,9 @@ Deny-by-default. **Secrets by reference, never by value**, resolved **just-in-ti
 ### VII. Neutrality & reuse (YAGNI)
 Multi-provider, multi-IdP, multi-secret-backend: no vendor lock-in. We **reuse** proven existing tools (Goose, LiteLLM, MCP, BMAD, Spec-Kit) rather than rewrite them. Start simple; no capability without a real need.
 
+### VIII. Loop discipline (NON-NEGOTIABLE)
+Every agentic loop — in the product **and** in how we build it — must: (a) have **externally-enforced termination** (iteration/token/cost budget + no-progress detection; the model never decides when to stop); (b) **anchor every reflect/retry to ground-truth external feedback** (tests, compiler, linters, type-checkers, tool results) — never model self-judgment, because intrinsic self-correction is unreliable and can degrade output; (c) verify at three levels — **action, iteration, terminal**; (d) **escalate to a human** on budget/failure-threshold breach. See §4.14 and `docs/research/loop-engineering.md`.
+
 ## Additional Constraints (Stack & Compliance)
 
 - **First-class cross-platform**: Windows + macOS + Linux as equals (tri-OS CI matrix, green required before merge). No OS-specific call without `#[cfg]` + an equivalent.
@@ -42,4 +45,5 @@ Multi-provider, multi-IdP, multi-secret-backend: no vendor lock-in. We **reuse**
 
 This constitution **takes precedence** over other practices. Every PR/review verifies conformance to it. Any complexity that departs from a principle must be justified (the plan's "Complexity Tracking" table) or rejected. Amendment = documentation + version + date.
 
-**Version**: 1.0.0 | **Ratified**: 2026-07-15 | **Last Amended**: 2026-07-15
+**Version**: 1.1.0 | **Ratified**: 2026-07-15 | **Last Amended**: 2026-07-15
+<!-- 1.1.0: added Principle VIII (Loop discipline) from loop-engineering research. -->
