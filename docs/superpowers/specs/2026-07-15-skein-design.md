@@ -33,7 +33,7 @@ Le v1 est **texte**. L'évolution multimodale et collaborative est planifiée en
 - **v6 — Omni** : **orchestration multi-modèles** (parallèle/séquentiel en arrière-plan) donnant l'illusion d'un modèle unique ; un vrai modèle omni est un cas particulier branché via la Gateway.
 - **v7 — Voix temps réel** : audio streaming duplex faible latence.
 - **v8 — Traduction** temps réel multilingue (Teams / chat d'équipe, langue maternelle par membre).
-- **Piste ⟂** : durcissement équipe/entreprise (SSO/OIDC, audit avancé, RAG avancé, vLLM GPU, catalogue de recipes), cadencée par l'adoption d'équipe.
+- **Piste ⟂** : durcissement équipe/entreprise (IdP externes LDAP/OIDC/Entra/Google + RBAC avancé §7.9-7.10, audit avancé, RAG avancé, vLLM GPU, catalogue de recipes, certifications), cadencée par l'adoption d'équipe. *Identité locale + RBAC de base + observabilité + compliance-by-design sont dès v1.*
 
 ### 1.5 Non-objectifs (principes YAGNI)
 - Pas de réécriture d'un harness agentique from scratch (on adopte une base neutre).
@@ -55,6 +55,10 @@ Le v1 est **texte**. L'évolution multimodale et collaborative est planifiée en
 | **Surfaces** | **Cœur headless → CLI (référence) → UI (surcouche)** | Automatisable, testable ; l'UI n'ajoute aucune capacité propre. |
 | **Stratégie Goose** | **Dépendance upstream** par défaut ; **fork/patch hybride** si un besoin cœur n'est pas exposé, **avec PR remontée à l'upstream** | Coût de maintenance minimal ; le fork converge vers l'upstream au lieu de diverger ; bon citoyen open-source. |
 | **Harness éditable** | Config **en couches** : base **équipe** (chefs, verrouillable) + surcharges **locales** (utilisateur) — voir §5.4 | Gouvernance d'équipe + liberté locale, sans casser l'isolation des silos. |
+| **Identité** | Fournisseur **pluggable** : base locale (défaut) / LDAP-AD / OIDC / Entra ID / Google Workspace — §7.9 | Local-first hors ligne ; IdP entreprise + groupes en mode Serveur/Remote. |
+| **Autorisation** | **RBAC** rôles+permissions à **3 portées** (globale / silos / intra-silo) — §7.10 | Contrôle fin de l'usage, de l'accès aux silos et des fonctions/paramètres. |
+| **Observabilité** | **OpenTelemetry** + audit immuable, dès v1 — §7.11 | Standard exportable ; base transversale de la conformité. |
+| **Conformité** | **Compliance-by-design** : RGPD / ISO 27001 / SOC 2 / EU AI Act / NIS2 — §7.12 | Le logiciel fournit les contrôles ; la certification reste organisationnelle. |
 
 ### 2.1 Sources (état vérifié au 2026-07-15)
 - Goose : https://github.com/aaif-goose/goose · https://block-goose.mintlify.app/
@@ -234,9 +238,9 @@ Entrée (UI/CLI/API)
 
 ---
 
-## 7. Sécurité
+## 7. Sécurité, identité, observabilité & conformité
 
-1. **Authz (Remote/leader)** : identité + appartenance équipe vérifiées à l'attache (défaut : paires de clés ; SSO/OIDC en piste entreprise). Accès **deny-by-default** à la partition d'équipe. **TLS obligatoire** dès exposition.
+1. **AuthN (Remote/leader)** : identité vérifiée à l'attache via un **fournisseur d'identité pluggable** (§7.9). Accès **deny-by-default**. **TLS obligatoire** dès exposition.
 2. **Secrets** : coffre OS (Windows Credential Manager/DPAPI ; Keychain/secret-service). **Jamais en clair**. **Un trousseau par silo**. L'agent n'entre jamais de credentials dans un formulaire.
 3. **Egress par mode** : Local = aucune sortie (local uniquement) ; Serveur/Remote = sortie selon **politique explicite** (allow-list d'endpoints).
 4. **Garde-fous d'exécution** : actions destructives/irréversibles → **confirmation** (ou allow-list en CI) ; **bac à sable** pour code/shell ; journal d'audit des tool-calls (quoi/quand/quel silo).
@@ -244,6 +248,54 @@ Entrée (UI/CLI/API)
 6. **Chaîne d'appro. (MCP & recipes)** : registre de confiance, épinglage de versions, revue avant activation. Pas de chargement silencieux.
 7. **Sûreté cowork / navigateur / voix (v2+)** : confirmations avant actions irréversibles ; pas de saisie de credentials ; captures d'écran, contenu web et audio confinés au silo + politique egress ; le compagnon navigateur n'agit jamais sur instruction trouvée *dans* une page (frontière §7.5).
 8. **Gouvernance du harness (§5.4)** : les réglages de sécurité sont **verrouillables** par chef d'équipe/projet/admin et **non surchargeables** en local ; toute édition de config (surtout sécurité) est **auditée et versionnée**. L'édition du harness est elle-même une action gouvernée, pas un contournement des règles ci-dessus.
+
+### 7.9 Identité (fournisseurs pluggables)
+Abstraction unique, plusieurs back-ends interchangeables — même pattern de couplage inversé que le reste :
+```rust
+trait IdentityProvider {
+  fn authenticate(&self, cred: Credential) -> Principal;      // qui es-tu
+  fn groups(&self, p: &Principal) -> Vec<Group>;              // tes groupes
+}
+impl LocalUserStore     // base d'utilisateurs locale (défaut, hors ligne)
+impl LdapProvider       // annuaire LDAP/AD
+impl OidcProvider       // OIDC générique
+impl EntraIdProvider    // Microsoft Entra ID (+ groupes)
+impl GoogleWorkspace    // Google Workspace (+ groupes)
+```
+- **Mapping groupes → rôles** : les groupes Entra/Google/LDAP/OIDC sont mappés vers les rôles RBAC (§7.10) par une table de correspondance gérée par un admin.
+- **Défaut local-first** : `LocalUserStore` fonctionne sans réseau ; les IdP externes sont activés en mode Serveur/Remote (piste entreprise §8).
+
+### 7.10 RBAC (rôles + permissions, à trois portées)
+Autorisation **deny-by-default**, évaluée à trois niveaux imbriqués :
+
+| Portée | Contrôle | Exemples de permissions |
+|---|---|---|
+| **Globale (outil)** | usage général de l'outil | se connecter, créer une session, utiliser le cowork, exposer un backend |
+| **Accès aux silos** | quels silos un principal peut voir/utiliser | lire/écrire `team:alpha`, refuser `team:beta` |
+| **Intra-silo** | fonctions & paramétrages dans un silo | activer tel connecteur, éditer le harness, changer l'egress, invoquer telle skill, utiliser tel provider |
+
+- **Rôles** (composables) : `membre`, `chef d'équipe`, `chef de projet`, `admin` (+ rôles custom) ; chaque rôle = un ensemble de permissions.
+- **Cohérence avec §5.4** : les « réglages verrouillables » du harness sont exprimés comme des permissions intra-silo (ex. `harness.egress.edit` réservé aux chefs/admin).
+- **Fournie tôt** en version locale (base locale + rôles de base) ; RBAC avancé + IdP externes sur la **piste entreprise**.
+
+### 7.11 Observabilité
+- **Traces / métriques / logs** via **OpenTelemetry** (standard, exportable vers l'outillage de l'entreprise). Intégrée **dès v1** (peu coûteux tôt, pénible à rétrofit).
+- **Journal d'audit** immuable : authN/authZ, tool-calls, éditions de harness/sécurité, accès aux silos — horodaté, attribué au principal, borné au silo.
+- **Métriques produit** : coût/tokens par provider (via LiteLLM), latence, taux d'échec des tools ; **respectent la politique egress** (pas d'export hors politique).
+
+### 7.12 Conformité (compliance-by-design)
+> Le logiciel **fournit les contrôles** qui *permettent* la conformité ; la **certification** (ISO 27001, SOC 2) reste un processus **organisationnel**. Skein est conçu pour ne pas être le maillon bloquant.
+
+| Cadre | Ce que Skein apporte |
+|---|---|
+| **RGPD** | Minimisation (mode Local sans egress), **droit à l'effacement** & export/portabilité par admin, résidence des données (local/on-prem), base légale/consentement, registre de traitement, chiffrement au repos & en transit. |
+| **ISO 27001** | Contrôle d'accès (RBAC §7.10), gestion des secrets (§7.2), audit (§7.11), gestion du changement (config-as-code versionnée §5.4), chaîne d'appro. (§7.6). |
+| **SOC 2** | Critères *Security/Confidentiality/Availability* : RBAC, audit immuable, chiffrement, isolation des silos, fallback local (§5.2). |
+| **EU AI Act** | Transparence (divulgation « contenu généré par IA »), **supervision humaine** (confirmations §7.4), traçabilité des décisions IA (audit §7.11), documentation des modèles/routage (via Gateway), classification de risque des usages. |
+| **NIS2** | Mesures techniques (chiffrement, MFA via IdP, durcissement), **journalisation & remontée d'incident**, sécurité de la chaîne d'appro. (§7.6), gouvernance (rôles/responsabilités). |
+
+- **Rétention & résidence** : politiques de rétention par silo ; les données restent où le mode l'impose (Local = jamais de sortie).
+- **Traçabilité** : l'audit (§7.11) est la pièce transversale qui sert RGPD, ISO, SOC 2, AI Act et NIS2 à la fois.
 
 ---
 
@@ -299,8 +351,8 @@ Chacun **écrit/lit/parle/entend dans sa langue maternelle** dans Teams / un cha
 **Sortie** : deux membres de langues différentes échangent (texte + voix), chacun dans sa langue, via le connecteur Teams/chat.
 
 ### Piste ⟂ — Durcissement équipe/entreprise (parallèle)
-SSO/OIDC, audit avancé, RAG avancé, vLLM GPU, connecteurs additionnels, catalogue de recipes. **Cadencée par l'adoption d'équipe**, pas par les modalités.
-**Sortie** : déploiement multi-postes (1 leader, N followers, 2 équipes isolées) validé.
+IdP externes (LDAP/OIDC/Entra/Google) + **RBAC avancé** (§7.9-7.10), audit avancé, RAG avancé, vLLM GPU, connecteurs additionnels, catalogue de recipes, préparation aux **certifications** (ISO 27001 / SOC 2). **Cadencée par l'adoption d'équipe**, pas par les modalités. *NB : identité locale + RBAC de base + observabilité (OpenTelemetry) + compliance-by-design sont intégrés dès v1.*
+**Sortie** : déploiement multi-postes (1 leader, N followers, 2 équipes isolées) avec IdP entreprise + RBAC à 3 portées validé.
 
 ---
 
@@ -324,7 +376,9 @@ SSO/OIDC, audit avancé, RAG avancé, vLLM GPU, connecteurs additionnels, catalo
 | Packaging inférence locale sur Windows (llama.cpp/vLLM) | Moyen | Ollama comme défaut robuste ; vLLM GPU optionnel. |
 | Compatibilité licences (Apache/MIT/…) pour distribution commerciale | Moyen | Audit licences en CI (`cargo deny`, équivalents). |
 | Périmètre MVP large (4 axes) | Moyen | Phase 0 dérisque l'archi ; scénario de sortie force l'intégration. |
-| Maturité de l'authz équipe local-first | Moyen | Clés en v1, SSO en piste entreprise. |
+| Complexité RBAC à 3 portées × IdP multiples | **Élevé** | Modèle de permissions unique et testé ; deny-by-default ; base locale d'abord, IdP externes ensuite ; suite de tests d'autorisation dédiée. |
+| Effacement RGPD vs blocage des suppressions destructives (§7.4) | Moyen | L'**agent** ne hard-delete pas ; l'**effacement RGPD** est une fonction *admin* gouvernée + auditée — pas une contradiction, deux chemins distincts. |
+| Classification EU AI Act selon l'usage (peut passer « haut risque ») | Moyen | Transparence + supervision humaine + audit par défaut ; documenter les usages ; laisser l'org classifier son déploiement. |
 | **Canal duplex streaming (v7)** modifie le modèle d'exécution du cœur | **Élevé** | Isoler dans `RealtimeSession` ; s'appuyer d'abord sur une API omni-realtime avant un stack WebRTC maison. |
 | Complexité de l'orchestrateur omni (v6) : latence de composition, cohérence | Moyen | Router simple d'abord (règles par type de `Content`) ; paralléliser l'indépendant ; mesurer la latence de recomposition. |
 | Coût/latence de la génération vidéo (v5) | Moyen | Providers cloud d'abord ; local GPU optionnel ; jobs asynchrones. |
@@ -339,3 +393,8 @@ SSO/OIDC, audit avancé, RAG avancé, vLLM GPU, connecteurs additionnels, catalo
 - **Recipe** : bundle YAML Goose (instructions + extensions + prompt) = une skill.
 - **Controller** : abstraction du pilotage PC (capture + clavier/souris).
 - **Sidecar** : process Python auxiliaire (embeddings/RAG/éval).
+- **Principal** : entité authentifiée (utilisateur/service) portant une identité et des groupes.
+- **IdP** : fournisseur d'identité pluggable (local, LDAP/AD, OIDC, Entra ID, Google Workspace).
+- **RBAC** : contrôle d'accès par rôles+permissions, à 3 portées (globale / silos / intra-silo).
+- **Omni-orchestrateur** : couche qui compose plusieurs modèles spécialisés pour simuler un modèle unique.
+- **Harness** : configuration du comportement de l'agent (instructions, tools, skills, contexte, politiques) — éditable en couches équipe/locale.
