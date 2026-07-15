@@ -53,6 +53,8 @@ Le v1 est **texte**. L'évolution multimodale et collaborative est planifiée en
 | **Pilotage PC** | Interface `Controller` **hybride abstraite** | Back-ends interchangeables (Computer Use API **ou** local enigo/xcap). Pas de verrouillage. |
 | **Déploiement** | **Local-first**, backend d'équipe **activable** | Le desktop est autonome ; le mode équipe est une surcouche. |
 | **Surfaces** | **Cœur headless → CLI (référence) → UI (surcouche)** | Automatisable, testable ; l'UI n'ajoute aucune capacité propre. |
+| **Stratégie Goose** | **Dépendance upstream** par défaut ; **fork/patch hybride** si un besoin cœur n'est pas exposé, **avec PR remontée à l'upstream** | Coût de maintenance minimal ; le fork converge vers l'upstream au lieu de diverger ; bon citoyen open-source. |
+| **Harness éditable** | Config **en couches** : base **équipe** (chefs, verrouillable) + surcharges **locales** (utilisateur) — voir §5.4 | Gouvernance d'équipe + liberté locale, sans casser l'isolation des silos. |
 
 ### 2.1 Sources (état vérifié au 2026-07-15)
 - Goose : https://github.com/aaif-goose/goose · https://block-goose.mintlify.app/
@@ -191,6 +193,24 @@ Chaque instance embarque un backend toujours actif. Ce qui est configurable = so
 - **Intra-Remote** : partage **cloisonné par équipe** — un follower n'accède qu'à `team:<sien>` sur le leader. Deux équipes sur un même leader restent invisibles l'une à l'autre.
 - **Invariants testés** : écrire dans un silo → prouver l'invisibilité dans les autres silos et les autres équipes.
 
+### 5.4 Gouvernance & configuration du harness (éditable local + équipe)
+Le harness est **configurable et versionné** (config-as-code : instructions système, tools activés + permissions, skills/recipes, paramètres de contexte, routage modèles, politiques sécurité/egress, garde-fous).
+
+**Rôles** (dans la partition d'équipe, §5.3) : `membre`, `chef d'équipe`, `chef de projet`, `admin`. Seuls chefs/admin éditent la couche équipe.
+
+**Configuration en deux couches, fusionnées à la résolution :**
+
+| Couche | Éditée par | Stockage (silo) | Effet |
+|---|---|---|---|
+| **Équipe** | chef d'équipe / chef de projet / admin | partition d'équipe (mode Remote) | base commune ; réglages **verrouillables** |
+| **Locale** | l'utilisateur | silo local | surcharge/complète la base ; seule couche en mode Local pur |
+
+**Règles de résolution :**
+- Précédence : le **local surcharge l'équipe**, *sauf* réglages marqués **verrouillés** par un chef/admin (non surchargeables — gouvernance).
+- Isolation respectée : config équipe en partition d'équipe, config locale en silo local. En **mode Local pur**, aucune couche équipe (cohérent avec §5.3).
+- **Versionné** : historisé, revu, réversible (édité comme du code).
+- **Sécurité (lien §7)** : les réglages de sécurité (egress, garde-fous, connecteurs interdits) sont **verrouillables** par chef/admin ; un utilisateur local **ne peut pas desserrer** une contrainte imposée par l'équipe. Toute modification de config sécurité est **auditée**.
+
 ---
 
 ## 6. Flux de données (nominal)
@@ -223,6 +243,7 @@ Entrée (UI/CLI/API)
 5. **Défense injection de prompt** : tout contenu rapporté par un tool (e-mail, page, issue, capture) est **donnée, pas instruction**. Consignes trouvées dans du contenu externe → signalées, jamais exécutées.
 6. **Chaîne d'appro. (MCP & recipes)** : registre de confiance, épinglage de versions, revue avant activation. Pas de chargement silencieux.
 7. **Sûreté cowork / navigateur / voix (v2+)** : confirmations avant actions irréversibles ; pas de saisie de credentials ; captures d'écran, contenu web et audio confinés au silo + politique egress ; le compagnon navigateur n'agit jamais sur instruction trouvée *dans* une page (frontière §7.5).
+8. **Gouvernance du harness (§5.4)** : les réglages de sécurité sont **verrouillables** par chef d'équipe/projet/admin et **non surchargeables** en local ; toute édition de config (surtout sécurité) est **auditée et versionnée**. L'édition du harness est elle-même une action gouvernée, pas un contournement des règles ci-dessus.
 
 ---
 
@@ -298,7 +319,7 @@ SSO/OIDC, audit avancé, RAG avancé, vLLM GPU, connecteurs additionnels, catalo
 
 | Risque / question | Impact | Piste |
 |---|---|---|
-| Intégrer vs forker Goose (rythme upstream) | Élevé | À trancher en Phase 0 : dépendance vs fork maintenu. |
+| ~~Intégrer vs forker Goose~~ **(DÉCIDÉ)** | — | **Dépendance upstream par défaut** ; fork/patch hybride si un besoin cœur n'est pas exposé, **avec PR remontée à l'upstream** (le fork converge, ne diverge pas). |
 | Fiabilité du *grounding* cowork (ancrage des clics) | Moyen | Hybride Computer Use d'abord, local ensuite. |
 | Packaging inférence locale sur Windows (llama.cpp/vLLM) | Moyen | Ollama comme défaut robuste ; vLLM GPU optionnel. |
 | Compatibilité licences (Apache/MIT/…) pour distribution commerciale | Moyen | Audit licences en CI (`cargo deny`, équivalents). |
