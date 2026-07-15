@@ -166,6 +166,22 @@ Before production implementation, run bounded spikes with objective exit criteri
 4. **Tool governance:** proxy one local MCP server and one remote OAuth MCP server through policy, approval, redaction and Ledger capture.
 5. **Single-package UX:** prove fresh install and offline first run on Windows, macOS and Linux.
 
+## Rust core building blocks and protocol convergence (runtime-spike inputs)
+
+An independent parallel research pass (four segment reviewers: CLI coding agents, IDE/Copilot, assistant harnesses, chat UIs) **cross-confirmed the capability matrix above** (same verdicts: OpenCode/Cline reuse under permissive licenses, Aider Apache-2.0 repo-map, Goose Apache-2.0 crates, Open WebUI license-blocked, LibreChat MIT-inspire, Archon as workflow reference). It also surfaced one decision-critical fact missing above:
+
+**Protocol convergence — the field is standardizing the client↔agent boundary.** Claude Code exposes a newline-delimited **stream-JSON over stdio** SDK surface; OpenCode exposes an **OpenAPI 3.1 + SSE** server; **Goose is pivoting to ACP (Agent Client Protocol) over HTTP/WebSocket** (`goose serve`). All three are the same shape: *headless core + protocol boundary + thin clients* — exactly Skein's AD-1.
+
+**Implication for Spike 1 (runtime ownership).** The three concrete options are now precise:
+
+| Option | Rust building blocks | Trade-off |
+|---|---|---|
+| **A. Native Skein loop** | `rmcp` (official MCP Rust SDK, `docs.rs/rmcp`) for tools + `async-openai`/`reqwest` for the OpenAI-compatible Gateway + `ratatui` for the TUI | Full turn-level ownership (satisfies Ledger/LoopController); most code, but bounded (LiteLLM + rmcp carry the heavy lifting) |
+| **B. Embed Goose crates** | `goose-sdk` / `goose-sdk-types` / `goose-providers` (Apache-2.0) as libraries | Reuse provider breadth; must verify the SDK exposes per-turn events, not just batch runs |
+| **C. ACP worker** | `agent-client-protocol` Rust SDK (+ its `rmcp` bridge) to drive goosed / OpenCode / Cline as `WorkerAdapter`s | Free interop (Zed, Goose clients); depends on ACP exposing every governed event Skein needs |
+
+**Recommendation to carry into the spike:** adopt **ACP as Skein's own client↔core boundary** (standard, has a Rust SDK, gives free multi-client interop) and evaluate A vs B vs C for the *execution* tier behind it. Port **Aider's repo-map** (tree-sitter crates) for context selection (Spike 3). Use **`rmcp`** for the Tool/MCP Gateway rather than a bespoke MCP client (Spike 4). This reframes ADR-0003's Spike 1 from "which product do we wrap" to "we own an ACP core; which executor sits behind it".
+
 ## Primary sources
 
 - Claude Code extension model and hooks: https://code.claude.com/docs/en/features-overview and https://code.claude.com/docs/en/hooks
@@ -181,4 +197,7 @@ Before production implementation, run bounded spikes with objective exit criteri
 - Lost in the Middle: https://arxiv.org/abs/2307.03172
 - RULER: https://arxiv.org/abs/2404.06654
 - LongCodeBench: https://arxiv.org/abs/2505.07897
+- MCP Rust SDK (rmcp): https://docs.rs/rmcp
+- Agent Client Protocol (ACP) Rust SDK: https://github.com/agentclientprotocol/rust-sdk
+- Agentic AI Foundation (Goose governance): https://aaif.io/projects/goose/
 

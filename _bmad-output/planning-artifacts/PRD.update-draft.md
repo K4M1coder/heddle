@@ -1,18 +1,19 @@
 ---
-title: Skein Product Requirements Document
-status: final
-created: 2026-07-15
+title: Skein Product Requirements Document — Update Draft
+status: remediation-draft-v2
+created: 2026-07-16
 updated: 2026-07-16
+canonical_prd_unchanged: true
 build_authorization: NOT_READY
 ---
 
-# Skein Product Requirements Document
+# Skein Product Requirements Document — Update Draft
 
 ## 1. Purpose and Status
 
-This canonical PRD incorporates the approved remediation of the critical and high findings raised during BMAD review. It preserves the long-term vision while defining honest release hypotheses, observable product outcomes, risk journeys, assumptions, and the evidence required before implementation may begin.
+This draft remediates the critical and high findings raised against the canonical Skein PRD. It preserves the long-term vision while defining honest release hypotheses, observable product outcomes, risk journeys, assumptions, and the evidence required before implementation may begin.
 
-This file is the canonical product requirements source. Canonical status does not authorize product implementation; build authorization remains governed by the Build Authorization Gate in Section 11.
+This file is not the canonical PRD and does not authorize product implementation. The canonical PRD remains `_bmad-output/planning-artifacts/PRD.md` until this draft is reviewed, reconciled, and deliberately promoted through the BMAD PRD update workflow.
 
 **Current decision: NOT READY.** Product implementation, implementation-agent swarms, and production-facing connector work remain blocked until the Build Authorization Gate in Section 11 passes. Time-boxed design and evidence spikes are permitted only when they cannot become production code by accident and produce reproducible evidence for a named blocking decision.
 
@@ -143,7 +144,7 @@ Never de-scope silo isolation, deny-by-default policy, external loop termination
 
 ## 6. Functional Requirements
 
-The IDs below are canonical within this PRD and intentionally sorted. Acceptance outcomes describe product behavior, including negative paths. Detailed mechanisms and implementation candidates belong in the addendum and downstream contracts.
+The IDs below are canonical within this draft and intentionally sorted. Acceptance outcomes describe product behavior, including negative paths. Detailed mechanisms and implementation candidates belong in the addendum and downstream contracts.
 
 ### FR-001 — Headless task execution
 
