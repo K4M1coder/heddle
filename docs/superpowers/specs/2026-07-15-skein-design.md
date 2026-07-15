@@ -62,6 +62,9 @@ Le v1 est **texte**. L'évolution multimodale et collaborative est planifiée en
 | **Conformité** | **Compliance-by-design** : RGPD / ISO 27001 / SOC 2 / EU AI Act / NIS2 — §7.12 | Le logiciel fournit les contrôles ; la certification reste organisationnelle. |
 | **Traçabilité** | **Ledger event-sourced façon git** : chaque étape (I/O modèles, tools, état) immuable, inspectable, rejouable, réversible — §4.11 | Transparence totale (tout l'in/out modèles, pas que les résultats) ; capturé à la Gateway. |
 | **Secrets** | **`SecretProvider` pluggable, résolution JIT** : SOPS+age / 1Password / OpenBao / Infisical (+ trousseau OS) — §7.13 | Références jamais valeurs ; défaut simple ; reco conformité ; natif (hot-path) + MCP optionnel. |
+| **Workflow** | **Moteur natif** (inspiré Archon) **event-sourcé sur le Ledger** ; back-end durable (Temporal/Windmill) optionnel — §4.12 | Séquencement multi-agentique natif sur toute la chaîne SDLC ; durabilité/replay gratuits via Ledger. |
+| **Suivi de tâches** | **`TaskTracker` pluggable** : local (silo) / **Vikunja** (OSS embarqué) / **Jira** (MCP) — §4.13 | S'appuyer sur Jira OU un OSS embarquable ; lié par la hiérarchie de config. |
+| **Hiérarchie** | **Silo ▸ Équipe ▸ Projet ▸ Conversation** (Local : sans Équipe) ; config « le plus haut verrouille le plus bas » — §5.5 | Un seul mécanisme de résolution/verrou pour harness, tracker, egress, providers. |
 
 ### 2.1 Sources (état vérifié au 2026-07-15)
 - Goose : https://github.com/aaif-goose/goose · https://block-goose.mintlify.app/
@@ -208,6 +211,36 @@ trait Ledger {
 - **Isolation & sécurité** : le journal vit **dans le silo** (§5.3) ; il contient des prompts potentiellement sensibles → soumis au **trousseau/rédaction, à l'egress et à la rétention** (§7). C'est aussi la pièce maîtresse de la traçabilité RGPD/AI Act (§7.11-7.12).
 - **Surfaces** : `skein ledger log|show|replay|revert|branch` (CLI de référence) ; l'UI n'est qu'une vue de ce journal.
 
+### 4.12 Moteur de workflow (natif, inspiré d'Archon, synchro Ledger)
+Le harness sait **séquencer nativement des actions multi-agentiques** à travers ses outils connectés. Un **workflow** = un graphe de **nœuds typés** exécuté par le cœur et **event-sourcé sur le Ledger** (§4.11) → durabilité, replay et **reprise sur panne gratuits**.
+```rust
+enum Node {
+  Agent(Prompt), Tool(McpCall), Subagent(WorkflowRef),
+  Approval(Prompt),           // human-in-the-loop
+  Cond(Expr), Parallel(Vec<Node>), Loop { until: Expr, body: Box<Node> },
+}
+struct Workflow { name: String, params: Vec<Param>, graph: Vec<Node> }
+trait WorkflowEngine {
+  fn run(&self, wf: &Workflow, ctx: RunCtx) -> EventStream; // chaque étape → Step dans le Ledger
+  fn resume(&self, run: RunId) -> EventStream;              // reprise depuis le dernier Step
+}
+```
+- **Modèle inspiré d'Archon** (harness déterministe + tâches + knowledge + MCP), tournant sur le **backend local** par défaut.
+- **Recipes Goose + flux BMAD/Spec-Kit = workflows** (une recipe est un `Workflow` déclaratif).
+- **Chaîne SDLC** : les workflows orchestrent toute la chaîne — conception, dev, tests, packaging, déploiement — via les connecteurs MCP correspondants (git, CI/CD, tests, registries, cloud), et peuvent piloter Jira/tracker (§4.13).
+- **Back-end durable optionnel** (Temporal cœur-Rust / Windmill) derrière `WorkflowEngine` pour l'échelle entreprise ; défaut = moteur natif sur Ledger.
+
+### 4.13 Suivi des tâches (`TaskTracker` pluggable)
+Les workflows et l'utilisateur créent/suivent des tâches via un tracker interchangeable :
+```rust
+trait TaskTracker { fn create(&self, t: Task)->TaskId; fn update(&self, id: TaskId, s: Status); fn list(&self, q: Query)->Vec<Task>; fn requires_network(&self)->bool; }
+impl LocalTracker    // silo-backed, hors-ligne (toujours disponible)
+impl Vikunja         // OSS léger embarquable (API-first), local ou serveur
+impl JiraTracker     // via le connecteur MCP Jira (cloud/entreprise)
+// (Plane possible plus tard pour l'échelle équipe)
+```
+Le **back-end actif est résolu par la hiérarchie de config (§5.5)** : choix entre Vikunja (local/embarqué) et Jira cloud, fixable au niveau silo/projet/conversation. Progression des workflows reflétée dans le tracker.
+
 ---
 
 ## 5. Connectivité, modes & isolation
@@ -248,6 +281,23 @@ Le harness est **configurable et versionné** (config-as-code : instructions sys
 - Isolation respectée : config équipe en partition d'équipe, config locale en silo local. En **mode Local pur**, aucune couche équipe (cohérent avec §5.3).
 - **Versionné** : historisé, revu, réversible (édité comme du code).
 - **Sécurité (lien §7)** : les réglages de sécurité (egress, garde-fous, connecteurs interdits) sont **verrouillables** par chef/admin ; un utilisateur local **ne peut pas desserrer** une contrainte imposée par l'équipe. Toute modification de config sécurité est **auditée**.
+
+### 5.5 Hiérarchie organisationnelle & résolution de config
+Les données et la config s'organisent en **hiérarchie**, différente selon le mode :
+
+```
+  Modes Serveur/Remote :   Silo ▸ Équipe ▸ Projet ▸ Conversation
+  Mode Local            :   Silo(local) ▸ Projet ▸ Conversation      (pas d'équipes)
+```
+
+**Résolution de config (harness, TaskTracker, egress, providers, secrets…) — « le plus haut verrouille le plus bas » :**
+- Un réglage **fixé** à un niveau donné est **autoritaire (verrou) pour tous les niveaux inférieurs**.
+- S'il n'est pas fixé plus haut, il est **modifiable au niveau le plus bas** (jusqu'à la **conversation**, changeable d'une conversation à l'autre).
+- Précédence : **Silo > Équipe > Projet > Conversation**. C'est la **généralisation du verrou harness §5.4** à toute la hiérarchie (un seul mécanisme de résolution gouverne harness, TaskTracker, egress, providers).
+
+**Exemple (TaskTracker)** : si le silo fixe « Jira », toutes les équipes/projets/conversations en dessous utilisent Jira ; si rien n'est fixé au-dessus, un projet (ou une conversation) peut choisir Vikunja local. En **mode Local**, la même règle s'applique sans l'échelon Équipe.
+
+- **Isolation préservée** : la hiérarchie vit *dans* un silo ; elle ne franchit jamais la frontière de silo (§5.3). L'appartenance équipe reste la frontière d'autorisation (§7.10).
 
 ---
 
@@ -372,7 +422,8 @@ Cœur headless + contrat d'API/événements figés ; CLI minimale ; 1 provider v
 - **1b** Multi-provider + inférence locale (LiteLLM + Ollama/llama.cpp embarqués, bascule, egress Local).
 - **1c** Connecteurs Atlassian + M365 (MCP).
 - **1d** Frameworks BMAD + Spec-Kit + powerskills (recipes/skills).
-- **Transversal** Modes & silos (superviseur, isolation stricte, Local complet ; Serveur/Remote de base + authz équipe).
+- **1e** **Moteur de workflow natif** (§4.12) event-sourcé sur le Ledger + **TaskTracker** (§4.13 : local/Vikunja/Jira) — séquencement multi-agentique sur la chaîne SDLC.
+- **Transversal** Modes & silos + **hiérarchie Silo▸Équipe▸Projet▸Conversation** & résolution de config (§5.5) (superviseur, isolation stricte, Local complet ; Serveur/Remote de base + authz équipe).
 - **UI** Tauri (Chat + Code).
 **Sortie** : depuis UI *et* CLI *et* API, scénario réel — « lire spec Confluence → plan Spec-Kit → code TDD → PR Bitbucket → ticket Jira », en basculant cloud↔local, isolation des silos vérifiée par test.
 
@@ -469,3 +520,6 @@ IdP externes (LDAP/OIDC/Entra/Google) + **RBAC avancé** (§7.9-7.10), audit ava
 - **Event sourcing** : l'état est dérivé d'un journal d'événements immuables plutôt que muté en place — permet historique, replay et time-travel.
 - **SecretProvider** : back-end de secrets pluggable (SOPS+age, 1Password, OpenBao, Infisical, trousseau OS) résolvant des *références* en valeurs **juste-à-temps**, sans jamais persister la valeur.
 - **Résolution JIT (secrets)** : le secret n'est déchiffré/récupéré qu'à l'instant de son usage (exécution/auth), gardé en mémoire éphémère, rédigé des journaux.
+- **Workflow** : graphe de nœuds typés (agent/tool/subagent/approbation/condition/parallèle/boucle) séquençant des actions multi-agentiques, event-sourcé sur le Ledger (durable, rejouable, reprenable).
+- **Hiérarchie organisationnelle** : Silo ▸ Équipe ▸ Projet ▸ Conversation (mode Local : sans Équipe) ; unité de résolution/verrou de config, « le plus haut l'emporte ».
+- **TaskTracker** : back-end de suivi de tâches pluggable (local silo / Vikunja OSS embarqué / Jira via MCP), lié par la hiérarchie.

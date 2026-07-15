@@ -8,7 +8,7 @@ scope: "Cœur agentique headless, modes/silos, connecteurs, providers, identité
 status: draft
 created: '2026-07-15'
 updated: '2026-07-15'
-binds: [FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12]
+binds: [FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15]
 sources: ['docs/superpowers/specs/2026-07-15-skein-design.md', '_bmad-output/planning-artifacts/PRD.md']
 companions: ['.specify/memory/constitution.md']
 ---
@@ -51,6 +51,16 @@ Layers → répertoires : `crates/skein-core/` (domaine + ports), `crates/skein-
 - **Binds :** FR-8, FR-7
 - **Prevents :** accès implicite.
 - **Rule :** RBAC évalué globale → silo → intra-silo ; refus par défaut ; verrous harness = permissions intra-silo.
+
+### AD-7 — Workflow event-sourcé sur le Ledger
+- **Binds :** FR-13
+- **Prevents :** orchestration non reprenable / non traçable ; moteur propriétaire couplé.
+- **Rule :** tout workflow s'exécute en journalisant chaque étape comme `Step` du Ledger ; la reprise se fait depuis le dernier Step ; le moteur concret est derrière le trait `WorkflowEngine` (natif par défaut ; Temporal/Windmill optionnels).
+
+### AD-8 — Résolution de config hiérarchique « le plus haut verrouille »
+- **Binds :** FR-14, FR-15, FR-7 (harness), FR-3/FR-11 (egress/secrets)
+- **Prevents :** divergence de config entre niveaux ; contournement d'un verrou supérieur.
+- **Rule :** config résolue le long de Silo▸Équipe▸Projet▸Conversation ; un réglage fixé à un niveau est autoritaire pour les niveaux inférieurs ; sinon le niveau le plus bas s'applique. Un seul résolveur pour harness/tracker/egress/providers/secrets. Reste borné au silo (AD-2).
 
 ### Dépendances autorisées (qui peut dépendre de qui)
 
@@ -119,6 +129,9 @@ skein/
 | FR-10 ledger | port Ledger + capture Gateway | AD-5 |
 | FR-11 secrets | port SecretProvider | AD-4, AD-5 |
 | FR-12 cowork/multimodal | port Controller + Content typé | AD-3 |
+| FR-13 workflow | port WorkflowEngine + Ledger | AD-7, AD-5 |
+| FR-14 task tracking | port TaskTracker (local/Vikunja/Jira) | AD-3, AD-8 |
+| FR-15 hiérarchie/config | résolveur Silo▸Équipe▸Projet▸Conversation | AD-8, AD-2 |
 
 ## Deferred
 - Sidecar Python/RAG, UI Tauri complète, modes Serveur/Remote réseau, IdP externes, multimodal v2+, canal duplex v7 : poussés à leurs versions (voir PRD §6 & design §8). L'altitude *initiative* pose les invariants ; chaque epic/feature spine héritera des ADs ci-dessus par leurs ids d'origine.

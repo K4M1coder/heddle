@@ -23,7 +23,8 @@ FR-1 → Stories 1.6/1.7 · FR-3 → Story 1.4 · FR-6 → Story 1.3 · FR-10 �
 - Epic 3 — v1/1b Multi-provider + inférence locale
 - Epic 4 — v1/1c Connecteurs Atlassian + M365
 - Epic 5 — v1/1d Frameworks BMAD/Spec-Kit/powerskills
-- Epic 6 — v1 Modes/silos (Serveur/Remote + authz équipe) & UI Chat/Code
+- **Epic 6 — v1/1e Moteur de workflow natif (event-sourcé Ledger) + TaskTracker (local/Vikunja/Jira) + hiérarchie & résolution de config** → feature Spec-Kit `specs/002-workflow-engine/`
+- Epic 7 — v1 Modes/silos (Serveur/Remote + authz équipe) & UI Chat/Code
 - Epics 7+ — v2→v8 (perception, cowork, génération, vidéo, omni, voix, traduction) & piste entreprise
 
 ## Epic 1: Phase 0 — Squelette vertical

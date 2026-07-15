@@ -25,4 +25,5 @@ epics:
   - { id: 3, title: "v1/1b Multi-provider + inférence locale",   status: backlog, stories: [] }
   - { id: 4, title: "v1/1c Connecteurs Atlassian + M365",        status: backlog, stories: [] }
   - { id: 5, title: "v1/1d Frameworks BMAD/Spec-Kit/powerskills", status: backlog, stories: [] }
-  - { id: 6, title: "v1 Modes/silos réseau + UI Chat/Code",      status: backlog, stories: [] }
+  - { id: 6, title: "v1/1e Moteur de workflow + TaskTracker + hiérarchie", status: backlog, spec: "specs/002-workflow-engine/", stories: [] }
+  - { id: 7, title: "v1 Modes/silos réseau + UI Chat/Code",      status: backlog, stories: [] }

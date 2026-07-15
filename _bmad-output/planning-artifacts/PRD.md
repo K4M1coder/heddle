@@ -80,6 +80,19 @@ L'utilisateur peut router vers un provider cloud OU local ; en mode Local, seuls
 ### 4.9 Cowork & multimodal (v2+)
 #### FR-12 : Pilotage PC + compagnon navigateur (Controller hybride) ; perception (doc/image/audio/grounding) ; génération (image/TTS/Office/vidéo) ; omni (orchestration) ; voix temps réel ; traduction multilingue. Détail : roadmap §6 + design §8.
 
+### 4.10 Moteur de workflow (natif, inspiré Archon)
+**Description :** le harness séquence nativement des actions multi-agentiques à travers les outils connectés, sur toute la chaîne SDLC (conception→dev→tests→packaging→déploiement). Realizes UJ-1.
+#### FR-13 : Workflow event-sourcé
+L'utilisateur/agent peut définir et exécuter un workflow (nœuds agent/tool/subagent/approbation/condition/parallèle/boucle) ; chaque étape est journalisée dans le Ledger (durable, rejouable, reprenable). Les recipes Goose et flux BMAD/Spec-Kit sont des workflows.
+- **Consequences (testable) :** un workflow interrompu peut être repris depuis le dernier Step du Ledger.
+
+### 4.11 Suivi des tâches & hiérarchie
+#### FR-14 : TaskTracker pluggable
+L'utilisateur peut suivre les tâches via un back-end interchangeable : local (silo), **Vikunja** (OSS embarqué) ou **Jira** (via MCP). Les workflows y reflètent leur progression.
+#### FR-15 : Hiérarchie & résolution de config
+Les données/config s'organisent en **Silo ▸ Équipe ▸ Projet ▸ Conversation** (mode Local : sans Équipe). Un réglage fixé à un niveau **verrouille les niveaux inférieurs** (« le plus haut l'emporte ») ; sinon modifiable jusqu'à la conversation.
+- **Consequences (testable) :** un TaskTracker fixé au silo s'impose à tous les projets/conversations ; non fixé, un projet peut choisir un autre back-end.
+
 ## 5. Non-Goals (Explicit)
 - Pas de réécriture d'un harness from scratch (on adopte Goose).
 - Pas de produit serveur séparé (le backend d'équipe = une instance exposée).
@@ -89,7 +102,7 @@ L'utilisateur peut router vers un provider cloud OU local ; en mode Local, seuls
 ## 6. MVP Scope
 
 ### 6.1 In Scope (v1)
-Assistant de code agentique · multi-provider + inférence locale · connecteurs Atlassian+M365 · frameworks BMAD/Spec-Kit/powerskills · modes & silos (Local complet, Serveur/Remote de base + authz équipe) · UI Chat+Code · identité locale + RBAC de base · observabilité · Ledger · fondation SecretProvider · compliance-by-design.
+Assistant de code agentique · multi-provider + inférence locale · connecteurs Atlassian+M365 · frameworks BMAD/Spec-Kit/powerskills · **moteur de workflow natif (event-sourcé Ledger) + TaskTracker (local/Vikunja/Jira)** · **hiérarchie Silo▸Équipe▸Projet▸Conversation & résolution de config** · modes & silos (Local complet, Serveur/Remote de base + authz équipe) · UI Chat+Code · identité locale + RBAC de base · observabilité · Ledger · fondation SecretProvider · compliance-by-design.
 
 ### 6.2 Out of Scope for MVP (roadmap)
 - **v2** Perception (entrées multimodales) · **v3** Cowork/pilotage · **v4** Génération médias · **v5** Vidéo · **v6** Omni · **v7** Voix temps réel · **v8** Traduction multilingue.
