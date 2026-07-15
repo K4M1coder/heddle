@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- **Plateforme primaire : Windows** ; le code reste portable (Linux/macOS secondaires). Pas de chemin codé en dur — utiliser `std::path`.
+- **Cross-platform de premier ordre : Windows + macOS + Linux** (à égalité). CI verte requise sur les trois avant merge. Pas de chemin codé en dur — utiliser `std::path` ; pas d'appel spécifique à un OS sans `#[cfg(...)]` + équivalent sur les autres. Dépendances déjà multi-OS : `rusqlite` (bundled), `keyring`, `enigo`/`xcap` (v3), Tauri.
 - **Local-first** : Phase 0 = **mode `local` uniquement**. **Egress réseau OFF par défaut** → la Gateway pointe vers un modèle **local** (Ollama). Aucun appel cloud.
 - **Isolation par silo** : toute donnée persistée est préfixée/namespacée par le silo (`local` en Phase 0). Aucune lecture hors silo.
 - **Observabilité dès v1** : chaque crate initialise `tracing` ; les événements clés (démarrage run, tool-call, persistance) sont tracés.
@@ -226,13 +226,17 @@ fn main() {
 
 - [ ] **Step 5: Ajouter la CI**
 
-`.github/workflows/ci.yml` :
+`.github/workflows/ci.yml` (matrice cross-platform : Windows + macOS + Linux, à égalité) :
 ```yaml
 name: ci
 on: [push, pull_request]
 jobs:
   rust:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.79

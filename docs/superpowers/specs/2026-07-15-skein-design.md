@@ -52,6 +52,7 @@ Le v1 est **texte**. L'évolution multimodale et collaborative est planifiée en
 | **Frameworks** | BMAD / Spec-Kit / powerskills packagés en **recipes/skills** | Intégration = packaging + orchestration, pas réécriture. |
 | **Pilotage PC** | Interface `Controller` **hybride abstraite** | Back-ends interchangeables (Computer Use API **ou** local enigo/xcap). Pas de verrouillage. |
 | **Déploiement** | **Local-first**, backend d'équipe **activable** | Le desktop est autonome ; le mode équipe est une surcouche. |
+| **Plateformes** | **Cross-platform de premier ordre : Windows + macOS + Linux** (à égalité) | Rust/Tauri/Goose/LiteLLM/SQLite/keyring sont tous multi-OS ; CI sur les trois ; signature par OS. |
 | **Surfaces** | **Cœur headless → CLI (référence) → UI (surcouche)** | Automatisable, testable ; l'UI n'ajoute aucune capacité propre. |
 | **Stratégie Goose** | **Dépendance upstream** par défaut ; **fork/patch hybride** si un besoin cœur n'est pas exposé, **avec PR remontée à l'upstream** | Coût de maintenance minimal ; le fork converge vers l'upstream au lieu de diverger ; bon citoyen open-source. |
 | **Harness éditable** | Config **en couches** : base **équipe** (chefs, verrouillable) + surcharges **locales** (utilisateur) — voir §5.4 | Gouvernance d'équipe + liberté locale, sans casser l'isolation des silos. |
@@ -163,6 +164,7 @@ impl LocalController         // desktop : enigo (clavier/souris) + xcap (capture
 impl BrowserController       // compagnon navigateur (extension Chrome/Edge, type "Claude for Chrome")
 ```
 Les trois usages — captures en entrée (grounding, v2), pilotage PC et compagnon navigateur (v3) — réutilisent **la même brique de grounding visuel**. Ce sont trois implémentations d'un même trait, pas trois développements distincts.
+**Cross-platform** : `enigo`/`xcap` couvrent Windows/macOS/Linux. Sur **macOS**, le `LocalController` requiert les autorisations système **Accessibilité** et **Enregistrement de l'écran** (demandées explicitement à l'utilisateur, jamais contournées) ; sous Linux, gérer X11 **et** Wayland (portails).
 
 ### 4.10 Modalités génératives, orchestration omni & flux temps réel (v4+)
 - **Génération** (v4/v5) : tools/connecteurs spécialisés — image (modèle via Gateway), **TTS** (audio), **fichiers Office** (docx/pptx/xlsx via bibliothèques matures), **vidéo** (v5). Chaque sortie est un `Content` typé produit par un tool ; le cœur n'en dépend pas.
@@ -421,8 +423,8 @@ IdP externes (LDAP/OIDC/Entra/Google) + **RBAC avancé** (§7.9-7.10), audit ava
 - **Monorepo** polyglotte : `core/` (Cargo), `sidecar/` (uv), `ui/` (pnpm), `connectors/`, `skills/`, `docs/`. Trunk-based, Conventional Commits, PR + revue.
 - **Tests** : pyramide (unitaires par frontière + intégration MCP factice + **E2E via CLI** golden path) + **tests d'isolation** dédiés ; TDD sur le cœur.
 - **Qualité par langage** : Rust (`fmt`/`clippy -D warnings`/`cargo audit`/`cargo deny`) · Python (`ruff`/`mypy`/`pytest`/`pip-audit`) · TS (`eslint`/`prettier`/`vitest`/`playwright`/`tsc`). Pre-commit unifié.
-- **Pipeline** : lint → build 3 langages → unit → intégration → E2E CLI → **scans sécurité (SAST, deps, secrets, SBOM)** → artefacts. Matrice OS : **Windows primaire**, Linux/macOS secondaires.
-- **Release** : SemVer, changelog auto, **signature de code** (indispensable pour un agent qui pilote le PC), canaux nightly/stable.
+- **Pipeline** : lint → build 3 langages → unit → intégration → E2E CLI → **scans sécurité (SAST, deps, secrets, SBOM)** → artefacts. **Cross-platform de premier ordre** : matrice CI **Windows + macOS + Linux** (les trois traités à égalité ; tests verts requis sur les trois avant merge).
+- **Release** : SemVer, changelog auto, **signature de code par OS** — Authenticode (Windows) **et** Developer ID + notarisation (macOS) — indispensable pour un agent qui pilote le PC ; artefacts par OS (Tauri) ; canaux nightly/stable.
 - **Méthode** : dogfooding — Skein est conçu avec Spec-Kit + BMAD ; ADR pour les décisions d'archi.
 
 ---
@@ -433,7 +435,9 @@ IdP externes (LDAP/OIDC/Entra/Google) + **RBAC avancé** (§7.9-7.10), audit ava
 |---|---|---|
 | ~~Intégrer vs forker Goose~~ **(DÉCIDÉ)** | — | **Dépendance upstream par défaut** ; fork/patch hybride si un besoin cœur n'est pas exposé, **avec PR remontée à l'upstream** (le fork converge, ne diverge pas). |
 | Fiabilité du *grounding* cowork (ancrage des clics) | Moyen | Hybride Computer Use d'abord, local ensuite. |
-| Packaging inférence locale sur Windows (llama.cpp/vLLM) | Moyen | Ollama comme défaut robuste ; vLLM GPU optionnel. |
+| Packaging inférence locale multi-OS (llama.cpp/vLLM ; vLLM peu adapté à Windows/macOS) | Moyen | Ollama comme défaut robuste et cross-platform ; vLLM GPU optionnel (surtout Linux). |
+| Signature/notarisation par OS (Authenticode + Developer ID macOS) | Moyen | Intégrer la signature dans la CI de release dès le début ; comptes développeur Apple/Windows requis. |
+| Permissions cowork macOS (Accessibilité + Enregistrement d'écran) | Moyen | Détecter l'absence de permission et guider l'utilisateur ; jamais de contournement. |
 | Compatibilité licences (Apache/MIT/…) pour distribution commerciale | Moyen | Audit licences en CI (`cargo deny`, équivalents). |
 | Périmètre MVP large (4 axes) | Moyen | Phase 0 dérisque l'archi ; scénario de sortie force l'intégration. |
 | Complexité RBAC à 3 portées × IdP multiples | **Élevé** | Modèle de permissions unique et testé ; deny-by-default ; base locale d'abord, IdP externes ensuite ; suite de tests d'autorisation dédiée. |
