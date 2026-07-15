@@ -1,4 +1,4 @@
-# Feature Specification: Moteur de workflow natif + TaskTracker + hiérarchie
+# Feature Specification: Native workflow engine + TaskTracker + hierarchy
 
 **Feature Branch**: `002-workflow-engine`
 
@@ -6,69 +6,69 @@
 
 **Status**: Draft
 
-**Input**: Epic 6 (`_bmad-output/planning-artifacts/epics.md`) ; design §4.12, §4.13, §5.5.
+**Input**: Epic 6 (`_bmad-output/planning-artifacts/epics.md`); design §4.12, §4.13, §5.5.
 
 ## User Scenarios & Testing *(mandatory)*
 
-### User Story 1 - Séquencer une chaîne multi-agentique reprenable (Priority: P1)
-En tant qu'utilisateur, je définis un workflow qui enchaîne plusieurs agents/outils sur la chaîne SDLC (ex. lire spec → coder → tester → packager) ; s'il est interrompu, il **reprend** là où il s'était arrêté.
+### User Story 1 - Sequence a resumable multi-agent chain (Priority: P1)
+As a user, I define a workflow that chains several agents/tools across the SDLC (e.g. read spec → code → test → package); if it is interrupted, it **resumes** where it left off.
 
-**Why this priority**: c'est la capacité demandée — séquencement multi-agentique natif via le harness ; la reprise prouve la synchro Ledger.
+**Why this priority**: this is the requested capability — native multi-agent sequencing through the harness; resumption proves Ledger synchronization.
 
-**Independent Test**: lancer un workflow à ≥3 nœuds, l'interrompre, le reprendre ; vérifier qu'aucune étape déjà journalisée n'est ré-exécutée.
-
-**Acceptance Scenarios**:
-1. **Given** un workflow à nœuds séquentiels, **When** je l'exécute, **Then** chaque étape produit un `Step` dans le Ledger et le résultat final est atteint.
-2. **Given** un workflow interrompu après le nœud 2, **When** je `resume`, **Then** l'exécution reprend au nœud 3 (idempotence des étapes journalisées).
-3. **Given** un nœud `Approval`, **When** l'exécution l'atteint, **Then** elle attend une validation humaine avant de continuer.
-
-### User Story 2 - Choisir le tracker de tâches par la hiérarchie (Priority: P1)
-En tant que chef de projet, je fixe le TaskTracker (Vikunja local ou Jira cloud) au niveau silo/projet ; les niveaux inférieurs héritent, et un verrou supérieur s'impose.
-
-**Independent Test**: fixer Jira au silo → un projet enfant l'utilise ; ne rien fixer → un projet peut choisir Vikunja.
+**Independent Test**: launch a workflow with ≥3 nodes, interrupt it, then resume it; verify that no already-logged step is re-executed.
 
 **Acceptance Scenarios**:
-1. **Given** TaskTracker=Jira fixé au silo, **When** une conversation d'un projet enfant crée une tâche, **Then** elle est créée dans Jira (le réglage silo verrouille).
-2. **Given** aucun réglage au-dessus du projet, **When** le projet choisit Vikunja, **Then** ses conversations utilisent Vikunja.
-3. **Given** mode Local, **When** on résout la config, **Then** la hiérarchie s'applique sans échelon Équipe.
+1. **Given** a workflow with sequential nodes, **When** I run it, **Then** each step produces a `Step` in the Ledger and the final result is reached.
+2. **Given** a workflow interrupted after node 2, **When** I `resume`, **Then** execution resumes at node 3 (idempotence of logged steps).
+3. **Given** an `Approval` node, **When** execution reaches it, **Then** it waits for human validation before continuing.
 
-### User Story 3 - Progression reflétée dans le tracker (Priority: P2)
-En tant qu'utilisateur, l'avancement d'un workflow crée/met à jour des tâches dans le tracker actif.
+### User Story 2 - Choose the task tracker through the hierarchy (Priority: P1)
+As a project manager, I set the TaskTracker (local Vikunja or cloud Jira) at the silo/project level; lower levels inherit it, and a lock set higher up takes precedence.
+
+**Independent Test**: set Jira at the silo → a child project uses it; set nothing → a project can choose Vikunja.
 
 **Acceptance Scenarios**:
-1. **Given** un workflow en cours, **When** un nœud se termine, **Then** la tâche correspondante passe au statut adéquat dans le TaskTracker résolu.
+1. **Given** TaskTracker=Jira set at the silo, **When** a conversation in a child project creates a task, **Then** it is created in Jira (the silo setting locks it).
+2. **Given** no setting above the project, **When** the project chooses Vikunja, **Then** its conversations use Vikunja.
+3. **Given** Local mode, **When** config is resolved, **Then** the hierarchy applies without a Team level.
+
+### User Story 3 - Progress reflected in the tracker (Priority: P2)
+As a user, a workflow's progress creates/updates tasks in the active tracker.
+
+**Acceptance Scenarios**:
+1. **Given** a running workflow, **When** a node completes, **Then** the corresponding task moves to the appropriate status in the resolved TaskTracker.
 
 ### Edge Cases
-- Reprise après crash : l'état est reconstruit depuis le Ledger (pas de double effet sur les étapes idempotentes ; les effets externes non-idempotents sont marqués et non rejoués sans confirmation).
-- Back-end tracker indisponible (Jira hors-ligne en mode Local) : bascule/erreur explicite ; le tracker local reste disponible.
-- Conflit de verrou : un niveau inférieur tente de surcharger un réglage verrouillé plus haut → refus explicite.
+- Resume after crash: state is rebuilt from the Ledger (no double effect on idempotent steps; non-idempotent external effects are flagged and not replayed without confirmation).
+- Tracker backend unavailable (Jira offline in Local mode): explicit fallback/error; the local tracker remains available.
+- Lock conflict: a lower level attempts to override a setting locked higher up → explicit refusal.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
-- **FR-013**: Le système DOIT exécuter des workflows (nœuds agent/tool/subagent/approbation/condition/parallèle/boucle) via un `WorkflowEngine`.
-- **FR-013a**: Chaque étape de workflow DOIT être journalisée comme `Step` du Ledger ; un workflow DOIT être **reprenable** depuis le dernier Step.
-- **FR-013b**: Les recipes Goose et les flux BMAD/Spec-Kit DOIVENT être exécutables comme workflows.
-- **FR-014**: Le système DOIT fournir un `TaskTracker` pluggable : local (silo), Vikunja (embarqué), Jira (via MCP).
-- **FR-015**: La config (dont le TaskTracker) DOIT être résolue selon la hiérarchie Silo▸Équipe▸Projet▸Conversation, un réglage fixé à un niveau **verrouillant** les niveaux inférieurs.
-- **FR-016**: Les workflows DOIVENT pouvoir orchestrer la chaîne SDLC via connecteurs MCP (conception, dev/git, tests, packaging, déploiement) et le TaskTracker.
+- **FR-013**: The system MUST execute workflows (agent/tool/subagent/approval/condition/parallel/loop nodes) through a `WorkflowEngine`.
+- **FR-013a**: Every workflow step MUST be logged as a Ledger `Step`; a workflow MUST be **resumable** from the last Step.
+- **FR-013b**: Goose recipes and BMAD/Spec-Kit flows MUST be executable as workflows.
+- **FR-014**: The system MUST provide a pluggable `TaskTracker`: local (silo), Vikunja (embedded), Jira (via MCP).
+- **FR-015**: Config (including the TaskTracker) MUST be resolved according to the Silo▸Team▸Project▸Conversation hierarchy, a setting fixed at one level **locking** the lower levels.
+- **FR-016**: Workflows MUST be able to orchestrate the SDLC through MCP connectors (design, dev/git, tests, packaging, deployment) and the TaskTracker.
 
 ### Key Entities
-- **Workflow**: `{name, params, graph: [Node]}` ; **Node**: agent/tool/subagent/approval/cond/parallel/loop.
-- **WorkflowRun**: instance exécutée, adressée par `RunId`, dérivée du Ledger.
-- **Task**: unité de suivi (`{id, title, status, links}`) dans un TaskTracker.
-- **ConfigScope**: niveau de résolution (Silo/Équipe/Projet/Conversation) + drapeau `locked`.
+- **Workflow**: `{name, params, graph: [Node]}`; **Node**: agent/tool/subagent/approval/cond/parallel/loop.
+- **WorkflowRun**: executed instance, addressed by `RunId`, derived from the Ledger.
+- **Task**: tracking unit (`{id, title, status, links}`) in a TaskTracker.
+- **ConfigScope**: resolution level (Silo/Team/Project/Conversation) + `locked` flag.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
-- **SC-001**: un workflow ≥3 nœuds interrompu puis repris ne ré-exécute aucune étape journalisée (US1).
-- **SC-002**: la résolution hiérarchique du TaskTracker respecte « le plus haut verrouille » (US2), testée sur les 4 niveaux et en mode Local (3 niveaux).
-- **SC-003**: la progression d'un workflow est visible dans le tracker résolu (US3).
-- **SC-004**: un workflow orchestre au moins un enchaînement SDLC réel (ex. code → test → PR) via connecteurs (US1/FR-016).
+- **SC-001**: a workflow with ≥3 nodes that is interrupted then resumed does not re-execute any logged step (US1).
+- **SC-002**: hierarchical resolution of the TaskTracker honors "the highest level locks" (US2), tested across all 4 levels and in Local mode (3 levels).
+- **SC-003**: a workflow's progress is visible in the resolved tracker (US3).
+- **SC-004**: a workflow orchestrates at least one real SDLC chain (e.g. code → test → PR) through connectors (US1/FR-016).
 
 ## Assumptions
-- Le moteur natif (event-sourcé Ledger) est le défaut ; Temporal/Windmill sont des back-ends optionnels derrière `WorkflowEngine`.
-- Vikunja est le tracker OSS embarqué par défaut ; Jira via le connecteur MCP existant.
-- La hiérarchie vit dans un silo (jamais inter-silo) ; l'appartenance équipe reste la frontière d'autorisation (§7.10).
-- En mode Local, l'échelon Équipe n'existe pas.
+- The native engine (event-sourced Ledger) is the default; Temporal/Windmill are optional backends behind `WorkflowEngine`.
+- Vikunja is the default embedded OSS tracker; Jira via the existing MCP connector.
+- The hierarchy lives within a silo (never cross-silo); team membership remains the authorization boundary (§7.10).
+- In Local mode, the Team level does not exist.

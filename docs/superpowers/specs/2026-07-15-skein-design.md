@@ -1,121 +1,121 @@
-# Skein — Document de conception (Spec)
+# Skein — Design Document (Spec)
 
-- **Nom de code** : Skein *(« a skein of geese » = une volée d'oies, clin d'œil à Goose ; et un écheveau de fils entrelacés = les connecteurs/modèles tissés ensemble)*
-- **Date** : 2026-07-15
-- **Statut** : Conception validée — en attente de relecture avant plan d'implémentation
-- **Auteur** : cthedrez@sodiuswillert.com (avec assistance Claude Code)
-- **Méthode** : rédigé façon **Spec-Kit** (Spec → Plan → Tasks → Implement) ; artefacts vérifiables façon **BMAD**.
+- **Codename**: Skein *("a skein of geese" = a flight of geese, a nod to Goose; and a skein of intertwined threads = the connectors/models woven together)*
+- **Date**: 2026-07-15
+- **Status**: Design validated — awaiting review before implementation plan
+- **Author**: cthedrez@sodiuswillert.com (with assistance from Claude Code)
+- **Method**: written in the **Spec-Kit** style (Spec → Plan → Tasks → Implement); verifiable artifacts in the **BMAD** style.
 
-> ⚠️ Ce document décrit **quoi** construire et **pourquoi**. Le **comment détaillé** (tâches, séquencement) fera l'objet d'un plan d'implémentation séparé, produit après relecture de ce spec.
+> ⚠️ This document describes **what** to build and **why**. The **detailed how** (tasks, sequencing) will be the subject of a separate implementation plan, produced after review of this spec.
 
 ---
 
-## 1. Vision & objectifs
+## 1. Vision & objectives
 
-### 1.1 Problème
-Les équipes de SodiusWillert utilisent aujourd'hui des outils IA cloisonnés (chat, assistant de code, automatisations) sans harness unifié, sans intégration native à leur stack (Atlassian, M365), et sans maîtrise du choix des modèles (cloud vs local/souverain).
+### 1.1 Problem
+SodiusWillert teams today use siloed AI tools (chat, code assistant, automations) without a unified harness, without native integration to their stack (Atlassian, M365), and without control over model choice (cloud vs local/sovereign).
 
 ### 1.2 Vision
-Un **outil agentique unique**, local-first, réunissant **chat**, **code** et **cowork** (pilotage PC), doté d'un harness poussé (gestion du contexte, tools, skills), intégrant nativement les connecteurs métier via **MCP**, capable de se brancher sur **tous les fournisseurs d'IA** (cloud et locaux) et embarquant sa propre inférence, avec les méthodes **BMAD / Spec-Kit / powerskills** comme compétences de premier ordre.
+A **single agentic tool**, local-first, bringing together **chat**, **code** and **cowork** (PC control), equipped with a powerful harness (context management, tools, skills), natively integrating business connectors via **MCP**, able to plug into **all AI providers** (cloud and local) and embedding its own inference, with the **BMAD / Spec-Kit / powerskills** methods as first-class skills.
 
-### 1.3 Objectifs (v1 / MVP)
-1. **Assistant de code agentique** (lire/éditer/exécuter, TDD, subagents).
-2. **Multi-provider + inférence locale** (cloud + Ollama/vLLM/llama.cpp/LM Studio).
-3. **Connecteurs Atlassian + M365** via MCP, utilisables dans les workflows.
-4. **Frameworks BMAD / Spec-Kit / powerskills** intégrés comme skills invocables.
+### 1.3 Objectives (v1 / MVP)
+1. **Agentic code assistant** (read/edit/execute, TDD, subagents).
+2. **Multi-provider + local inference** (cloud + Ollama/vLLM/llama.cpp/LM Studio).
+3. **Atlassian + M365 connectors** via MCP, usable within workflows.
+4. **BMAD / Spec-Kit / powerskills frameworks** integrated as invocable skills.
 
-### 1.4 Hors périmètre v1 (versions ultérieures)
-Le v1 est **texte**. L'évolution multimodale et collaborative est planifiée en versions v2→v8 + une piste parallèle entreprise — voir la **§8 Roadmap d'évolution**. Progression logique : *percevoir → agir → générer → animer → unifier → parler → traduire*.
-- **v2 — Perception** (entrées) : abstraction de contenu typé + documents/images (OCR+vision) + audio (STT) + grounding visuel + ingestion/mémoire web.
-- **v3 — Action** (cowork) : pilotage PC (local / Computer Use) + compagnon navigateur (Chrome/Edge) + navigation web temps réel.
-- **v4 — Génération** de médias : image + audio/TTS + fichiers Office.
-- **v5 — Temporel** : images animées + vidéo.
-- **v6 — Omni** : **orchestration multi-modèles** (parallèle/séquentiel en arrière-plan) donnant l'illusion d'un modèle unique ; un vrai modèle omni est un cas particulier branché via la Gateway.
-- **v7 — Voix temps réel** : audio streaming duplex faible latence.
-- **v8 — Traduction** temps réel multilingue (Teams / chat d'équipe, langue maternelle par membre).
-- **Piste ⟂** : durcissement équipe/entreprise (IdP externes LDAP/OIDC/Entra/Google + RBAC avancé §7.9-7.10, audit avancé, RAG avancé, vLLM GPU, catalogue de recipes, certifications), cadencée par l'adoption d'équipe. *Identité locale + RBAC de base + observabilité + compliance-by-design sont dès v1.*
+### 1.4 Out of scope for v1 (later versions)
+v1 is **text**. Multimodal and collaborative evolution is planned across versions v2→v8 + a parallel enterprise track — see **§8 Evolution roadmap**. Logical progression: *perceive → act → generate → animate → unify → speak → translate*.
+- **v2 — Perception** (inputs): typed content abstraction + documents/images (OCR+vision) + audio (STT) + visual grounding + web ingestion/memory.
+- **v3 — Action** (cowork): PC control (local / Computer Use) + browser companion (Chrome/Edge) + real-time web navigation.
+- **v4 — Generation** of media: image + audio/TTS + Office files.
+- **v5 — Temporal**: animated images + video.
+- **v6 — Omni**: **multi-model orchestration** (parallel/sequential in the background) giving the illusion of a single model; a true omni model is a special case plugged in via the Gateway.
+- **v7 — Real-time voice**: low-latency duplex streaming audio.
+- **v8 — Translation** real-time multilingual (Teams / team chat, native language per member).
+- **Track ⟂**: team/enterprise hardening (external IdPs LDAP/OIDC/Entra/Google + advanced RBAC §7.9-7.10, advanced audit, advanced RAG, vLLM GPU, recipe catalog, certifications), paced by team adoption. *Local identity + basic RBAC + observability + compliance-by-design are present from v1.*
 
-### 1.5 Non-objectifs (principes YAGNI)
-- Pas de réécriture d'un harness agentique from scratch (on adopte une base neutre).
-- Pas de produit serveur séparé (le « backend d'équipe » est une instance de l'app exposée).
-- Pas de dépendance à un fournisseur unique (neutralité multi-provider).
+### 1.5 Non-objectives (YAGNI principles)
+- No rewrite of an agentic harness from scratch (we adopt a neutral base).
+- No separate server product (the "team backend" is an exposed instance of the app).
+- No dependency on a single provider (multi-provider neutrality).
 
 ---
 
-## 2. Décisions fondatrices (et justification)
+## 2. Founding decisions (and rationale)
 
-| Décision | Choix retenu | Justification |
+| Decision | Chosen option | Rationale |
 |---|---|---|
-| **Stratégie** | Bâtir sur une **base open-source neutre** | Évite le verrouillage fournisseur + réutilise un harness éprouvé. |
-| **Socle / langage cœur** | **Goose (Rust)** + **sidecar Python** | Goose : Rust, MCP-natif, Apache-2.0, Linux Foundation, multi-provider, Windows OK. Python pour l'écosystème IA. |
-| **Passerelle modèles** | **LiteLLM** | Point d'entrée OpenAI-compatible vers 100+ providers cloud **et** locaux ; coût/quotas/guardrails. |
-| **Frameworks** | BMAD / Spec-Kit / powerskills packagés en **recipes/skills** | Intégration = packaging + orchestration, pas réécriture. |
-| **Pilotage PC** | Interface `Controller` **hybride abstraite** | Back-ends interchangeables (Computer Use API **ou** local enigo/xcap). Pas de verrouillage. |
-| **Déploiement** | **Local-first**, backend d'équipe **activable** | Le desktop est autonome ; le mode équipe est une surcouche. |
-| **Plateformes** | **Cross-platform de premier ordre : Windows + macOS + Linux** (à égalité) | Rust/Tauri/Goose/LiteLLM/SQLite/keyring sont tous multi-OS ; CI sur les trois ; signature par OS. |
-| **Surfaces** | **Cœur headless → CLI (référence) → UI (surcouche)** | Automatisable, testable ; l'UI n'ajoute aucune capacité propre. |
-| **Stratégie Goose** | **Dépendance upstream** par défaut ; **fork/patch hybride** si un besoin cœur n'est pas exposé, **avec PR remontée à l'upstream** | Coût de maintenance minimal ; le fork converge vers l'upstream au lieu de diverger ; bon citoyen open-source. |
-| **Harness éditable** | Config **en couches** : base **équipe** (chefs, verrouillable) + surcharges **locales** (utilisateur) — voir §5.4 | Gouvernance d'équipe + liberté locale, sans casser l'isolation des silos. |
-| **Identité** | Fournisseur **pluggable** : base locale (défaut) / LDAP-AD / OIDC / Entra ID / Google Workspace — §7.9 | Local-first hors ligne ; IdP entreprise + groupes en mode Serveur/Remote. |
-| **Autorisation** | **RBAC** rôles+permissions à **3 portées** (globale / silos / intra-silo) — §7.10 | Contrôle fin de l'usage, de l'accès aux silos et des fonctions/paramètres. |
-| **Observabilité** | **OpenTelemetry** + audit immuable, dès v1 — §7.11 | Standard exportable ; base transversale de la conformité. |
-| **Conformité** | **Compliance-by-design** : RGPD / ISO 27001 / SOC 2 / EU AI Act / NIS2 — §7.12 | Le logiciel fournit les contrôles ; la certification reste organisationnelle. |
-| **Traçabilité** | **Ledger event-sourced façon git** : chaque étape (I/O modèles, tools, état) immuable, inspectable, rejouable, réversible — §4.11 | Transparence totale (tout l'in/out modèles, pas que les résultats) ; capturé à la Gateway. |
-| **Secrets** | **`SecretProvider` pluggable, résolution JIT** : SOPS+age / 1Password / OpenBao / Infisical (+ trousseau OS) — §7.13 | Références jamais valeurs ; défaut simple ; reco conformité ; natif (hot-path) + MCP optionnel. |
-| **Workflow** | **Moteur natif** (inspiré Archon) **event-sourcé sur le Ledger** ; back-end durable (Temporal/Windmill) optionnel — §4.12 | Séquencement multi-agentique natif sur toute la chaîne SDLC ; durabilité/replay gratuits via Ledger. |
-| **Suivi de tâches** | **`TaskTracker` pluggable** : local (silo) / **Vikunja** (OSS embarqué) / **Jira** (MCP) — §4.13 | S'appuyer sur Jira OU un OSS embarquable ; lié par la hiérarchie de config. |
-| **Hiérarchie** | **Silo ▸ Équipe ▸ Projet ▸ Conversation** (Local : sans Équipe) ; config « le plus haut verrouille le plus bas » — §5.5 | Un seul mécanisme de résolution/verrou pour harness, tracker, egress, providers. |
+| **Strategy** | Build on a **neutral open-source base** | Avoids vendor lock-in + reuses a proven harness. |
+| **Core foundation / language** | **Goose (Rust)** + **Python sidecar** | Goose: Rust, MCP-native, Apache-2.0, Linux Foundation, multi-provider, Windows OK. Python for the AI ecosystem. |
+| **Model gateway** | **LiteLLM** | OpenAI-compatible entry point to 100+ cloud **and** local providers; cost/quotas/guardrails. |
+| **Frameworks** | BMAD / Spec-Kit / powerskills packaged as **recipes/skills** | Integration = packaging + orchestration, not rewrite. |
+| **PC control** | **Abstract hybrid** `Controller` interface | Interchangeable back-ends (Computer Use API **or** local enigo/xcap). No lock-in. |
+| **Deployment** | **Local-first**, team backend **enableable** | The desktop is autonomous; team mode is a layer on top. |
+| **Platforms** | **First-class cross-platform: Windows + macOS + Linux** (on equal footing) | Rust/Tauri/Goose/LiteLLM/SQLite/keyring are all multi-OS; CI on all three; per-OS signing. |
+| **Surfaces** | **Headless core → CLI (reference) → UI (layer)** | Automatable, testable; the UI adds no capability of its own. |
+| **Goose strategy** | **Upstream dependency** by default; **hybrid fork/patch** if a core need is not exposed, **with a PR sent upstream** | Minimal maintenance cost; the fork converges toward upstream instead of diverging; good open-source citizen. |
+| **Editable harness** | **Layered** config: **team** base (leads, lockable) + **local** overrides (user) — see §5.4 | Team governance + local freedom, without breaking silo isolation. |
+| **Identity** | **Pluggable** provider: local store (default) / LDAP-AD / OIDC / Entra ID / Google Workspace — §7.9 | Local-first offline; enterprise IdP + groups in Server/Remote mode. |
+| **Authorization** | **RBAC** roles+permissions at **3 scopes** (global / silos / intra-silo) — §7.10 | Fine-grained control of usage, silo access, and functions/settings. |
+| **Observability** | **OpenTelemetry** + immutable audit, from v1 — §7.11 | Exportable standard; cross-cutting foundation of compliance. |
+| **Compliance** | **Compliance-by-design**: GDPR / ISO 27001 / SOC 2 / EU AI Act / NIS2 — §7.12 | The software provides the controls; certification remains organizational. |
+| **Traceability** | **Git-style event-sourced Ledger**: every step (model I/O, tools, state) immutable, inspectable, replayable, reversible — §4.11 | Full transparency (all model in/out, not just results); captured at the Gateway. |
+| **Secrets** | **Pluggable `SecretProvider`, JIT resolution**: SOPS+age / 1Password / OpenBao / Infisical (+ OS keychain) — §7.13 | References never values; simple default; compliance recommendation; native (hot-path) + optional MCP. |
+| **Workflow** | **Native engine** (inspired by Archon) **event-sourced on the Ledger**; optional durable back-end (Temporal/Windmill) — §4.12 | Native multi-agentic sequencing across the whole SDLC chain; durability/replay free via the Ledger. |
+| **Task tracking** | **Pluggable `TaskTracker`**: local (silo) / **Vikunja** (embedded OSS) / **Jira** (MCP) — §4.13 | Build on Jira OR an embeddable OSS; bound by the config hierarchy. |
+| **Hierarchy** | **Silo ▸ Team ▸ Project ▸ Conversation** (Local: without Team); config "highest locks lowest" — §5.5 | A single resolution/lock mechanism for harness, tracker, egress, providers. |
 
-### 2.1 Sources (état vérifié au 2026-07-15)
-- Goose : https://github.com/aaif-goose/goose · https://block-goose.mintlify.app/
-- LiteLLM : https://github.com/BerriAI/litellm · https://docs.litellm.ai/docs/providers
-- Spec-Kit : https://github.com/github/spec-kit
-- BMAD-METHOD : https://docs.bmad-method.org/
+### 2.1 Sources (state verified as of 2026-07-15)
+- Goose: https://github.com/aaif-goose/goose · https://block-goose.mintlify.app/
+- LiteLLM: https://github.com/BerriAI/litellm · https://docs.litellm.ai/docs/providers
+- Spec-Kit: https://github.com/github/spec-kit
+- BMAD-METHOD: https://docs.bmad-method.org/
 
 ---
 
-## 3. Architecture d'ensemble
+## 3. Overall architecture
 
-Principe directeur : **cœur headless**, la CLI est le client complet de référence, l'UI est une surcouche. Toute capacité de l'UI existe dans la CLI ; toute capacité de la CLI est exposée par l'API.
+Guiding principle: **headless core**, the CLI is the complete reference client, the UI is a layer. Every UI capability exists in the CLI; every CLI capability is exposed by the API.
 
 ```
-        ┌───────────────── CŒUR HEADLESS (Goose, Rust) ─────────────────┐
-        │  API programmatique complète (JSON-RPC / HTTP local)           │
-        │  Runtime agentique · Contexte · Dispatch tools/skills/providers│
+        ┌───────────────── HEADLESS CORE (Goose, Rust) ─────────────────┐
+        │  Complete programmatic API (JSON-RPC / local HTTP)             │
+        │  Agentic runtime · Context · Tool/skill/provider dispatch      │
         └───────────────────────────┬───────────────────────────────────┘
-                                     │ (même contrat pour tous)
+                                     │ (same contract for all)
         ┌──────────────┬─────────────┴─────────────┬────────────────────┐
         ▼              ▼                             ▼
-   API (socket/    CLI (client COMPLET,        UI Tauri (surcouche,
-   HTTP)           référence des tests)         zéro capacité propre)
+   API (socket/    CLI (COMPLETE client,       Tauri UI (layer,
+   HTTP)           test reference)              zero own capability)
                                      │
    ┌─────────────────────────────────┼────────────────────────────────┐
    ▼                 ▼               ▼                ▼                 ▼
- Sidecar         Gateway         Connecteurs      Backend +          Controller
- Python          LiteLLM         MCP (Atlassian,  Superviseur        cowork
- (embeddings/    (100+ prov.     M365, fs, git,   de mode            (v2)
+ Python          LiteLLM         MCP connectors   Backend +          Controller
+ sidecar         Gateway         (Atlassian,      Mode               cowork
+ (embeddings/    (100+ prov.     M365, fs, git,   Supervisor         (v2)
  RAG)            cloud+local)    shell, …)        (silos)
                      │
-              Inférence : Ollama / vLLM / llama.cpp / LM Studio (+ cloud)
+              Inference: Ollama / vLLM / llama.cpp / LM Studio (+ cloud)
 ```
 
-**Langages** : Rust (cœur + UI Tauri) · Python (sidecar IA/inférence) · TypeScript (front UI). Polyglotte assumé, chaque langage sur son terrain de force.
+**Languages**: Rust (core + Tauri UI) · Python (AI/inference sidecar) · TypeScript (UI front-end). Polyglot by design, each language on its strong ground.
 
 ---
 
-## 4. Composants & interfaces
+## 4. Components & interfaces
 
-Chaque composant : **un rôle**, une **interface explicite**, **testable isolément**. Couplage inversé (le cœur découvre connecteurs/providers/pilotage, il n'en dépend pas).
+Each component: **one role**, an **explicit interface**, **testable in isolation**. Inverted coupling (the core discovers connectors/providers/control; it does not depend on them).
 
-### 4.1 Surfaces d'accès
-- **Cœur headless** : expose l'`Agent` via API locale (JSON-RPC + HTTP optionnel). Surface unique.
-- **CLI** (`skein …`) : client complet, faisant foi ; 100% scriptable ; base des tests E2E.
-- **API** : même surface, pour automatisation/CI/tiers ; soumise à l'exposition/authz du mode.
-- **UI (Tauri)** : n'émet que des commandes CLI/API, affiche des événements. Aucune logique métier.
+### 4.1 Access surfaces
+- **Headless core**: exposes the `Agent` via a local API (JSON-RPC + optional HTTP). Single surface.
+- **CLI** (`skein …`): complete client, authoritative; 100% scriptable; basis of E2E tests.
+- **API**: same surface, for automation/CI/third parties; subject to the mode's exposure/authz.
+- **UI (Tauri)**: only emits CLI/API commands, displays events. No business logic.
 
-### 4.2 Cœur agentique (`core/`, Rust — Goose)
+### 4.2 Agentic core (`core/`, Rust — Goose)
 ```rust
-enum Content { Text(..), Image(..), Audio(..), Doc(..), Video(..) }  // abstraction typée (dès v2)
+enum Content { Text(..), Image(..), Audio(..), Doc(..), Video(..) }  // typed abstraction (from v2)
 struct Message { role: Role, parts: Vec<Content> }
 
 trait Agent {
@@ -124,39 +124,39 @@ trait Agent {
   fn register_skill(&mut self, skill: Recipe);         // = BMAD/Spec-Kit/…
 }
 ```
-Dépend de : `ModelGateway`, `Backend`, extensions MCP, moteur de skills.
+Depends on: `ModelGateway`, `Backend`, MCP extensions, skill engine.
 
-**Abstraction de contenu typé** (introduite en v2, transversale) : un `Message` porte des `parts` de types `text | image | audio | doc | video`. C'est le **seul ajout cœur** requis par toute la roadmap multimodale ; les modalités concrètes sont ensuite des capacités de providers (Gateway) ou des tools spécialisés — jamais une réécriture de la boucle agentique.
+**Typed content abstraction** (introduced in v2, cross-cutting): a `Message` carries `parts` of types `text | image | audio | doc | video`. This is the **only core addition** required by the entire multimodal roadmap; concrete modalities are then provider capabilities (Gateway) or specialized tools — never a rewrite of the agentic loop.
 
-### 4.3 Connecteurs (`connectors/`, serveurs MCP)
-Chaque connecteur = un serveur MCP (Jira/Bitbucket/Confluence, Outlook/SharePoint/Teams, `fs`, `git`, `shell`). Ajout par **config**, pas de code cœur. Protocole : MCP (`tools/list`, `tools/call`, `resources/*`).
+### 4.3 Connectors (`connectors/`, MCP servers)
+Each connector = one MCP server (Jira/Bitbucket/Confluence, Outlook/SharePoint/Teams, `fs`, `git`, `shell`). Added by **config**, no core code. Protocol: MCP (`tools/list`, `tools/call`, `resources/*`).
 
-### 4.4 Moteur de skills / recipes (`skills/`)
-Charge BMAD (21+ agents, artefacts), Spec-Kit (Spec→Plan→Tasks→Implement), powerskills/superpowers comme **recipes Goose YAML** invocables (`/spec`, `/bmad`, …).
+### 4.4 Skills / recipes engine (`skills/`)
+Loads BMAD (21+ agents, artifacts), Spec-Kit (Spec→Plan→Tasks→Implement), powerskills/superpowers as invocable **Goose YAML recipes** (`/spec`, `/bmad`, …).
 ```
 Recipe = { name, description, instructions, required_extensions[], params[], prompt }
 ```
 
-### 4.5 Passerelle de modèles (`gateway/`, LiteLLM)
-Point d'entrée OpenAI-compatible (`POST /v1/chat/completions`) → 100+ providers cloud/locaux ; routage, coût/quotas, load-balancing, guardrails. Goose s'y branche via un provider « openai-compatible ».
-**Chokepoint de traçabilité** : toute I/O modèle transite ici → la Gateway **capture entrées/sorties modèles vers le Ledger (§4.11)**, quel que soit le runtime émetteur.
+### 4.5 Model gateway (`gateway/`, LiteLLM)
+OpenAI-compatible entry point (`POST /v1/chat/completions`) → 100+ cloud/local providers; routing, cost/quotas, load-balancing, guardrails. Goose plugs in via an "openai-compatible" provider.
+**Traceability chokepoint**: all model I/O passes through here → the Gateway **captures model inputs/outputs to the Ledger (§4.11)**, whatever the emitting runtime.
 
-### 4.6 Couche d'inférence (`inference/`)
-Modèles locaux (Ollama / llama.cpp / vLLM / LM Studio) exposés en endpoints OpenAI-compat, enregistrés dans LiteLLM. « Serveur d'inférence embarqué » = Ollama/llama.cpp packagé (+ vLLM optionnel GPU).
+### 4.6 Inference layer (`inference/`)
+Local models (Ollama / llama.cpp / vLLM / LM Studio) exposed as OpenAI-compat endpoints, registered in LiteLLM. "Embedded inference server" = Ollama/llama.cpp packaged (+ optional GPU vLLM).
 
-### 4.7 Sidecar Python (`sidecar/`)
-Embeddings, RAG/indexation, orchestration d'inférence avancée, éval. Process séparé (gRPC/HTTP local) : `embed()`, `index()`, `search()`. Le stockage d'index est routé par silo/mode.
+### 4.7 Python sidecar (`sidecar/`)
+Embeddings, RAG/indexing, advanced inference orchestration, eval. Separate process (gRPC/local HTTP): `embed()`, `index()`, `search()`. Index storage is routed by silo/mode.
 
-### 4.8 Backend & silos (`backend/`) + Superviseur de mode
+### 4.8 Backend & silos (`backend/`) + Mode Supervisor
 ```rust
 trait Backend { fn store(&self, mode: Mode, team: Option<TeamId>) -> Silo; }
 impl EmbeddedBackend  // SQLite + fichiers locaux, par namespace
-impl RemoteBackend    // client du leader, partition d'équipe
+impl RemoteBackend    // leader client, team partition
 struct ModeSupervisor { fn detect()->NetState; fn switch(Mode); fn heartbeat(); }
 ```
 
-### 4.9 Controller cowork (`controller/`, interface posée en v1 ; capture v2, pilotage v3)
-Abstraction unique du pilotage d'une surface externe (capture + actions), avec **plusieurs canaux interchangeables** :
+### 4.9 Cowork Controller (`controller/`, interface set in v1; capture v2, control v3)
+A single abstraction for controlling an external surface (capture + actions), with **several interchangeable channels**:
 ```rust
 trait Controller {
   fn screenshot(&self) -> Frame;
@@ -166,53 +166,53 @@ impl ComputerUseController   // API Anthropic (grounding fourni)
 impl LocalController         // desktop : enigo (clavier/souris) + xcap (capture)
 impl BrowserController       // compagnon navigateur (extension Chrome/Edge, type "Claude for Chrome")
 ```
-Les trois usages — captures en entrée (grounding, v2), pilotage PC et compagnon navigateur (v3) — réutilisent **la même brique de grounding visuel**. Ce sont trois implémentations d'un même trait, pas trois développements distincts.
-**Cross-platform** : `enigo`/`xcap` couvrent Windows/macOS/Linux. Sur **macOS**, le `LocalController` requiert les autorisations système **Accessibilité** et **Enregistrement de l'écran** (demandées explicitement à l'utilisateur, jamais contournées) ; sous Linux, gérer X11 **et** Wayland (portails).
+All three uses — captures as input (grounding, v2), PC control, and browser companion (v3) — reuse **the same visual grounding building block**. These are three implementations of one trait, not three separate developments.
+**Cross-platform**: `enigo`/`xcap` cover Windows/macOS/Linux. On **macOS**, the `LocalController` requires the system permissions **Accessibility** and **Screen Recording** (requested explicitly from the user, never bypassed); on Linux, handle X11 **and** Wayland (portals).
 
-### 4.10 Modalités génératives, orchestration omni & flux temps réel (v4+)
-- **Génération** (v4/v5) : tools/connecteurs spécialisés — image (modèle via Gateway), **TTS** (audio), **fichiers Office** (docx/pptx/xlsx via bibliothèques matures), **vidéo** (v5). Chaque sortie est un `Content` typé produit par un tool ; le cœur n'en dépend pas.
-- **Orchestrateur omni** (v6) : couche entre `Agent` et `Gateway` qui **décompose** une requête multimodale, route chaque sous-tâche vers le **modèle spécialisé** approprié (vision, ASR, TTS, image, LLM) — **en parallèle** quand les sous-tâches sont indépendantes, **en séquentiel** quand elles dépendent l'une de l'autre — puis **recompose** une réponse unifiée. Donne l'**illusion d'un modèle omni unique tout en restant multi-provider**. Un vrai modèle omni = une route parmi d'autres.
+### 4.10 Generative modalities, omni orchestration & real-time streams (v4+)
+- **Generation** (v4/v5): specialized tools/connectors — image (model via Gateway), **TTS** (audio), **Office files** (docx/pptx/xlsx via mature libraries), **video** (v5). Each output is a typed `Content` produced by a tool; the core does not depend on it.
+- **Omni orchestrator** (v6): a layer between `Agent` and `Gateway` that **decomposes** a multimodal request, routes each sub-task to the appropriate **specialized model** (vision, ASR, TTS, image, LLM) — **in parallel** when sub-tasks are independent, **sequentially** when they depend on one another — then **recomposes** a unified response. Gives the **illusion of a single omni model while remaining multi-provider**. A true omni model = one route among others.
   ```rust
   trait OmniOrchestrator {
-    fn plan(&self, input: Message) -> Vec<SubTask>;         // décomposition
-    fn dispatch(&self, tasks: Vec<SubTask>) -> Vec<Content>; // // parallèle/séquentiel via Gateway
+    fn plan(&self, input: Message) -> Vec<SubTask>;         // decomposition
+    fn dispatch(&self, tasks: Vec<SubTask>) -> Vec<Content>; // parallel/sequential via Gateway
     fn compose(&self, parts: Vec<Content>) -> Message;       // recomposition
   }
   ```
-- **Canal duplex streaming** (v7, *nouveauté du modèle d'exécution*) : l'audio temps réel exige un flux **bidirectionnel continu** (in et out simultanés), distinct de la boucle requête→réponse. Introduit une interface `RealtimeSession` (WebRTC/streaming ou API omni-realtime) — c'est le **seul jalon qui modifie le modèle d'exécution du cœur** (cf. risques §10).
-- **Traduction d'équipe** (v8) : composition STT→traduire→TTS (voix) + traduction texte, **par participant** selon un profil « langue maternelle » porté par le membre dans la **partition d'équipe** (§5), via le connecteur Teams/chat.
+- **Duplex streaming channel** (v7, *new to the execution model*): real-time audio requires a **continuous bidirectional stream** (simultaneous in and out), distinct from the request→response loop. Introduces a `RealtimeSession` interface (WebRTC/streaming or omni-realtime API) — it is the **only milestone that modifies the core's execution model** (cf. risks §10).
+- **Team translation** (v8): composition STT→translate→TTS (voice) + text translation, **per participant** according to a "native language" profile carried by the member in the **team partition** (§5), via the Teams/chat connector.
 
-### 4.11 Ledger d'exécution (event-sourced, façon git) — transversal, dès v1
-**Chaque étape est une révision immuable.** Skein enregistre, dans un journal **append-only, adressé par hachage et chaîné (parent→enfant)**, *tout* ce qui compose une exécution — pas seulement les résultats produits :
-- **Entrées modèles** : le contexte/prompt **exact** envoyé à chaque modèle.
-- **Sorties modèles** : la réponse **brute** de chaque modèle (avant post-traitement).
-- **Tool-calls** : appel (nom + arguments) **et** résultat.
-- **Changements d'état** : mutations de session/fichiers (avec snapshot pré-mutation quand c'est réversible).
+### 4.11 Execution Ledger (event-sourced, git-style) — cross-cutting, from v1
+**Each step is an immutable revision.** Skein records, in an **append-only, hash-addressed and chained (parent→child)** journal, *everything* that makes up an execution — not just the produced results:
+- **Model inputs**: the **exact** context/prompt sent to each model.
+- **Model outputs**: the **raw** response of each model (before post-processing).
+- **Tool-calls**: the call (name + arguments) **and** the result.
+- **State changes**: session/file mutations (with pre-mutation snapshot where reversible).
 
 ```rust
 struct StepId(String);                 // hash de contenu (comme un SHA de commit)
 struct Step {
-  id: StepId, parent: Option<StepId>,  // chaîne/DAG
+  id: StepId, parent: Option<StepId>,  // chain/DAG
   ts: i64, principal: PrincipalId, silo: SiloRef,
   kind: StepKind,                      // LlmRequest | LlmResponse | ToolCall | ToolResult | StateChange
-  payload: Content,                    // le contenu intégral (in ou out)
+  payload: Content,                    // the full content (in or out)
 }
 trait Ledger {
   fn append(&self, step: Step) -> StepId;        // append-only
   fn history(&self, session: SessionId) -> Vec<Step>;   // "git log"
   fn show(&self, id: StepId) -> Step;            // inspecter in/out exacts
   fn replay(&self, from: StepId) -> EventStream; // rejouer depuis un point
-  fn revert(&self, to: StepId) -> Result<()>;    // annuler (effets réversibles) + restaurer snapshot
+  fn revert(&self, to: StepId) -> Result<()>;    // undo (reversible effects) + restore snapshot
   fn branch(&self, from: StepId) -> SessionId;   // explorer une alternative
 }
 ```
-- **Point de capture** : les entrées/sorties modèles sont capturées à la **Gateway (§4.5)** — chokepoint unique traversé par tout runtime (Goose inclus) → aucune I/O modèle n'échappe au journal.
-- **Réversibilité honnête** : effets internes (fichiers/session) **annulables** par snapshot ; effets externes irréversibles (e-mail envoyé, ticket créé) **enregistrés et signalés** comme non annulables (action compensatoire proposée, jamais auto).
-- **Isolation & sécurité** : le journal vit **dans le silo** (§5.3) ; il contient des prompts potentiellement sensibles → soumis au **trousseau/rédaction, à l'egress et à la rétention** (§7). C'est aussi la pièce maîtresse de la traçabilité RGPD/AI Act (§7.11-7.12).
-- **Surfaces** : `skein ledger log|show|replay|revert|branch` (CLI de référence) ; l'UI n'est qu'une vue de ce journal.
+- **Capture point**: model inputs/outputs are captured at the **Gateway (§4.5)** — a single chokepoint traversed by every runtime (Goose included) → no model I/O escapes the journal.
+- **Honest reversibility**: internal effects (files/session) **undoable** via snapshot; irreversible external effects (email sent, ticket created) **recorded and flagged** as non-undoable (compensating action proposed, never automatic).
+- **Isolation & security**: the journal lives **within the silo** (§5.3); it contains potentially sensitive prompts → subject to the **keychain/redaction, egress and retention** (§7). It is also the centerpiece of GDPR/AI Act traceability (§7.11-7.12).
+- **Surfaces**: `skein ledger log|show|replay|revert|branch` (reference CLI); the UI is merely a view of this journal.
 
-### 4.12 Moteur de workflow (natif, inspiré d'Archon, synchro Ledger)
-Le harness sait **séquencer nativement des actions multi-agentiques** à travers ses outils connectés. Un **workflow** = un graphe de **nœuds typés** exécuté par le cœur et **event-sourcé sur le Ledger** (§4.11) → durabilité, replay et **reprise sur panne gratuits**.
+### 4.12 Workflow engine (native, inspired by Archon, Ledger-synced)
+The harness can **natively sequence multi-agentic actions** across its connected tools. A **workflow** = a graph of **typed nodes** executed by the core and **event-sourced on the Ledger** (§4.11) → durability, replay and **crash recovery for free**.
 ```rust
 enum Node {
   Agent(Prompt), Tool(McpCall), Subagent(WorkflowRef),
@@ -221,305 +221,305 @@ enum Node {
 }
 struct Workflow { name: String, params: Vec<Param>, graph: Vec<Node> }
 trait WorkflowEngine {
-  fn run(&self, wf: &Workflow, ctx: RunCtx) -> EventStream; // chaque étape → Step dans le Ledger
-  fn resume(&self, run: RunId) -> EventStream;              // reprise depuis le dernier Step
+  fn run(&self, wf: &Workflow, ctx: RunCtx) -> EventStream; // each step → Step in the Ledger
+  fn resume(&self, run: RunId) -> EventStream;              // resume from the last Step
 }
 ```
-- **Modèle inspiré d'Archon** (harness déterministe + tâches + knowledge + MCP), tournant sur le **backend local** par défaut.
-- **Recipes Goose + flux BMAD/Spec-Kit = workflows** (une recipe est un `Workflow` déclaratif).
-- **Chaîne SDLC** : les workflows orchestrent toute la chaîne — conception, dev, tests, packaging, déploiement — via les connecteurs MCP correspondants (git, CI/CD, tests, registries, cloud), et peuvent piloter Jira/tracker (§4.13).
-- **Back-end durable optionnel** (Temporal cœur-Rust / Windmill) derrière `WorkflowEngine` pour l'échelle entreprise ; défaut = moteur natif sur Ledger.
+- **Archon-inspired model** (deterministic harness + tasks + knowledge + MCP), running on the **local backend** by default.
+- **Goose recipes + BMAD/Spec-Kit flows = workflows** (a recipe is a declarative `Workflow`).
+- **SDLC chain**: workflows orchestrate the whole chain — design, dev, tests, packaging, deployment — via the corresponding MCP connectors (git, CI/CD, tests, registries, cloud), and can drive Jira/tracker (§4.13).
+- **Optional durable back-end** (Temporal Rust-core / Windmill) behind `WorkflowEngine` for enterprise scale; default = native engine on the Ledger.
 
-### 4.13 Suivi des tâches (`TaskTracker` pluggable)
-Les workflows et l'utilisateur créent/suivent des tâches via un tracker interchangeable :
+### 4.13 Task tracking (pluggable `TaskTracker`)
+Workflows and the user create/track tasks via an interchangeable tracker:
 ```rust
 trait TaskTracker { fn create(&self, t: Task)->TaskId; fn update(&self, id: TaskId, s: Status); fn list(&self, q: Query)->Vec<Task>; fn requires_network(&self)->bool; }
 impl LocalTracker    // silo-backed, hors-ligne (toujours disponible)
-impl Vikunja         // OSS léger embarquable (API-first), local ou serveur
-impl JiraTracker     // via le connecteur MCP Jira (cloud/entreprise)
-// (Plane possible plus tard pour l'échelle équipe)
+impl Vikunja         // lightweight embeddable OSS (API-first), local or server
+impl JiraTracker     // via the Jira MCP connector (cloud/enterprise)
+// (Plane possible later for team scale)
 ```
-Le **back-end actif est résolu par la hiérarchie de config (§5.5)** : choix entre Vikunja (local/embarqué) et Jira cloud, fixable au niveau silo/projet/conversation. Progression des workflows reflétée dans le tracker.
+The **active back-end is resolved by the config hierarchy (§5.5)**: choice between Vikunja (local/embedded) and Jira cloud, settable at the silo/project/conversation level. Workflow progress is reflected in the tracker.
 
 ---
 
-## 5. Connectivité, modes & isolation
+## 5. Connectivity, modes & isolation
 
-### 5.1 Backend embarqué, toujours fonctionnel
-Chaque instance embarque un backend toujours actif. Ce qui est configurable = son **exposition réseau**. Pas de produit serveur séparé.
+### 5.1 Embedded backend, always functional
+Every instance embeds an always-active backend. What is configurable = its **network exposure**. No separate server product.
 
-### 5.2 Trois modes (auto-détectés, bascule proposée)
+### 5.2 Three modes (auto-detected, switch proposed)
 
-| Mode | Backend local | Exposition | Rôle |
+| Mode | Local backend | Exposure | Role |
 |---|---|---|---|
-| **Local** | Actif | OFF | Autonome, hors réseau |
-| **En ligne — Serveur** | Actif + partagé | **ON** | *Leader* (sert d'autres instances) |
-| **En ligne — Remote** | En **veille** | client | *Follower* (utilise un leader distant) |
+| **Local** | Active | OFF | Autonomous, off-network |
+| **Online — Server** | Active + shared | **ON** | *Leader* (serves other instances) |
+| **Online — Remote** | On **standby** | client | *Follower* (uses a remote leader) |
 
-- **Superviseur de mode** : détecte connectivité + présence de leader ; propose la bascule (jamais imposée) ; **fallback local automatique** si hors-ligne ou perte du leader.
-- Modèle **leader/follower auto-élu** : à tout instant, exactement **un** backend actif par instance (pas de split-brain).
+- **Mode supervisor**: detects connectivity + leader presence; proposes the switch (never forced); **automatic local fallback** if offline or leader lost.
+- **Auto-elected leader/follower model**: at any moment, exactly **one** active backend per instance (no split-brain).
 
-### 5.3 Isolation des données
-- **Inter-modes** : silos **étanches** (namespace par mode : DB/schéma + répertoire + trousseau séparés). Aucune session ne traverse la frontière. Changer de mode = changer de silo, jamais fusionner.
-- **Intra-Remote** : partage **cloisonné par équipe** — un follower n'accède qu'à `team:<sien>` sur le leader. Deux équipes sur un même leader restent invisibles l'une à l'autre.
-- **Invariants testés** : écrire dans un silo → prouver l'invisibilité dans les autres silos et les autres équipes.
+### 5.3 Data isolation
+- **Inter-mode**: **watertight** silos (namespace per mode: DB/schema + directory + separate keychain). No session crosses the boundary. Changing mode = changing silo, never merging.
+- **Intra-Remote**: **team-partitioned** sharing — a follower only accesses `team:<its own>` on the leader. Two teams on the same leader remain invisible to each other.
+- **Tested invariants**: write to a silo → prove invisibility in the other silos and other teams.
 
-### 5.4 Gouvernance & configuration du harness (éditable local + équipe)
-Le harness est **configurable et versionné** (config-as-code : instructions système, tools activés + permissions, skills/recipes, paramètres de contexte, routage modèles, politiques sécurité/egress, garde-fous).
+### 5.4 Harness governance & configuration (editable local + team)
+The harness is **configurable and versioned** (config-as-code: system instructions, enabled tools + permissions, skills/recipes, context parameters, model routing, security/egress policies, guardrails).
 
-**Rôles** (dans la partition d'équipe, §5.3) : `membre`, `chef d'équipe`, `chef de projet`, `admin`. Seuls chefs/admin éditent la couche équipe.
+**Roles** (within the team partition, §5.3): `member`, `team lead`, `project lead`, `admin`. Only leads/admin edit the team layer.
 
-**Configuration en deux couches, fusionnées à la résolution :**
+**Two-layer configuration, merged at resolution:**
 
-| Couche | Éditée par | Stockage (silo) | Effet |
+| Layer | Edited by | Storage (silo) | Effect |
 |---|---|---|---|
-| **Équipe** | chef d'équipe / chef de projet / admin | partition d'équipe (mode Remote) | base commune ; réglages **verrouillables** |
-| **Locale** | l'utilisateur | silo local | surcharge/complète la base ; seule couche en mode Local pur |
+| **Team** | team lead / project lead / admin | team partition (Remote mode) | common base; **lockable** settings |
+| **Local** | the user | local silo | overrides/complements the base; only layer in pure Local mode |
 
-**Règles de résolution :**
-- Précédence : le **local surcharge l'équipe**, *sauf* réglages marqués **verrouillés** par un chef/admin (non surchargeables — gouvernance).
-- Isolation respectée : config équipe en partition d'équipe, config locale en silo local. En **mode Local pur**, aucune couche équipe (cohérent avec §5.3).
-- **Versionné** : historisé, revu, réversible (édité comme du code).
-- **Sécurité (lien §7)** : les réglages de sécurité (egress, garde-fous, connecteurs interdits) sont **verrouillables** par chef/admin ; un utilisateur local **ne peut pas desserrer** une contrainte imposée par l'équipe. Toute modification de config sécurité est **auditée**.
+**Resolution rules:**
+- Precedence: **local overrides team**, *except* settings marked **locked** by a lead/admin (non-overridable — governance).
+- Isolation respected: team config in the team partition, local config in the local silo. In **pure Local mode**, no team layer (consistent with §5.3).
+- **Versioned**: historized, reviewed, reversible (edited like code).
+- **Security (link §7)**: security settings (egress, guardrails, forbidden connectors) are **lockable** by lead/admin; a local user **cannot loosen** a constraint imposed by the team. Any change to security config is **audited**.
 
-### 5.5 Hiérarchie organisationnelle & résolution de config
-Les données et la config s'organisent en **hiérarchie**, différente selon le mode :
+### 5.5 Organizational hierarchy & config resolution
+Data and config are organized in a **hierarchy**, different depending on the mode:
 
 ```
-  Modes Serveur/Remote :   Silo ▸ Équipe ▸ Projet ▸ Conversation
-  Mode Local            :   Silo(local) ▸ Projet ▸ Conversation      (pas d'équipes)
+  Server/Remote modes :   Silo ▸ Team ▸ Project ▸ Conversation
+  Local mode          :   Silo(local) ▸ Project ▸ Conversation      (no teams)
 ```
 
-**Résolution de config (harness, TaskTracker, egress, providers, secrets…) — « le plus haut verrouille le plus bas » :**
-- Un réglage **fixé** à un niveau donné est **autoritaire (verrou) pour tous les niveaux inférieurs**.
-- S'il n'est pas fixé plus haut, il est **modifiable au niveau le plus bas** (jusqu'à la **conversation**, changeable d'une conversation à l'autre).
-- Précédence : **Silo > Équipe > Projet > Conversation**. C'est la **généralisation du verrou harness §5.4** à toute la hiérarchie (un seul mécanisme de résolution gouverne harness, TaskTracker, egress, providers).
+**Config resolution (harness, TaskTracker, egress, providers, secrets…) — "highest locks lowest":**
+- A setting **fixed** at a given level is **authoritative (lock) for all lower levels**.
+- If not fixed higher up, it is **modifiable at the lowest level** (down to the **conversation**, changeable from one conversation to another).
+- Precedence: **Silo > Team > Project > Conversation**. This is the **generalization of the §5.4 harness lock** to the whole hierarchy (a single resolution mechanism governs harness, TaskTracker, egress, providers).
 
-**Exemple (TaskTracker)** : si le silo fixe « Jira », toutes les équipes/projets/conversations en dessous utilisent Jira ; si rien n'est fixé au-dessus, un projet (ou une conversation) peut choisir Vikunja local. En **mode Local**, la même règle s'applique sans l'échelon Équipe.
+**Example (TaskTracker)**: if the silo fixes "Jira", all teams/projects/conversations below use Jira; if nothing is fixed above, a project (or a conversation) may choose local Vikunja. In **Local mode**, the same rule applies without the Team level.
 
-- **Isolation préservée** : la hiérarchie vit *dans* un silo ; elle ne franchit jamais la frontière de silo (§5.3). L'appartenance équipe reste la frontière d'autorisation (§7.10).
+- **Isolation preserved**: the hierarchy lives *within* a silo; it never crosses the silo boundary (§5.3). Team membership remains the authorization boundary (§7.10).
 
 ---
 
-## 6. Flux de données (nominal)
+## 6. Data flow (nominal)
 
 ```
-Entrée (UI/CLI/API)
- └─1─ Superviseur : résout le silo (local / server / remote+team)
- └─2─ Contexte : charge mémoire/historique DU SILO
- └─3─ Boucle agentique :
-        a) LLM → Gateway LiteLLM → provider (cloud/local)
-        b) demande de tool → dispatch MCP → connecteur → résultat
-        c) évalue, répète
- └─4─ Effets de bord via connecteurs (soumis aux règles §7)
- └─5─ Persistance DANS LE SILO courant uniquement
- └──► Stream d'événements typé (token / tool-call / diff / erreur) → CLI & UI identiques
+Input (UI/CLI/API)
+ └─1─ Supervisor : resolve the silo (local / server / remote+team)
+ └─2─ Context : load memory/history OF THE SILO
+ └─3─ Agentic loop :
+        a) LLM → LiteLLM Gateway → provider (cloud/local)
+        b) tool request → MCP dispatch → connector → result
+        c) evaluate, repeat
+ └─4─ Side effects via connectors (subject to §7 rules)
+ └─5─ Persistence IN THE CURRENT SILO only
+ └──► Typed event stream (token / tool-call / diff / error) → identical CLI & UI
 ```
 
-- L'isolation est appliquée aux **bornes** (étapes 1 et 5).
-- **Politique par défaut** : mode Local ⇒ **aucune sortie réseau** ⇒ providers **locaux uniquement**.
-- Sidecar RAG : `embed(query)` (modèle local par défaut) → `search()` dans l'index du silo → passages réinjectés à l'étape 2.
+- Isolation is enforced at the **boundaries** (steps 1 and 5).
+- **Default policy**: Local mode ⇒ **no network output** ⇒ **local providers only**.
+- RAG sidecar: `embed(query)` (local model by default) → `search()` in the silo's index → passages re-injected at step 2.
 
 ---
 
-## 7. Sécurité, identité, observabilité & conformité
+## 7. Security, identity, observability & compliance
 
-1. **AuthN (Remote/leader)** : identité vérifiée à l'attache via un **fournisseur d'identité pluggable** (§7.9). Accès **deny-by-default**. **TLS obligatoire** dès exposition.
-2. **Secrets** : gérés via un **`SecretProvider` pluggable à résolution juste-à-temps** (§7.13) — la config ne stocke que des **références**, jamais des valeurs. Coffre OS par défaut. **Jamais en clair**, **un trousseau par silo**, **rédaction du Ledger/audit**. L'agent n'entre jamais de credentials dans un formulaire.
-3. **Egress par mode** : Local = aucune sortie (local uniquement) ; Serveur/Remote = sortie selon **politique explicite** (allow-list d'endpoints).
-4. **Garde-fous d'exécution** : actions destructives/irréversibles → **confirmation** (ou allow-list en CI) ; **bac à sable** pour code/shell ; journal d'audit des tool-calls (quoi/quand/quel silo).
-5. **Défense injection de prompt** : tout contenu rapporté par un tool (e-mail, page, issue, capture) est **donnée, pas instruction**. Consignes trouvées dans du contenu externe → signalées, jamais exécutées.
-6. **Chaîne d'appro. (MCP & recipes)** : registre de confiance, épinglage de versions, revue avant activation. Pas de chargement silencieux.
-7. **Sûreté cowork / navigateur / voix (v2+)** : confirmations avant actions irréversibles ; pas de saisie de credentials ; captures d'écran, contenu web et audio confinés au silo + politique egress ; le compagnon navigateur n'agit jamais sur instruction trouvée *dans* une page (frontière §7.5).
-8. **Gouvernance du harness (§5.4)** : les réglages de sécurité sont **verrouillables** par chef d'équipe/projet/admin et **non surchargeables** en local ; toute édition de config (surtout sécurité) est **auditée et versionnée**. L'édition du harness est elle-même une action gouvernée, pas un contournement des règles ci-dessus.
-9. **Ledger d'exécution (§4.11)** : contient l'intégralité des prompts/réponses modèles → **donnée sensible**. Confiné au **silo**, soumis à l'**egress**, au **trousseau** (rédaction des secrets avant persistance), à une **politique de rétention** configurable, et à l'**accès RBAC** (qui peut lire le journal). Le ledger est la source de vérité de la traçabilité (§7.11-7.12) — il ne se contourne pas.
+1. **AuthN (Remote/leader)**: identity verified at attach via a **pluggable identity provider** (§7.9). **Deny-by-default** access. **Mandatory TLS** as soon as exposed.
+2. **Secrets**: managed via a **pluggable `SecretProvider` with just-in-time resolution** (§7.13) — config stores only **references**, never values. OS vault by default. **Never in plaintext**, **one keychain per silo**, **Ledger/audit redaction**. The agent never enters credentials into a form.
+3. **Egress by mode**: Local = no output (local only); Server/Remote = output per **explicit policy** (endpoint allow-list).
+4. **Execution guardrails**: destructive/irreversible actions → **confirmation** (or allow-list in CI); **sandbox** for code/shell; audit log of tool-calls (what/when/which silo).
+5. **Prompt-injection defense**: any content reported by a tool (email, page, issue, capture) is **data, not instruction**. Instructions found in external content → flagged, never executed.
+6. **Supply chain (MCP & recipes)**: trust registry, version pinning, review before activation. No silent loading.
+7. **Cowork / browser / voice safety (v2+)**: confirmations before irreversible actions; no credential entry; screenshots, web content and audio confined to the silo + egress policy; the browser companion never acts on instructions found *within* a page (boundary §7.5).
+8. **Harness governance (§5.4)**: security settings are **lockable** by team/project lead/admin and **non-overridable** locally; any config edit (especially security) is **audited and versioned**. Editing the harness is itself a governed action, not a bypass of the rules above.
+9. **Execution Ledger (§4.11)**: contains the entirety of model prompts/responses → **sensitive data**. Confined to the **silo**, subject to **egress**, to the **keychain** (secret redaction before persistence), to a configurable **retention policy**, and to **RBAC access** (who can read the journal). The ledger is the source of truth for traceability (§7.11-7.12) — it cannot be bypassed.
 
-### 7.13 Gestion des secrets (`SecretProvider` pluggable, résolution juste-à-temps)
-Principe : **on stocke des *références*, jamais des valeurs**. Le secret est résolu **JIT** au moment précis de l'exécution d'une commande ou d'une authentification, injecté en mémoire (env du sous-processus ou en-tête d'auth), **jamais persisté**, **rédigé du Ledger/audit/logs**, et effacé de la mémoire après usage (type `zeroize`-on-drop).
+### 7.13 Secret management (pluggable `SecretProvider`, just-in-time resolution)
+Principle: **store *references*, never values**. The secret is resolved **JIT** at the precise moment a command is executed or an authentication occurs, injected into memory (subprocess env or auth header), **never persisted**, **redacted from the Ledger/audit/logs**, and wiped from memory after use (`zeroize`-on-drop type).
 
 ```rust
 struct SecretRef(String);   // URI: keychain:// | sops:// | op:// | bao:// | infisical://
 trait SecretProvider {
-  fn resolve(&self, r: &SecretRef) -> Result<SecretValue>; // JIT, en mémoire
+  fn resolve(&self, r: &SecretRef) -> Result<SecretValue>; // JIT, in memory
   fn requires_network(&self) -> bool;                       // pour la politique egress
 }
-impl OsKeychain   // défaut zéro-config, hors-ligne (Windows Credential Manager/DPAPI, Keychain, secret-service)
-impl SopsAge      // fichiers chiffrés versionnables, hors-ligne (défaut simple portable)
-impl OnePassword  // op CLI / SDK / MCP — références op://
+impl OsKeychain   // zero-config default, offline (Windows Credential Manager/DPAPI, Keychain, secret-service)
+impl SopsAge      // versionable encrypted files, offline (simple portable default)
+impl OnePassword  // op CLI / SDK / MCP — op:// references
 impl OpenBao      // serveur Vault-compatible (OSS, Linux Foundation)
 impl Infisical    // CLI `infisical run` / MCP
 ```
 
-- **Choix utilisateur** parmi : **SOPS+age**, **1Password**, **OpenBao**, **Infisical** (+ trousseau OS). **Défaut** : trousseau OS (zéro-config) ; **défaut simple portable** : SOPS+age.
-- **Intégration** : adaptateur **natif par défaut** pour le hot-path JIT (plus rapide, moindre surface d'attaque — un secret ne transite pas par un tool-call) ; **MCP en option** (1Password, Infisical).
-- **Cohérence egress (§7.3)** : `requires_network()` gouverne la disponibilité. En **mode Local** (egress OFF), seuls les back-ends **hors-ligne** (OS keychain, SOPS+age) fonctionnent ; les back-ends en ligne (1Password cloud, OpenBao serveur, Infisical) exigent Serveur/Remote + egress explicite.
-- **Recommandation de conformité** :
+- **User choice** among: **SOPS+age**, **1Password**, **OpenBao**, **Infisical** (+ OS keychain). **Default**: OS keychain (zero-config); **simple portable default**: SOPS+age.
+- **Integration**: **native adapter by default** for the JIT hot-path (faster, smaller attack surface — a secret does not pass through a tool-call); **optional MCP** (1Password, Infisical).
+- **Egress consistency (§7.3)**: `requires_network()` governs availability. In **Local mode** (egress OFF), only **offline** back-ends (OS keychain, SOPS+age) work; online back-ends (1Password cloud, OpenBao server, Infisical) require Server/Remote + explicit egress.
+- **Compliance recommendation**:
 
-| Besoin | Reco |
+| Need | Recommendation |
 |---|---|
-| Local / individuel, minimisation RGPD, hors-ligne | **SOPS+age** ou trousseau OS |
-| Équipe/entreprise avec **rotation, révocation, audit centralisés** (ISO 27001 / SOC 2 / NIS2) | **OpenBao** (auto-hébergé, contrôle total) ou **1Password Business** |
-| Compromis dev-friendly auto-hébergeable | **Infisical** |
+| Local / individual, GDPR minimization, offline | **SOPS+age** or OS keychain |
+| Team/enterprise with **centralized rotation, revocation, audit** (ISO 27001 / SOC 2 / NIS2) | **OpenBao** (self-hosted, full control) or **1Password Business** |
+| Dev-friendly self-hostable compromise | **Infisical** |
 
-### 7.9 Identité (fournisseurs pluggables)
-Abstraction unique, plusieurs back-ends interchangeables — même pattern de couplage inversé que le reste :
+### 7.9 Identity (pluggable providers)
+A single abstraction, several interchangeable back-ends — same inverted-coupling pattern as the rest:
 ```rust
 trait IdentityProvider {
   fn authenticate(&self, cred: Credential) -> Principal;      // qui es-tu
   fn groups(&self, p: &Principal) -> Vec<Group>;              // tes groupes
 }
-impl LocalUserStore     // base d'utilisateurs locale (défaut, hors ligne)
+impl LocalUserStore     // local user store (default, offline)
 impl LdapProvider       // annuaire LDAP/AD
-impl OidcProvider       // OIDC générique
+impl OidcProvider       // generic OIDC
 impl EntraIdProvider    // Microsoft Entra ID (+ groupes)
 impl GoogleWorkspace    // Google Workspace (+ groupes)
 ```
-- **Mapping groupes → rôles** : les groupes Entra/Google/LDAP/OIDC sont mappés vers les rôles RBAC (§7.10) par une table de correspondance gérée par un admin.
-- **Défaut local-first** : `LocalUserStore` fonctionne sans réseau ; les IdP externes sont activés en mode Serveur/Remote (piste entreprise §8).
+- **Group → role mapping**: Entra/Google/LDAP/OIDC groups are mapped to RBAC roles (§7.10) via a correspondence table managed by an admin.
+- **Local-first default**: `LocalUserStore` works without network; external IdPs are enabled in Server/Remote mode (enterprise track §8).
 
-### 7.10 RBAC (rôles + permissions, à trois portées)
-Autorisation **deny-by-default**, évaluée à trois niveaux imbriqués :
+### 7.10 RBAC (roles + permissions, at three scopes)
+**Deny-by-default** authorization, evaluated at three nested levels:
 
-| Portée | Contrôle | Exemples de permissions |
+| Scope | Control | Permission examples |
 |---|---|---|
-| **Globale (outil)** | usage général de l'outil | se connecter, créer une session, utiliser le cowork, exposer un backend |
-| **Accès aux silos** | quels silos un principal peut voir/utiliser | lire/écrire `team:alpha`, refuser `team:beta` |
-| **Intra-silo** | fonctions & paramétrages dans un silo | activer tel connecteur, éditer le harness, changer l'egress, invoquer telle skill, utiliser tel provider |
+| **Global (tool)** | general tool usage | connect, create a session, use cowork, expose a backend |
+| **Silo access** | which silos a principal can see/use | read/write `team:alpha`, deny `team:beta` |
+| **Intra-silo** | functions & settings within a silo | enable a given connector, edit the harness, change egress, invoke a given skill, use a given provider |
 
-- **Rôles** (composables) : `membre`, `chef d'équipe`, `chef de projet`, `admin` (+ rôles custom) ; chaque rôle = un ensemble de permissions.
-- **Cohérence avec §5.4** : les « réglages verrouillables » du harness sont exprimés comme des permissions intra-silo (ex. `harness.egress.edit` réservé aux chefs/admin).
-- **Fournie tôt** en version locale (base locale + rôles de base) ; RBAC avancé + IdP externes sur la **piste entreprise**.
+- **Roles** (composable): `member`, `team lead`, `project lead`, `admin` (+ custom roles); each role = a set of permissions.
+- **Consistency with §5.4**: the harness "lockable settings" are expressed as intra-silo permissions (e.g. `harness.egress.edit` reserved for leads/admin).
+- **Delivered early** in a local version (local store + basic roles); advanced RBAC + external IdPs on the **enterprise track**.
 
-### 7.11 Observabilité
-- **Traces / métriques / logs** via **OpenTelemetry** (standard, exportable vers l'outillage de l'entreprise). Intégrée **dès v1** (peu coûteux tôt, pénible à rétrofit).
-- **Journal d'audit** immuable : authN/authZ, tool-calls, éditions de harness/sécurité, accès aux silos — horodaté, attribué au principal, borné au silo. Complémentaire du **Ledger d'exécution (§4.11)** qui, lui, capture le *contenu* (I/O modèles) : l'audit dit « qui a fait quoi », le ledger dit « quoi exactement a été envoyé/reçu ».
-- **Métriques produit** : coût/tokens par provider (via LiteLLM), latence, taux d'échec des tools ; **respectent la politique egress** (pas d'export hors politique).
+### 7.11 Observability
+- **Traces / metrics / logs** via **OpenTelemetry** (standard, exportable to enterprise tooling). Integrated **from v1** (cheap early, painful to retrofit).
+- **Immutable audit log**: authN/authZ, tool-calls, harness/security edits, silo access — timestamped, attributed to the principal, bounded to the silo. Complementary to the **execution Ledger (§4.11)** which captures the *content* (model I/O): the audit says "who did what", the ledger says "exactly what was sent/received".
+- **Product metrics**: cost/tokens per provider (via LiteLLM), latency, tool failure rate; **respect the egress policy** (no export outside policy).
 
-### 7.12 Conformité (compliance-by-design)
-> Le logiciel **fournit les contrôles** qui *permettent* la conformité ; la **certification** (ISO 27001, SOC 2) reste un processus **organisationnel**. Skein est conçu pour ne pas être le maillon bloquant.
+### 7.12 Compliance (compliance-by-design)
+> The software **provides the controls** that *enable* compliance; **certification** (ISO 27001, SOC 2) remains an **organizational** process. Skein is designed not to be the blocking link.
 
-| Cadre | Ce que Skein apporte |
+| Framework | What Skein provides |
 |---|---|
-| **RGPD** | Minimisation (mode Local sans egress), **droit à l'effacement** & export/portabilité par admin, résidence des données (local/on-prem), base légale/consentement, registre de traitement, chiffrement au repos & en transit. |
-| **ISO 27001** | Contrôle d'accès (RBAC §7.10), gestion des secrets (§7.2), audit (§7.11), gestion du changement (config-as-code versionnée §5.4), chaîne d'appro. (§7.6). |
-| **SOC 2** | Critères *Security/Confidentiality/Availability* : RBAC, audit immuable, chiffrement, isolation des silos, fallback local (§5.2). |
-| **EU AI Act** | Transparence (divulgation « contenu généré par IA »), **supervision humaine** (confirmations §7.4), traçabilité des décisions IA (audit §7.11), documentation des modèles/routage (via Gateway), classification de risque des usages. |
-| **NIS2** | Mesures techniques (chiffrement, MFA via IdP, durcissement), **journalisation & remontée d'incident**, sécurité de la chaîne d'appro. (§7.6), gouvernance (rôles/responsabilités). |
+| **GDPR** | Minimization (Local mode without egress), **right to erasure** & export/portability by admin, data residency (local/on-prem), legal basis/consent, processing register, encryption at rest & in transit. |
+| **ISO 27001** | Access control (RBAC §7.10), secret management (§7.2), audit (§7.11), change management (versioned config-as-code §5.4), supply chain (§7.6). |
+| **SOC 2** | *Security/Confidentiality/Availability* criteria: RBAC, immutable audit, encryption, silo isolation, local fallback (§5.2). |
+| **EU AI Act** | Transparency ("AI-generated content" disclosure), **human oversight** (confirmations §7.4), traceability of AI decisions (audit §7.11), model/routing documentation (via Gateway), risk classification of uses. |
+| **NIS2** | Technical measures (encryption, MFA via IdP, hardening), **logging & incident reporting**, supply-chain security (§7.6), governance (roles/responsibilities). |
 
-- **Rétention & résidence** : politiques de rétention par silo ; les données restent où le mode l'impose (Local = jamais de sortie).
-- **Traçabilité** : l'audit (§7.11) est la pièce transversale qui sert RGPD, ISO, SOC 2, AI Act et NIS2 à la fois.
+- **Retention & residency**: per-silo retention policies; data stays where the mode requires (Local = never any output).
+- **Traceability**: the audit (§7.11) is the cross-cutting piece that serves GDPR, ISO, SOC 2, AI Act and NIS2 all at once.
 
 ---
 
-## 8. Phasage & jalons (critères de sortie vérifiables)
+## 8. Phasing & milestones (verifiable exit criteria)
 
-### Phase 0 — Squelette qui marche (tranche verticale)
-Cœur headless + contrat d'API/événements figés ; CLI minimale ; 1 provider via LiteLLM ; connecteur `filesystem` ; persistance silo Local ; **Ledger** (capture niveau étape) ; **fondation `SecretProvider`** (trousseau OS + résolution JIT de la clé Gateway + rédaction) — les autres back-ends secrets arrivent avec les providers cloud/connecteurs.
-**Sortie** : au terminal, conversation qui lit/écrit un fichier, persistée & rechargée ; clé Gateway résolue depuis le trousseau (jamais en clair) ; journal inspectable via `skein ledger`.
+### Phase 0 — A skeleton that works (vertical slice)
+Headless core + frozen API/event contract; minimal CLI; 1 provider via LiteLLM; `filesystem` connector; Local silo persistence; **Ledger** (step-level capture); **`SecretProvider` foundation** (OS keychain + JIT resolution of the Gateway key + redaction) — the other secret back-ends arrive with the cloud providers/connectors.
+**Exit**: at the terminal, a conversation that reads/writes a file, persisted & reloaded; Gateway key resolved from the keychain (never in plaintext); journal inspectable via `skein ledger`.
 
 ### Phase 1 — MVP (4 axes)
-- **1a** Code agentique (`fs`/`git`/`shell` sandbox, édition+diff, TDD, subagents).
-- **1b** Multi-provider + inférence locale (LiteLLM + Ollama/llama.cpp embarqués, bascule, egress Local).
-- **1c** Connecteurs Atlassian + M365 (MCP).
-- **1d** Frameworks BMAD + Spec-Kit + powerskills (recipes/skills).
-- **1e** **Moteur de workflow natif** (§4.12) event-sourcé sur le Ledger + **TaskTracker** (§4.13 : local/Vikunja/Jira) — séquencement multi-agentique sur la chaîne SDLC.
-- **Transversal** Modes & silos + **hiérarchie Silo▸Équipe▸Projet▸Conversation** & résolution de config (§5.5) (superviseur, isolation stricte, Local complet ; Serveur/Remote de base + authz équipe).
+- **1a** Agentic code (`fs`/`git`/`shell` sandbox, edit+diff, TDD, subagents).
+- **1b** Multi-provider + local inference (LiteLLM + embedded Ollama/llama.cpp, switching, Local egress).
+- **1c** Atlassian + M365 connectors (MCP).
+- **1d** BMAD + Spec-Kit + powerskills frameworks (recipes/skills).
+- **1e** **Native workflow engine** (§4.12) event-sourced on the Ledger + **TaskTracker** (§4.13: local/Vikunja/Jira) — multi-agentic sequencing across the SDLC chain.
+- **Cross-cutting** Modes & silos + **Silo▸Team▸Project▸Conversation hierarchy** & config resolution (§5.5) (supervisor, strict isolation, complete Local; basic Server/Remote + team authz).
 - **UI** Tauri (Chat + Code).
-**Sortie** : depuis UI *et* CLI *et* API, scénario réel — « lire spec Confluence → plan Spec-Kit → code TDD → PR Bitbucket → ticket Jira », en basculant cloud↔local, isolation des silos vérifiée par test.
+**Exit**: from UI *and* CLI *and* API, a real scenario — "read Confluence spec → Spec-Kit plan → TDD code → Bitbucket PR → Jira ticket", switching cloud↔local, silo isolation verified by test.
 
-> À partir d'ici, **roadmap d'évolution multimodale & collaborative**. Progression logique : *percevoir → agir → générer → animer → unifier → parler → traduire*. Chaque version reste local-first et respecte silos/egress/authz, et s'appuie sur la précédente. Pivot technique : le *grounding visuel* (v2), réutilisé par captures/cowork/navigateur.
+> From here on, the **multimodal & collaborative evolution roadmap**. Logical progression: *perceive → act → generate → animate → unify → speak → translate*. Each version remains local-first and respects silos/egress/authz, and builds on the previous one. Technical pivot: *visual grounding* (v2), reused by captures/cowork/browser.
 
-### v2 — Perception (entrées multimodales)
-D'abord l'**abstraction de contenu typé** (`Content = text|image|audio|doc|video`, §4.2) — seul ajout cœur de toute la roadmap — puis :
-- **Documents + images** : parsing/OCR + vision.
-- **Audio en entrée** : speech-to-text.
-- **Grounding visuel** (ancrage sur capture) — *brique pivot* réutilisée en v3.
-- **Web** : ingestion/mémorisation de contenu web dans le RAG du silo.
-**Sortie** : résumer, dans une même requête, un PDF + une image + un extrait audio + une page web, persisté sans perte de type.
+### v2 — Perception (multimodal inputs)
+First the **typed content abstraction** (`Content = text|image|audio|doc|video`, §4.2) — the only core addition of the whole roadmap — then:
+- **Documents + images**: parsing/OCR + vision.
+- **Audio input**: speech-to-text.
+- **Visual grounding** (anchoring on a capture) — *pivot building block* reused in v3.
+- **Web**: ingestion/memorization of web content into the silo's RAG.
+**Exit**: summarize, within a single request, a PDF + an image + an audio excerpt + a web page, persisted without type loss.
 
-### v3 — Action (cowork & pilotage)
-Réutilise le grounding v2 pour **agir** sur des surfaces externes :
-- **Pilotage PC** : `LocalController` (enigo/xcap) + `ComputerUseController` (API).
-- **Compagnon navigateur** : `BrowserController` (extension Chrome/Edge) + **navigation web temps réel**.
-**Sortie** : piloter une appli tierce **et** une page web sur une tâche scriptée, avec confirmations sur actions irréversibles.
+### v3 — Action (cowork & control)
+Reuses v2 grounding to **act** on external surfaces:
+- **PC control**: `LocalController` (enigo/xcap) + `ComputerUseController` (API).
+- **Browser companion**: `BrowserController` (Chrome/Edge extension) + **real-time web navigation**.
+**Exit**: drive a third-party app **and** a web page on a scripted task, with confirmations on irreversible actions.
 
-### v4 — Génération de médias (sorties)
-Image (via Gateway), audio/**TTS**, **fichiers Office** (docx/pptx/xlsx). Indépendant de v3 — peut chevaucher.
-**Sortie** : produire un .docx + une image + un clip audio à partir d'un prompt, artefacts persistés au silo.
+### v4 — Media generation (outputs)
+Image (via Gateway), audio/**TTS**, **Office files** (docx/pptx/xlsx). Independent of v3 — may overlap.
+**Exit**: produce a .docx + an image + an audio clip from a prompt, artifacts persisted to the silo.
 
-### v5 — Temporel (animation & vidéo)
-Images animées + **vidéo** (dépend de la génération d'image v4).
-**Sortie** : générer un court clip vidéo à partir d'une consigne + assets.
+### v5 — Temporal (animation & video)
+Animated images + **video** (depends on v4 image generation).
+**Exit**: generate a short video clip from an instruction + assets.
 
-### v6 — Omni (illusion d'un modèle unique)
-**Orchestrateur omni** (§4.10) : décompose une requête multimodale, route vers les modèles spécialisés (parallèle/séquentiel en arrière-plan), recompose. Illusion d'un modèle unique **sans dépendance à un modèle omni propriétaire** ; un vrai omni est une route parmi d'autres.
-**Sortie** : une conversation unique mêlant texte/image/audio en entrée et sortie, servie par plusieurs modèles orchestrés de façon transparente.
+### v6 — Omni (illusion of a single model)
+**Omni orchestrator** (§4.10): decomposes a multimodal request, routes to specialized models (parallel/sequential in the background), recomposes. Illusion of a single model **without dependence on a proprietary omni model**; a true omni is one route among others.
+**Exit**: a single conversation mixing text/image/audio input and output, served by several transparently orchestrated models.
 
-### v7 — Voix temps réel (audio streaming duplex)
-Interface `RealtimeSession` (canal bidirectionnel continu) — **modifie le modèle d'exécution du cœur** (cf. §10). S'appuie sur l'orchestration v6.
-**Sortie** : conversation vocale en direct, faible latence, interruptible.
+### v7 — Real-time voice (duplex streaming audio)
+`RealtimeSession` interface (continuous bidirectional channel) — **modifies the core execution model** (cf. §10). Builds on v6 orchestration.
+**Exit**: a live voice conversation, low-latency, interruptible.
 
-### v8 — Traduction temps réel multilingue
-Chacun **écrit/lit/parle/entend dans sa langue maternelle** dans Teams / un chat d'équipe. Composition STT→traduction→TTS + traduction texte, par participant (profil langue porté par la partition d'équipe §5).
-**Sortie** : deux membres de langues différentes échangent (texte + voix), chacun dans sa langue, via le connecteur Teams/chat.
+### v8 — Real-time multilingual translation
+Everyone **writes/reads/speaks/hears in their native language** in Teams / a team chat. Composition STT→translation→TTS + text translation, per participant (language profile carried by the team partition §5).
+**Exit**: two members of different languages converse (text + voice), each in their own language, via the Teams/chat connector.
 
-### Piste ⟂ — Durcissement équipe/entreprise (parallèle)
-IdP externes (LDAP/OIDC/Entra/Google) + **RBAC avancé** (§7.9-7.10), audit avancé, RAG avancé, vLLM GPU, connecteurs additionnels, catalogue de recipes, préparation aux **certifications** (ISO 27001 / SOC 2). **Cadencée par l'adoption d'équipe**, pas par les modalités. *NB : identité locale + RBAC de base + observabilité (OpenTelemetry) + compliance-by-design sont intégrés dès v1.*
-**Sortie** : déploiement multi-postes (1 leader, N followers, 2 équipes isolées) avec IdP entreprise + RBAC à 3 portées validé.
+### Track ⟂ — Team/enterprise hardening (parallel)
+External IdPs (LDAP/OIDC/Entra/Google) + **advanced RBAC** (§7.9-7.10), advanced audit, advanced RAG, vLLM GPU, additional connectors, recipe catalog, preparation for **certifications** (ISO 27001 / SOC 2). **Paced by team adoption**, not by modalities. *NB: local identity + basic RBAC + observability (OpenTelemetry) + compliance-by-design are integrated from v1.*
+**Exit**: multi-workstation deployment (1 leader, N followers, 2 isolated teams) with enterprise IdP + validated 3-scope RBAC.
 
 ---
 
 ## 9. CI/CD & best practices
 
-- **Monorepo** polyglotte : `core/` (Cargo), `sidecar/` (uv), `ui/` (pnpm), `connectors/`, `skills/`, `docs/`. Trunk-based, Conventional Commits, PR + revue.
-- **Tests** : pyramide (unitaires par frontière + intégration MCP factice + **E2E via CLI** golden path) + **tests d'isolation** dédiés ; TDD sur le cœur.
-- **Qualité par langage** : Rust (`fmt`/`clippy -D warnings`/`cargo audit`/`cargo deny`) · Python (`ruff`/`mypy`/`pytest`/`pip-audit`) · TS (`eslint`/`prettier`/`vitest`/`playwright`/`tsc`). Pre-commit unifié.
-- **Pipeline** : lint → build 3 langages → unit → intégration → E2E CLI → **scans sécurité (SAST, deps, secrets, SBOM)** → artefacts. **Cross-platform de premier ordre** : matrice CI **Windows + macOS + Linux** (les trois traités à égalité ; tests verts requis sur les trois avant merge).
-- **Release** : SemVer, changelog auto, **signature de code par OS** — Authenticode (Windows) **et** Developer ID + notarisation (macOS) — indispensable pour un agent qui pilote le PC ; artefacts par OS (Tauri) ; canaux nightly/stable.
-- **Méthode** : dogfooding via le **bridge BMAD × Spec-Kit** (BMAD planifie → Spec-Kit exécute), tous deux **réellement installés** (`.specify/`, `_bmad/`, `_bmad-output/`). Artefacts conformes : PRD/architecture/epics/sprint-status (BMAD) + constitution + `specs/001-*/spec|plan|tasks` (Spec-Kit). Voir `docs/METHODOLOGY.md`. Ce design reste la référence exhaustive ; ADR pour les décisions d'archi (`docs/superpowers/adr/`).
+- **Polyglot monorepo**: `core/` (Cargo), `sidecar/` (uv), `ui/` (pnpm), `connectors/`, `skills/`, `docs/`. Trunk-based, Conventional Commits, PR + review.
+- **Tests**: pyramid (unit per boundary + fake MCP integration + **E2E via CLI** golden path) + dedicated **isolation tests**; TDD on the core.
+- **Per-language quality**: Rust (`fmt`/`clippy -D warnings`/`cargo audit`/`cargo deny`) · Python (`ruff`/`mypy`/`pytest`/`pip-audit`) · TS (`eslint`/`prettier`/`vitest`/`playwright`/`tsc`). Unified pre-commit.
+- **Pipeline**: lint → build 3 languages → unit → integration → E2E CLI → **security scans (SAST, deps, secrets, SBOM)** → artifacts. **First-class cross-platform**: CI matrix **Windows + macOS + Linux** (all three treated equally; green tests required on all three before merge).
+- **Release**: SemVer, auto changelog, **per-OS code signing** — Authenticode (Windows) **and** Developer ID + notarization (macOS) — essential for an agent that controls the PC; per-OS artifacts (Tauri); nightly/stable channels.
+- **Method**: dogfooding via the **BMAD × Spec-Kit bridge** (BMAD plans → Spec-Kit executes), both **actually installed** (`.specify/`, `_bmad/`, `_bmad-output/`). Conformant artifacts: PRD/architecture/epics/sprint-status (BMAD) + constitution + `specs/001-*/spec|plan|tasks` (Spec-Kit). See `docs/METHODOLOGY.md`. This design remains the exhaustive reference; ADRs for architecture decisions (`docs/superpowers/adr/`).
 
 ---
 
-## 10. Risques & questions ouvertes
+## 10. Risks & open questions
 
-| Risque / question | Impact | Piste |
+| Risk / question | Impact | Approach |
 |---|---|---|
-| ~~Intégrer vs forker Goose~~ **(DÉCIDÉ)** | — | **Dépendance upstream par défaut** ; fork/patch hybride si un besoin cœur n'est pas exposé, **avec PR remontée à l'upstream** (le fork converge, ne diverge pas). |
-| Fiabilité du *grounding* cowork (ancrage des clics) | Moyen | Hybride Computer Use d'abord, local ensuite. |
-| Packaging inférence locale multi-OS (llama.cpp/vLLM ; vLLM peu adapté à Windows/macOS) | Moyen | Ollama comme défaut robuste et cross-platform ; vLLM GPU optionnel (surtout Linux). |
-| Signature/notarisation par OS (Authenticode + Developer ID macOS) | Moyen | Intégrer la signature dans la CI de release dès le début ; comptes développeur Apple/Windows requis. |
-| Permissions cowork macOS (Accessibilité + Enregistrement d'écran) | Moyen | Détecter l'absence de permission et guider l'utilisateur ; jamais de contournement. |
-| Compatibilité licences (Apache/MIT/…) pour distribution commerciale | Moyen | Audit licences en CI (`cargo deny`, équivalents). |
-| Périmètre MVP large (4 axes) | Moyen | Phase 0 dérisque l'archi ; scénario de sortie force l'intégration. |
-| Complexité RBAC à 3 portées × IdP multiples | **Élevé** | Modèle de permissions unique et testé ; deny-by-default ; base locale d'abord, IdP externes ensuite ; suite de tests d'autorisation dédiée. |
-| Effacement RGPD vs blocage des suppressions destructives (§7.4) | Moyen | L'**agent** ne hard-delete pas ; l'**effacement RGPD** est une fonction *admin* gouvernée + auditée — pas une contradiction, deux chemins distincts. |
-| Classification EU AI Act selon l'usage (peut passer « haut risque ») | Moyen | Transparence + supervision humaine + audit par défaut ; documenter les usages ; laisser l'org classifier son déploiement. |
-| **Canal duplex streaming (v7)** modifie le modèle d'exécution du cœur | **Élevé** | Isoler dans `RealtimeSession` ; s'appuyer d'abord sur une API omni-realtime avant un stack WebRTC maison. |
-| Complexité de l'orchestrateur omni (v6) : latence de composition, cohérence | Moyen | Router simple d'abord (règles par type de `Content`) ; paralléliser l'indépendant ; mesurer la latence de recomposition. |
-| Coût/latence de la génération vidéo (v5) | Moyen | Providers cloud d'abord ; local GPU optionnel ; jobs asynchrones. |
-| Publication & sécurité de l'extension navigateur (v3) | Moyen | Périmètre de permissions minimal ; revue store Chrome/Edge ; frontière anti-injection stricte. |
-| Qualité/latence traduction temps réel (v8) | Moyen | Modèles dédiés + fallback texte ; profil langue explicite par membre. |
-| Croissance du Ledger (§4.11) : volume des prompts/réponses stockés | Moyen | Rétention configurable, compaction/archivage, adressage par hachage (dédup), stockage de gros blobs hors DB. |
-| Secrets présents dans les prompts capturés par le Ledger | **Élevé** | Rédaction/masquage avant persistance ; chiffrement au repos ; accès RBAC ; jamais de sortie hors egress. |
-| Event sourcing = décision d'archi fondatrice (coûteuse à rétrofit) | Moyen | Capturer dès v1 (Phase 0) même si revert/branch avancés viennent après — voir plan Phase 0. |
+| ~~Integrate vs fork Goose~~ **(DECIDED)** | — | **Upstream dependency by default**; hybrid fork/patch if a core need is not exposed, **with a PR sent upstream** (the fork converges, does not diverge). |
+| Reliability of cowork *grounding* (click anchoring) | Medium | Computer Use hybrid first, local afterward. |
+| Multi-OS local inference packaging (llama.cpp/vLLM; vLLM poorly suited to Windows/macOS) | Medium | Ollama as robust and cross-platform default; optional GPU vLLM (especially Linux). |
+| Per-OS signing/notarization (Authenticode + macOS Developer ID) | Medium | Integrate signing into the release CI from the start; Apple/Windows developer accounts required. |
+| macOS cowork permissions (Accessibility + Screen Recording) | Medium | Detect missing permission and guide the user; never bypass. |
+| License compatibility (Apache/MIT/…) for commercial distribution | Medium | License audit in CI (`cargo deny`, equivalents). |
+| Broad MVP scope (4 axes) | Medium | Phase 0 de-risks the architecture; the exit scenario forces integration. |
+| Complexity of 3-scope RBAC × multiple IdPs | **High** | Single, tested permission model; deny-by-default; local store first, external IdPs afterward; dedicated authorization test suite. |
+| GDPR erasure vs blocking destructive deletions (§7.4) | Medium | The **agent** does not hard-delete; **GDPR erasure** is a governed + audited *admin* function — not a contradiction, two distinct paths. |
+| EU AI Act classification depending on use (may become "high risk") | Medium | Transparency + human oversight + audit by default; document the uses; let the org classify its deployment. |
+| **Duplex streaming channel (v7)** modifies the core execution model | **High** | Isolate in `RealtimeSession`; rely first on an omni-realtime API before a home-grown WebRTC stack. |
+| Complexity of the omni orchestrator (v6): composition latency, coherence | Medium | Simple router first (rules per `Content` type); parallelize the independent; measure recomposition latency. |
+| Cost/latency of video generation (v5) | Medium | Cloud providers first; optional local GPU; asynchronous jobs. |
+| Browser extension publication & security (v3) | Medium | Minimal permission scope; Chrome/Edge store review; strict anti-injection boundary. |
+| Real-time translation quality/latency (v8) | Medium | Dedicated models + text fallback; explicit language profile per member. |
+| Ledger growth (§4.11): volume of stored prompts/responses | Medium | Configurable retention, compaction/archival, hash addressing (dedup), large-blob storage outside the DB. |
+| Secrets present in prompts captured by the Ledger | **High** | Redaction/masking before persistence; encryption at rest; RBAC access; never any output outside egress. |
+| Event sourcing = founding architecture decision (costly to retrofit) | Medium | Capture from v1 (Phase 0) even if advanced revert/branch come later — see Phase 0 plan. |
 
 ---
 
-## 11. Glossaire
-- **Silo** : partition de données étanche associée à un mode (et une équipe en Remote).
-- **Leader / Follower** : instance exposant son backend / instance rattachée à un leader.
-- **Recipe** : bundle YAML Goose (instructions + extensions + prompt) = une skill.
-- **Controller** : abstraction du pilotage PC (capture + clavier/souris).
-- **Sidecar** : process Python auxiliaire (embeddings/RAG/éval).
-- **Principal** : entité authentifiée (utilisateur/service) portant une identité et des groupes.
-- **IdP** : fournisseur d'identité pluggable (local, LDAP/AD, OIDC, Entra ID, Google Workspace).
-- **RBAC** : contrôle d'accès par rôles+permissions, à 3 portées (globale / silos / intra-silo).
-- **Omni-orchestrateur** : couche qui compose plusieurs modèles spécialisés pour simuler un modèle unique.
-- **Harness** : configuration du comportement de l'agent (instructions, tools, skills, contexte, politiques) — éditable en couches équipe/locale.
-- **Ledger d'exécution** : journal append-only, adressé par hachage et chaîné (façon commits git), capturant chaque étape (I/O modèles, tool-calls, changements d'état) ; inspectable, rejouable, réversible, révisable.
-- **Event sourcing** : l'état est dérivé d'un journal d'événements immuables plutôt que muté en place — permet historique, replay et time-travel.
-- **SecretProvider** : back-end de secrets pluggable (SOPS+age, 1Password, OpenBao, Infisical, trousseau OS) résolvant des *références* en valeurs **juste-à-temps**, sans jamais persister la valeur.
-- **Résolution JIT (secrets)** : le secret n'est déchiffré/récupéré qu'à l'instant de son usage (exécution/auth), gardé en mémoire éphémère, rédigé des journaux.
-- **Workflow** : graphe de nœuds typés (agent/tool/subagent/approbation/condition/parallèle/boucle) séquençant des actions multi-agentiques, event-sourcé sur le Ledger (durable, rejouable, reprenable).
-- **Hiérarchie organisationnelle** : Silo ▸ Équipe ▸ Projet ▸ Conversation (mode Local : sans Équipe) ; unité de résolution/verrou de config, « le plus haut l'emporte ».
-- **TaskTracker** : back-end de suivi de tâches pluggable (local silo / Vikunja OSS embarqué / Jira via MCP), lié par la hiérarchie.
+## 11. Glossary
+- **Silo**: watertight data partition associated with a mode (and a team in Remote).
+- **Leader / Follower**: instance exposing its backend / instance attached to a leader.
+- **Recipe**: Goose YAML bundle (instructions + extensions + prompt) = a skill.
+- **Controller**: abstraction of PC control (capture + keyboard/mouse).
+- **Sidecar**: auxiliary Python process (embeddings/RAG/eval).
+- **Principal**: authenticated entity (user/service) carrying an identity and groups.
+- **IdP**: pluggable identity provider (local, LDAP/AD, OIDC, Entra ID, Google Workspace).
+- **RBAC**: role+permission access control, at 3 scopes (global / silos / intra-silo).
+- **Omni orchestrator**: layer that composes several specialized models to simulate a single model.
+- **Harness**: configuration of the agent's behavior (instructions, tools, skills, context, policies) — editable in team/local layers.
+- **Execution Ledger**: append-only, hash-addressed and chained journal (git-commit style), capturing each step (model I/O, tool-calls, state changes); inspectable, replayable, reversible, revisable.
+- **Event sourcing**: state is derived from a journal of immutable events rather than mutated in place — enables history, replay and time-travel.
+- **SecretProvider**: pluggable secret back-end (SOPS+age, 1Password, OpenBao, Infisical, OS keychain) resolving *references* into values **just-in-time**, without ever persisting the value.
+- **JIT resolution (secrets)**: the secret is decrypted/retrieved only at the moment of its use (execution/auth), kept in ephemeral memory, redacted from logs.
+- **Workflow**: graph of typed nodes (agent/tool/subagent/approval/condition/parallel/loop) sequencing multi-agentic actions, event-sourced on the Ledger (durable, replayable, resumable).
+- **Organizational hierarchy**: Silo ▸ Team ▸ Project ▸ Conversation (Local mode: without Team); unit of config resolution/lock, "highest wins".
+- **TaskTracker**: pluggable task-tracking back-end (local silo / embedded Vikunja OSS / Jira via MCP), bound by the hierarchy.

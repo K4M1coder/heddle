@@ -1,43 +1,43 @@
-# Implementation Plan: Phase 0 — Squelette vertical
+# Implementation Plan: Phase 0 — Vertical Skeleton
 
 **Branch**: `001-phase0-walking-skeleton` | **Date**: 2026-07-15 | **Spec**: `specs/001-phase0-walking-skeleton/spec.md`
 
 ## Summary
-Prouver la tranche verticale de Skein (CLI → cœur headless → Goose headless → Gateway LiteLLM → modèle local) avec persistance silo Local, Ledger event-sourced et fondation SecretProvider. Approche : anti-corruption layer (types & ports Skein), Goose intégré via CLI subprocess (ADR 0001), tests TDD sans réseau (stubs + wiremock + provider mock), smoke test manuel pour la boucle LLM réelle.
+Prove Skein's vertical slice (CLI → headless core → headless Goose → LiteLLM Gateway → local model) with Local silo persistence, an event-sourced Ledger, and a SecretProvider foundation. Approach: anti-corruption layer (Skein types & ports), Goose integrated via a CLI subprocess (ADR 0001), TDD tests without a network (stubs + wiremock + provider mock), and a manual smoke test for the real LLM loop.
 
 ## Technical Context
 **Language/Version**: Rust 1.79 (MSRV)
-**Primary Dependencies**: tokio, rusqlite (bundled), reqwest, serde/serde_json, clap, thiserror/anyhow, tracing, sha2, keyring, zeroize ; Goose (binaire externe), LiteLLM (proxy externe)
-**Storage**: SQLite (fichier local), namespacé par silo
-**Testing**: cargo test ; wiremock (HTTP), assert_cmd/predicates (CLI E2E), tempfile ; stub `goose` binaire ; provider mock
-**Target Platform**: Windows + macOS + Linux (cross-platform de premier ordre)
-**Project Type**: desktop-app / CLI (workspace Cargo multi-crates)
-**Performance Goals**: N/A en Phase 0 (correction fonctionnelle d'abord)
-**Constraints**: offline-capable (mode Local, egress OFF) ; secrets par référence ; isolation par silo
-**Scale/Scope**: squelette — 1 silo (local), 1 provider (local), 1 connecteur (fs via Goose)
+**Primary Dependencies**: tokio, rusqlite (bundled), reqwest, serde/serde_json, clap, thiserror/anyhow, tracing, sha2, keyring, zeroize; Goose (external binary), LiteLLM (external proxy)
+**Storage**: SQLite (local file), namespaced per silo
+**Testing**: cargo test; wiremock (HTTP), assert_cmd/predicates (CLI E2E), tempfile; `goose` binary stub; provider mock
+**Target Platform**: Windows + macOS + Linux (first-class cross-platform)
+**Project Type**: desktop-app / CLI (multi-crate Cargo workspace)
+**Performance Goals**: N/A in Phase 0 (functional correctness first)
+**Constraints**: offline-capable (Local mode, egress OFF); secrets by reference; per-silo isolation
+**Scale/Scope**: skeleton — 1 silo (local), 1 provider (local), 1 connector (fs via Goose)
 
 ## Constitution Check
-*GATE : doit passer avant implémentation.*
-- **I. Cœur headless / CLI foi / UI surcouche** : ✅ CLI = seule surface en Phase 0 ; pas d'UI.
-- **II. Local-first / isolation silo** : ✅ mode Local uniquement ; test d'isolation (Story 1.3).
-- **III. Test-First** : ✅ chaque tâche suit red→green→refactor.
-- **IV. Couplage inversé** : ✅ Goose derrière `AgentRuntime`, modèle derrière `ModelGateway`, secrets derrière `SecretProvider`.
-- **V. Traçabilité (event sourcing)** : ✅ Ledger dès Phase 0 (Story 1.8).
-- **VI. Sécurité / secrets par référence** : ✅ SecretProvider JIT + redact (Story 1.9).
-- **VII. Neutralité / YAGNI** : ✅ Goose/LiteLLM réutilisés ; back-ends secrets avancés différés.
-- **Cross-platform** : ✅ CI matrice tri-OS.
-→ **Aucune violation.**
+*GATE: must pass before implementation.*
+- **I. Headless core / CLI as source of truth / UI as an overlay**: ✅ CLI = only surface in Phase 0; no UI.
+- **II. Local-first / silo isolation**: ✅ Local mode only; isolation test (Story 1.3).
+- **III. Test-First**: ✅ each task follows red→green→refactor.
+- **IV. Inverted coupling**: ✅ Goose behind `AgentRuntime`, model behind `ModelGateway`, secrets behind `SecretProvider`.
+- **V. Traceability (event sourcing)**: ✅ Ledger from Phase 0 (Story 1.8).
+- **VI. Security / secrets by reference**: ✅ JIT SecretProvider + redact (Story 1.9).
+- **VII. Neutrality / YAGNI**: ✅ Goose/LiteLLM reused; advanced secret back-ends deferred.
+- **Cross-platform**: ✅ tri-OS CI matrix.
+→ **No violations.**
 
 ## Project Structure
 
 ### Documentation (this feature)
 ```text
 specs/001-phase0-walking-skeleton/
-├── spec.md      # présent
-├── plan.md      # ce fichier
-└── tasks.md     # découpage exécutable
+├── spec.md      # present
+├── plan.md      # this file
+└── tasks.md     # executable breakdown
 ```
-Le plan TDD **bite-sized exhaustif** (code complet par étape) vit dans `docs/superpowers/plans/2026-07-15-skein-phase0-walking-skeleton.md` et fait foi pour l'exécution ; `tasks.md` en est l'index Spec-Kit.
+The **exhaustive bite-sized** TDD plan (complete code per step) lives in `docs/superpowers/plans/2026-07-15-skein-phase0-walking-skeleton.md` and is authoritative for execution; `tasks.md` is its Spec-Kit index.
 
 ### Source Code (repository root)
 ```text
@@ -50,10 +50,10 @@ crates/
 config/litellm.config.yaml
 .github/workflows/ci.yml
 ```
-**Structure Decision** : workspace Cargo à deux crates (cœur + CLI). Sidecar/UI/connecteurs additionnels arrivent aux phases suivantes.
+**Structure Decision**: a two-crate Cargo workspace (core + CLI). Additional sidecar/UI/connectors arrive in later phases.
 
 ## Complexity Tracking
-*Aucune violation de constitution → table vide.*
+*No constitution violation → empty table.*
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|

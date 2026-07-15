@@ -5,130 +5,130 @@ updated: 2026-07-15
 ---
 
 # PRD: Skein
-*Outil agentique IA local-first, unifiant chat, code et cowork.*
+*Local-first AI agentic tool, unifying chat, code and cowork.*
 
 ## 0. Document Purpose
-Ce PRD s'adresse au PM, aux parties prenantes SodiusWillert et aux workflows aval (architecture, epics/stories). Il définit le **quoi** et le **pourquoi** ; le **comment** vit dans `architecture.md`. Le design exhaustif (référence) est `docs/superpowers/specs/2026-07-15-skein-design.md`. Vocabulaire ancré au §3 Glossaire ; features avec FRs imbriqués ; hypothèses indexées §9.
+This PRD is aimed at the PM, SodiusWillert stakeholders and downstream workflows (architecture, epics/stories). It defines the **what** and the **why**; the **how** lives in `architecture.md`. The exhaustive design (reference) is `docs/superpowers/specs/2026-07-15-skein-design.md`. Vocabulary anchored in §3 Glossary; features with nested FRs; assumptions indexed in §9.
 
 ## 1. Vision
-Skein est un **outil agentique IA unique, local-first**, réunissant **chat**, **code** et **cowork** (pilotage PC) derrière un cœur headless doté d'un harness poussé (contexte, tools, skills). Il se branche sur **tous les fournisseurs d'IA** (cloud et locaux), embarque sa propre inférence, intègre nativement les connecteurs métier (Atlassian, M365) via MCP, et maîtrise les méthodes **BMAD / Spec-Kit / powerskills**. Il donne à l'utilisateur une **transparence et une réversibilité totales** (chaque étape est un « commit » inspectable/rejouable) et une **conformité entreprise** (identité, RBAC, audit, RGPD/ISO/SOC2/AI Act/NIS2).
+Skein is a **single, local-first AI agentic tool**, bringing together **chat**, **code** and **cowork** (PC control) behind a headless core equipped with an advanced harness (context, tools, skills). It connects to **all AI providers** (cloud and local), embeds its own inference, natively integrates business connectors (Atlassian, M365) via MCP, and masters the **BMAD / Spec-Kit / powerskills** methods. It gives the user **full transparency and reversibility** (each step is an inspectable/replayable "commit") and **enterprise compliance** (identity, RBAC, audit, GDPR/ISO/SOC2/AI Act/NIS2).
 
 ## 2. Target User
 
 ### 2.1 Jobs To Be Done
-- Développer/assister sur du code de façon agentique, en TDD, avec subagents.
-- Piloter Jira/Bitbucket/Confluence et M365 depuis un seul outil.
-- Choisir librement le modèle (cloud souverain ou local hors-ligne) selon la sensibilité.
-- Automatiser des tâches PC (cowork) et web.
-- Garder la maîtrise : voir *tout* ce qui est envoyé aux modèles, pouvoir annuler/rejouer.
-- Travailler en équipe avec gouvernance (rôles, config partagée, conformité).
+- Develop/assist on code in an agentic way, using TDD, with subagents.
+- Drive Jira/Bitbucket/Confluence and M365 from a single tool.
+- Freely choose the model (sovereign cloud or offline local) depending on sensitivity.
+- Automate PC (cowork) and web tasks.
+- Stay in control: see *everything* sent to the models, and be able to undo/replay.
+- Work as a team with governance (roles, shared config, compliance).
 
 ### 2.2 Non-Users (v1)
-Utilisateurs cherchant un simple chatbot web sans exécution locale ; usages sans poste de travail réel (le cowork exige un poste).
+Users looking for a simple web chatbot without local execution; use cases without a real workstation (cowork requires a workstation).
 
 ### 2.3 Key User Journeys
-- **UJ-1. L'ingénieur enchaîne spec → code → PR → ticket.** Depuis la CLI ou l'UI, il lit une spec Confluence, génère un plan Spec-Kit, code en TDD, ouvre une PR Bitbucket, crée un ticket Jira — en basculant cloud↔local. **Climax :** la PR et le ticket existent, la session est persistée. **Edge :** hors-ligne, l'outil retombe en mode Local (modèle local).
-- **UJ-2. Le chef de projet gouverne l'équipe.** Il édite la couche harness d'équipe, verrouille des réglages de sécurité, attribue des rôles ; les membres héritent de la base et surchargent localement le reste.
-- **UJ-3. L'utilisateur audite une décision de l'agent.** Via `skein ledger`, il inspecte le prompt exact envoyé au modèle et la réponse brute, puis rejoue ou annule l'étape.
+- **UJ-1. The engineer chains spec → code → PR → ticket.** From the CLI or the UI, they read a Confluence spec, generate a Spec-Kit plan, code in TDD, open a Bitbucket PR, and create a Jira ticket — switching cloud↔local. **Climax:** the PR and the ticket exist, and the session is persisted. **Edge:** offline, the tool falls back to Local mode (local model).
+- **UJ-2. The project manager governs the team.** They edit the team harness layer, lock security settings, and assign roles; members inherit the baseline and locally override the rest.
+- **UJ-3. The user audits an agent decision.** Via `skein ledger`, they inspect the exact prompt sent to the model and the raw response, then replay or undo the step.
 
 ## 3. Glossary
-- **Silo** — partition de données étanche liée à un mode (et une équipe en Remote).
-- **Mode** — Local / En ligne-Serveur (leader) / En ligne-Remote (follower).
-- **Harness** — configuration du comportement de l'agent (instructions, tools, skills, contexte, politiques), éditable en couches équipe/locale.
-- **Ledger** — journal append-only chaîné par hachage (I/O modèles, tools, état), façon git.
-- **Connecteur** — serveur MCP exposant un outil/ressource (Jira, M365, fs, git…).
-- **Gateway** — passerelle LiteLLM OpenAI-compatible vers 100+ providers.
-- **Controller** — abstraction du pilotage d'une surface externe (PC, navigateur).
-- **Principal / RBAC / SecretProvider / IdP** — cf. `architecture.md` et design §7.
+- **Silo** — sealed data partition tied to a mode (and a team in Remote).
+- **Mode** — Local / Online-Server (leader) / Online-Remote (follower).
+- **Harness** — configuration of the agent's behavior (instructions, tools, skills, context, policies), editable in team/local layers.
+- **Ledger** — append-only, hash-chained journal (model I/O, tools, state), git-style.
+- **Connector** — MCP server exposing a tool/resource (Jira, M365, fs, git…).
+- **Gateway** — OpenAI-compatible LiteLLM gateway to 100+ providers.
+- **Controller** — abstraction for driving an external surface (PC, browser).
+- **Principal / RBAC / SecretProvider / IdP** — see `architecture.md` and design §7.
 
 ## 4. Features
 
-### 4.1 Assistant de code agentique
-**Description :** lire/éditer des fichiers, exécuter des commandes (sandbox), boucle agentique, subagents, TDD. Realizes UJ-1.
+### 4.1 Agentic code assistant
+**Description:** read/edit files, run commands (sandbox), agentic loop, subagents, TDD. Realizes UJ-1.
 **Functional Requirements:**
-#### FR-1 : Boucle agentique headless
-L'utilisateur peut lancer une tâche (CLI/API/UI) qui exécute plan→tools→éval jusqu'à complétion. Realizes UJ-1.
-- **Consequences (testable) :** une session lit/écrit un fichier et est persistée puis rechargée depuis le silo.
-#### FR-2 : Connecteurs fs/git/shell (MCP)
-L'agent peut manipuler fichiers, git et shell via connecteurs MCP, actions destructives sous confirmation.
+#### FR-1: Headless agentic loop
+The user can launch a task (CLI/API/UI) that runs plan→tools→eval through to completion. Realizes UJ-1.
+- **Consequences (testable):** a session reads/writes a file and is persisted, then reloaded from the silo.
+#### FR-2: fs/git/shell connectors (MCP)
+The agent can manipulate files, git and shell through MCP connectors, with destructive actions requiring confirmation.
 
-### 4.2 Multi-provider & inférence locale
-**Description :** basculer cloud↔local via la Gateway ; serveur d'inférence embarqué (Ollama/llama.cpp ; vLLM optionnel).
-#### FR-3 : Sélection de provider
-L'utilisateur peut router vers un provider cloud OU local ; en mode Local, seuls les providers locaux sont autorisés (egress OFF).
+### 4.2 Multi-provider & local inference
+**Description:** switch cloud↔local through the Gateway; embedded inference server (Ollama/llama.cpp; vLLM optional).
+#### FR-3: Provider selection
+The user can route to a cloud OR local provider; in Local mode, only local providers are allowed (egress OFF).
 
-### 4.3 Connecteurs Atlassian & M365
-#### FR-4 : Jira/Bitbucket/Confluence + Outlook/SharePoint/Teams via MCP, utilisables dans les workflows.
+### 4.3 Atlassian & M365 connectors
+#### FR-4: Jira/Bitbucket/Confluence + Outlook/SharePoint/Teams via MCP, usable in workflows.
 
-### 4.4 Frameworks BMAD / Spec-Kit / powerskills
-#### FR-5 : Ces méthodes sont packagées en recipes/skills invocables (`/spec`, `/bmad`, …).
+### 4.4 BMAD / Spec-Kit / powerskills frameworks
+#### FR-5: These methods are packaged as invocable recipes/skills (`/spec`, `/bmad`, …).
 
-### 4.5 Modes, silos & gouvernance du harness
-#### FR-6 : 3 modes auto-détectés, bascule proposée (jamais imposée), fallback local ; silos étanches ; partage cloisonné par équipe en Remote.
-#### FR-7 : Harness éditable en couches équipe (chefs, verrouillable) + locale (surcharge sauf verrous).
+### 4.5 Modes, silos & harness governance
+#### FR-6: 3 auto-detected modes, switching proposed (never imposed), local fallback; sealed silos; sharing partitioned by team in Remote.
+#### FR-7: Harness editable in a team layer (leads, lockable) + a local layer (override except locks).
 
-### 4.6 Identité, RBAC, observabilité, conformité
-#### FR-8 : IdP pluggable (local/LDAP/OIDC/Entra/Google) + RBAC 3 portées (globale/silos/intra-silo), deny-by-default.
-#### FR-9 : Observabilité OpenTelemetry + audit immuable dès v1.
+### 4.6 Identity, RBAC, observability, compliance
+#### FR-8: Pluggable IdP (local/LDAP/OIDC/Entra/Google) + RBAC with 3 scopes (global/silos/intra-silo), deny-by-default.
+#### FR-9: OpenTelemetry observability + immutable audit from v1.
 
-### 4.7 Traçabilité & réversibilité (Ledger)
-#### FR-10 : Chaque étape (I/O modèles exactes, tools, état) est capturée, inspectable, rejouable, réversible (`skein ledger log|show|replay|revert|branch`).
+### 4.7 Traceability & reversibility (Ledger)
+#### FR-10: Every step (exact model I/O, tools, state) is captured, inspectable, replayable, reversible (`skein ledger log|show|replay|revert|branch`).
 
-### 4.8 Gestion des secrets
-#### FR-11 : SecretProvider pluggable (SOPS+age/1Password/OpenBao/Infisical/OS keychain), **résolution JIT**, référence-pas-valeur, rédaction des journaux, offline-only en mode Local.
+### 4.8 Secrets management
+#### FR-11: Pluggable SecretProvider (SOPS+age/1Password/OpenBao/Infisical/OS keychain), **JIT resolution**, reference-not-value, log redaction, offline-only in Local mode.
 
 ### 4.9 Cowork & multimodal (v2+)
-#### FR-12 : Pilotage PC + compagnon navigateur (Controller hybride) ; perception (doc/image/audio/grounding) ; génération (image/TTS/Office/vidéo) ; omni (orchestration) ; voix temps réel ; traduction multilingue. Détail : roadmap §6 + design §8.
+#### FR-12: PC control + browser companion (hybrid Controller); perception (doc/image/audio/grounding); generation (image/TTS/Office/video); omni (orchestration); real-time voice; multilingual translation. Detail: roadmap §6 + design §8.
 
-### 4.10 Moteur de workflow (natif, inspiré Archon)
-**Description :** le harness séquence nativement des actions multi-agentiques à travers les outils connectés, sur toute la chaîne SDLC (conception→dev→tests→packaging→déploiement). Realizes UJ-1.
-#### FR-13 : Workflow event-sourcé
-L'utilisateur/agent peut définir et exécuter un workflow (nœuds agent/tool/subagent/approbation/condition/parallèle/boucle) ; chaque étape est journalisée dans le Ledger (durable, rejouable, reprenable). Les recipes Goose et flux BMAD/Spec-Kit sont des workflows.
-- **Consequences (testable) :** un workflow interrompu peut être repris depuis le dernier Step du Ledger.
+### 4.10 Workflow engine (native, Archon-inspired)
+**Description:** the harness natively sequences multi-agent actions across the connected tools, over the entire SDLC (design→dev→tests→packaging→deployment). Realizes UJ-1.
+#### FR-13: Event-sourced workflow
+The user/agent can define and execute a workflow (agent/tool/subagent/approval/condition/parallel/loop nodes); each step is logged in the Ledger (durable, replayable, resumable). Goose recipes and BMAD/Spec-Kit flows are workflows.
+- **Consequences (testable):** an interrupted workflow can be resumed from the last Ledger Step.
 
-### 4.11 Suivi des tâches & hiérarchie
-#### FR-14 : TaskTracker pluggable
-L'utilisateur peut suivre les tâches via un back-end interchangeable : local (silo), **Vikunja** (OSS embarqué) ou **Jira** (via MCP). Les workflows y reflètent leur progression.
-#### FR-15 : Hiérarchie & résolution de config
-Les données/config s'organisent en **Silo ▸ Équipe ▸ Projet ▸ Conversation** (mode Local : sans Équipe). Un réglage fixé à un niveau **verrouille les niveaux inférieurs** (« le plus haut l'emporte ») ; sinon modifiable jusqu'à la conversation.
-- **Consequences (testable) :** un TaskTracker fixé au silo s'impose à tous les projets/conversations ; non fixé, un projet peut choisir un autre back-end.
+### 4.11 Task tracking & hierarchy
+#### FR-14: Pluggable TaskTracker
+The user can track tasks through an interchangeable backend: local (silo), **Vikunja** (embedded OSS) or **Jira** (via MCP). Workflows reflect their progress there.
+#### FR-15: Hierarchy & config resolution
+Data/config is organized into **Silo ▸ Team ▸ Project ▸ Conversation** (Local mode: without Team). A setting fixed at one level **locks the lower levels** ("the highest wins"); otherwise it is modifiable down to the conversation.
+- **Consequences (testable):** a TaskTracker fixed at the silo applies to all projects/conversations; if not fixed, a project can choose another backend.
 
 ## 5. Non-Goals (Explicit)
-- Pas de réécriture d'un harness from scratch (on adopte Goose).
-- Pas de produit serveur séparé (le backend d'équipe = une instance exposée).
-- Pas de dépendance à un fournisseur unique (IA, IdP, secrets).
-- Pas de simple chatbot web sans exécution locale.
+- No rewrite of a harness from scratch (we adopt Goose).
+- No separate server product (the team backend = an exposed instance).
+- No dependence on a single provider (AI, IdP, secrets).
+- No simple web chatbot without local execution.
 
 ## 6. MVP Scope
 
 ### 6.1 In Scope (v1)
-Assistant de code agentique · multi-provider + inférence locale · connecteurs Atlassian+M365 · frameworks BMAD/Spec-Kit/powerskills · **moteur de workflow natif (event-sourcé Ledger) + TaskTracker (local/Vikunja/Jira)** · **hiérarchie Silo▸Équipe▸Projet▸Conversation & résolution de config** · modes & silos (Local complet, Serveur/Remote de base + authz équipe) · UI Chat+Code · identité locale + RBAC de base · observabilité · Ledger · fondation SecretProvider · compliance-by-design.
+Agentic code assistant · multi-provider + local inference · Atlassian+M365 connectors · BMAD/Spec-Kit/powerskills frameworks · **native workflow engine (event-sourced Ledger) + TaskTracker (local/Vikunja/Jira)** · **Silo▸Team▸Project▸Conversation hierarchy & config resolution** · modes & silos (full Local, baseline Server/Remote + team authz) · Chat+Code UI · local identity + baseline RBAC · observability · Ledger · SecretProvider foundation · compliance-by-design.
 
 ### 6.2 Out of Scope for MVP (roadmap)
-- **v2** Perception (entrées multimodales) · **v3** Cowork/pilotage · **v4** Génération médias · **v5** Vidéo · **v6** Omni · **v7** Voix temps réel · **v8** Traduction multilingue.
-- IdP externes + RBAC avancé + certifications : piste entreprise (parallèle).
+- **v2** Perception (multimodal inputs) · **v3** Cowork/control · **v4** Media generation · **v5** Video · **v6** Omni · **v7** Real-time voice · **v8** Multilingual translation.
+- External IdPs + advanced RBAC + certifications: enterprise track (in parallel).
 
 ## 7. Success Metrics
 **Primary**
-- **SM-1** : réaliser UJ-1 de bout en bout (spec→PR→ticket) depuis CLI *et* UI *et* API, en basculant cloud↔local. Valide FR-1..FR-5.
-- **SM-2** : isolation des silos prouvée par test (écriture invisible hors silo/équipe). Valide FR-6.
+- **SM-1**: complete UJ-1 end-to-end (spec→PR→ticket) from CLI *and* UI *and* API, switching cloud↔local. Validates FR-1..FR-5.
+- **SM-2**: silo isolation proven by test (a write invisible outside the silo/team). Validates FR-6.
 **Secondary**
-- **SM-3** : toute I/O modèle inspectable via `skein ledger`. Valide FR-10.
+- **SM-3**: any model I/O inspectable via `skein ledger`. Validates FR-10.
 **Counter-metrics (do not optimize)**
-- **SM-C1** : ne pas gagner en vitesse en contournant confirmations/rédaction/egress — la sécurité prime sur la latence.
+- **SM-C1**: do not gain speed by bypassing confirmations/redaction/egress — security takes precedence over latency.
 
 ## 8. Open Questions
-1. Migration future de l'intégration Goose (CLI subprocess → goosed REST → crate) — tranchée par spikes ultérieurs.
-2. Format exact de capture token-level via logging LiteLLM (ingestion Gateway→Ledger).
-3. Modèle d'identité local-first (paires de clés) → passage OIDC entreprise.
+1. Future migration of the Goose integration (CLI subprocess → goosed REST → crate) — to be decided by later spikes.
+2. Exact token-level capture format via LiteLLM logging (Gateway→Ledger ingestion).
+3. Local-first identity model (key pairs) → transition to enterprise OIDC.
 
 ## 9. Assumptions Index
-- [ASSUMPTION §2] Le cowork exige un poste réel (pas de client léger pur).
-- [ASSUMPTION §4.2] Ollama est le moteur d'inférence local par défaut, cross-platform.
-- [ASSUMPTION §6] La v1 est texte ; le multimodal est strictement v2+.
+- [ASSUMPTION §2] Cowork requires a real workstation (no pure thin client).
+- [ASSUMPTION §4.2] Ollama is the default local inference engine, cross-platform.
+- [ASSUMPTION §6] v1 is text; multimodal is strictly v2+.
 
-## Compliance & Regulatory *(adapt-in : regulated domain)*
-RGPD (minimisation via mode Local, droit à l'effacement admin, résidence, rétention), ISO 27001 & SOC 2 (RBAC, audit, chiffrement, gestion du changement config-as-code), EU AI Act (transparence « contenu IA », supervision humaine, traçabilité Ledger), NIS2 (journalisation/incident, chaîne d'appro. MCP, gouvernance). Le logiciel fournit les contrôles ; la certification est organisationnelle.
+## Compliance & Regulatory *(adapt-in: regulated domain)*
+GDPR (minimization via Local mode, admin right to erasure, residency, retention), ISO 27001 & SOC 2 (RBAC, audit, encryption, config-as-code change management), EU AI Act (transparency of "AI content", human oversight, Ledger traceability), NIS2 (logging/incident, MCP supply chain, governance). The software provides the controls; certification is organizational.
 
 ## Audit Trail / Decision Provenance *(adapt-in)*
-Deux journaux complémentaires : **audit** (qui/quand) et **Ledger** (quoi exactement, in/out). Base transversale de la conformité.
+Two complementary journals: **audit** (who/when) and **Ledger** (exactly what, in/out). Cross-cutting foundation of compliance.

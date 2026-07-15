@@ -1,45 +1,45 @@
 # Skein Constitution
 
-Principes immuables gouvernant la transformation des spécifications en code pour Skein. Toute spec, plan, tâche et implémentation doit s'y conformer ; une violation doit être justifiée en « Complexity Tracking » ou refusée.
+Immutable principles governing the transformation of specifications into code for Skein. Every spec, plan, task, and implementation must conform to them; any violation must be justified under "Complexity Tracking" or rejected.
 
 ## Core Principles
 
-### I. Cœur headless — CLI de référence, UI surcouche
-Toute capacité vit dans le cœur headless et est exposée par une **API programmatique** ; la **CLI en est le client complet et faisant foi** (base des tests E2E) ; l'**UI n'ajoute aucune capacité propre**. Tout ce que fait l'UI, la CLI le fait ; tout ce que fait la CLI, l'API l'expose.
+### I. Headless core — CLI as the reference, UI as a thin layer
+Every capability lives in the headless core and is exposed through a **programmatic API**; the **CLI is its complete, authoritative client** (the basis for E2E tests); the **UI adds no capability of its own**. Everything the UI does, the CLI does; everything the CLI does, the API exposes.
 
-### II. Local-first, isolation par silo (NON-NÉGOCIABLE)
-Chaque capacité a une implémentation **locale par défaut**. Les données sont partitionnées en **silos étanches par mode** (Local / Serveur / Remote) et, en Remote, **par équipe**. Aucune donnée ne traverse une frontière de silo. En mode Local, **aucune sortie réseau** (egress OFF) — providers locaux uniquement.
+### II. Local-first, silo isolation (NON-NEGOTIABLE)
+Every capability has a **local implementation by default**. Data is partitioned into **airtight silos per mode** (Local / Server / Remote) and, in Remote, **per team**. No data crosses a silo boundary. In Local mode, **no network egress** (egress OFF) — local providers only.
 
-### III. Test-First (NON-NÉGOCIABLE)
-TDD strict : test écrit → échoue (rouge) → implémentation minimale → passe (vert) → refactor. Chaque frontière d'interface est testable avec un mock derrière. Un **test d'isolation** dédié garde chaque invariant de silo.
+### III. Test-First (NON-NEGOTIABLE)
+Strict TDD: test written → fails (red) → minimal implementation → passes (green) → refactor. Every interface boundary is testable with a mock behind it. A dedicated **isolation test** guards each silo invariant.
 
-### IV. Couplage inversé & frontières explicites
-Le cœur **découvre** connecteurs (MCP), providers (Gateway), identité, secrets, pilotage (Controller) via des **traits/interfaces** ; il n'en dépend jamais directement. Ajouter une capacité = ajouter une implémentation derrière une interface, jamais réécrire le cœur.
+### IV. Inverted coupling & explicit boundaries
+The core **discovers** connectors (MCP), providers (Gateway), identity, secrets, and control (Controller) through **traits/interfaces**; it never depends on them directly. Adding a capability = adding an implementation behind an interface, never rewriting the core.
 
-### V. Traçabilité & réversibilité (event sourcing)
-Chaque étape (I/O modèles exactes, tool-calls, changements d'état) est capturée dans un **Ledger append-only, chaîné par hachage** — inspectable, rejouable, réversible (façon git). Complété par un **audit immuable** (qui/quand). La traçabilité ne se contourne pas.
+### V. Traceability & reversibility (event sourcing)
+Every step (exact model I/O, tool-calls, state changes) is captured in an **append-only, hash-chained Ledger** — inspectable, replayable, reversible (git-style). Complemented by an **immutable audit trail** (who/when). Traceability cannot be bypassed.
 
-### VI. Sécurité & secrets par référence
-Deny-by-default. **Secrets par référence, jamais par valeur**, résolus **juste-à-temps**, rédigés des journaux. RBAC à 3 portées (globale / silos / intra-silo). Actions destructives/irréversibles → confirmation. Contenu externe = donnée, jamais instruction (anti-injection).
+### VI. Security & secrets by reference
+Deny-by-default. **Secrets by reference, never by value**, resolved **just-in-time**, redacted from logs. RBAC across 3 scopes (global / silos / intra-silo). Destructive/irreversible actions → confirmation. External content = data, never instruction (anti-injection).
 
-### VII. Neutralité & réutilisation (YAGNI)
-Multi-provider, multi-IdP, multi-secret-backend : aucun verrouillage fournisseur. On **réutilise** l'existant éprouvé (Goose, LiteLLM, MCP, BMAD, Spec-Kit) plutôt que réécrire. Commencer simple ; pas de capacité sans besoin réel.
+### VII. Neutrality & reuse (YAGNI)
+Multi-provider, multi-IdP, multi-secret-backend: no vendor lock-in. We **reuse** proven existing tools (Goose, LiteLLM, MCP, BMAD, Spec-Kit) rather than rewrite them. Start simple; no capability without a real need.
 
-## Additional Constraints (Stack & Conformité)
+## Additional Constraints (Stack & Compliance)
 
-- **Cross-platform de premier ordre** : Windows + macOS + Linux à égalité (CI matrice tri-OS, verte requise avant merge). Aucun appel spécifique OS sans `#[cfg]` + équivalent.
-- **Stack** : cœur Rust (Goose en dépendance upstream ; fork/patch hybride avec PR upstream si besoin) ; sidecar Python ; UI Tauri/TS ; Gateway LiteLLM ; persistance SQLite ; observabilité OpenTelemetry dès v1.
-- **Conformité by-design** : RGPD / ISO 27001 / SOC 2 / EU AI Act / NIS2 — le logiciel fournit les contrôles ; la certification reste organisationnelle.
-- **Signature de code par OS** (Authenticode + Developer ID/notarisation macOS) — un agent qui pilote le PC doit être signé.
+- **First-class cross-platform**: Windows + macOS + Linux as equals (tri-OS CI matrix, green required before merge). No OS-specific call without `#[cfg]` + an equivalent.
+- **Stack**: Rust core (Goose as an upstream dependency; hybrid fork/patch with an upstream PR when needed); Python sidecar; Tauri/TS UI; LiteLLM Gateway; SQLite persistence; OpenTelemetry observability from v1.
+- **Compliance by-design**: GDPR / ISO 27001 / SOC 2 / EU AI Act / NIS2 — the software provides the controls; certification remains an organizational matter.
+- **Per-OS code signing** (Authenticode + Developer ID/macOS notarization) — an agent that drives the PC must be signed.
 
-## Development Workflow (Bridge BMAD × Spec-Kit)
+## Development Workflow (BMAD × Spec-Kit Bridge)
 
-- **Planification = BMAD** : PRD → architecture → epics/stories (artefacts vérifiables dans `_bmad-output/planning-artifacts/`).
-- **Exécution = Spec-Kit** : `specs/[###-feature]/` avec `spec.md` → `plan.md` → `tasks.md` → implémentation gated, chaque phase passant le **Constitution Check**.
-- **Conventional Commits**, trunk-based, PR + revue. Pipeline : lint → build (3 langages) → tests (unit/intégration/E2E CLI/isolation) → scans sécurité (SAST/deps/secrets/SBOM) → artefacts signés.
+- **Planning = BMAD**: PRD → architecture → epics/stories (verifiable artifacts in `_bmad-output/planning-artifacts/`).
+- **Execution = Spec-Kit**: `specs/[###-feature]/` with `spec.md` → `plan.md` → `tasks.md` → gated implementation, each phase passing the **Constitution Check**.
+- **Conventional Commits**, trunk-based, PR + review. Pipeline: lint → build (3 languages) → tests (unit/integration/E2E CLI/isolation) → security scans (SAST/deps/secrets/SBOM) → signed artifacts.
 
 ## Governance
 
-Cette constitution **prime** sur les autres pratiques. Tout PR/revue vérifie sa conformité. Toute complexité qui déroge à un principe doit être justifiée (table « Complexity Tracking » du plan) ou refusée. Amendement = documentation + version + date.
+This constitution **takes precedence** over other practices. Every PR/review verifies conformance to it. Any complexity that departs from a principle must be justified (the plan's "Complexity Tracking" table) or rejected. Amendment = documentation + version + date.
 
 **Version**: 1.0.0 | **Ratified**: 2026-07-15 | **Last Amended**: 2026-07-15

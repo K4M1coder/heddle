@@ -1,44 +1,44 @@
-# Méthodologie Skein — Bridge BMAD × Spec-Kit (dogfooding)
+# Skein Methodology — BMAD × Spec-Kit Bridge (dogfooding)
 
-Skein est **conçu avec les méthodes qu'il intègre** (dogfooding). On applique le **bridge** BMAD × Spec-Kit : **BMAD planifie**, **Spec-Kit exécute**. Les deux frameworks sont réellement installés dans ce dépôt.
+Skein is **built with the very methods it integrates** (dogfooding). We apply the **bridge** BMAD × Spec-Kit: **BMAD plans**, **Spec-Kit executes**. Both frameworks are actually installed in this repository.
 
-## Le flux (bridge)
+## The flow (bridge)
 
 ```mermaid
 graph LR
-  subgraph BMAD["BMAD — Planification (agentic)"]
+  subgraph BMAD["BMAD — Planning (agentic)"]
     PRD[PRD.md] --> ARCH[architecture.md] --> EP[epics.md] --> SS[sprint-status.yaml]
   end
-  subgraph SK["Spec-Kit — Exécution (gated)"]
+  subgraph SK["Spec-Kit — Execution (gated)"]
     CONST[constitution.md] --> SPEC[spec.md] --> PLAN[plan.md] --> TASKS[tasks.md] --> IMPL[/implement/]
   end
-  EP -->|une epic = une feature| SPEC
+  EP -->|one epic = one feature| SPEC
   CONST -.gate.-> PLAN
 ```
 
-- **BMAD** produit des artefacts de planification haute-fidélité (analyste/PM/architecte) : `_bmad-output/planning-artifacts/{PRD.md, architecture.md, epics.md}` + `_bmad-output/implementation-artifacts/sprint-status.yaml`.
-- **Spec-Kit** exécute chaque epic comme une *feature* gated : `.specify/memory/constitution.md` (principes immuables, gate) → `specs/[###-feature]/{spec.md, plan.md, tasks.md}` → `/speckit-implement`.
-- Règle BMAD respectée : **contexte propre par phase**, mémoire dans les fichiers (pas le chat).
+- **BMAD** produces high-fidelity planning artifacts (analyst/PM/architect): `_bmad-output/planning-artifacts/{PRD.md, architecture.md, epics.md}` + `_bmad-output/implementation-artifacts/sprint-status.yaml`.
+- **Spec-Kit** executes each epic as a gated *feature*: `.specify/memory/constitution.md` (immutable principles, gate) → `specs/[###-feature]/{spec.md, plan.md, tasks.md}` → `/speckit-implement`.
+- BMAD rule enforced: **clean context per phase**, memory kept in files (not in the chat).
 
-## Outillage installé (réel)
+## Installed tooling (real)
 
-| Framework | Installé via | Emplacement |
+| Framework | Installed via | Location |
 |---|---|---|
 | Spec-Kit | `uvx … specify init --here --integration claude` | `.specify/` + skills `.claude/skills/speckit-*` |
 | BMAD-METHOD v6.10 | `npx bmad-method@latest install --modules bmm --tools claude-code` | `_bmad/`, `_bmad-output/` + skills `.claude/skills/bmad-*` |
 
-Commandes disponibles (dans un agent) : Spec-Kit `/speckit-constitution|specify|plan|tasks|implement` ; BMAD `bmad-create-prd`, `bmad-create-architecture`, `bmad-create-epics-and-stories`, agents `bmad-agent-{analyst,pm,architect,dev}`, etc.
+Available commands (within an agent): Spec-Kit `/speckit-constitution|specify|plan|tasks|implement`; BMAD `bmad-create-prd`, `bmad-create-architecture`, `bmad-create-epics-and-stories`, agents `bmad-agent-{analyst,pm,architect,dev}`, etc.
 
-## Correspondance des artefacts
+## Artifact mapping
 
-| Contenu | BMAD (planning) | Spec-Kit (exécution) | Référence exhaustive (superpowers) |
+| Content | BMAD (planning) | Spec-Kit (execution) | Exhaustive reference (superpowers) |
 |---|---|---|---|
-| Principes immuables | (dans PRD/arch) | `.specify/memory/constitution.md` | design §1-§7 |
-| Quoi / pourquoi | `PRD.md` | `specs/001-*/spec.md` | design §1, §8 |
-| Comment (archi) | `architecture.md` | `specs/001-*/plan.md` | design §3-§7 |
-| Découpage | `epics.md` + `sprint-status.yaml` | `specs/001-*/tasks.md` | plan Phase 0 (bite-sized) |
+| Immutable principles | (within PRD/arch) | `.specify/memory/constitution.md` | design §1-§7 |
+| What / why | `PRD.md` | `specs/001-*/spec.md` | design §1, §8 |
+| How (architecture) | `architecture.md` | `specs/001-*/plan.md` | design §3-§7 |
+| Breakdown | `epics.md` + `sprint-status.yaml` | `specs/001-*/tasks.md` | plan Phase 0 (bite-sized) |
 
-**Note de conformité honnête :** les documents `docs/superpowers/specs|plans/` (issus du flux brainstorming→writing-plans) restent la **référence exhaustive** (code TDD complet par étape). Les artefacts BMAD/Spec-Kit ci-dessus sont la **vue conforme** aux deux frameworks, dérivée de cette référence. En cas de divergence, la constitution + le PRD priment sur l'intention ; le plan superpowers prime sur le détail d'implémentation.
+**Honest compliance note:** the `docs/superpowers/specs|plans/` documents (produced by the brainstorming→writing-plans flow) remain the **exhaustive reference** (complete TDD code for each step). The BMAD/Spec-Kit artifacts above are the **compliant view** for both frameworks, derived from that reference. In case of divergence, the constitution + the PRD take precedence over intent; the superpowers plan takes precedence over implementation detail.
 
-## Bridge de référence
-Pattern hybride documenté (BMAD planifie → Spec-Kit exécute) et implémentation concrète : `oimiragieo/BMAD-SPEC-KIT`. Voir aussi les docs officielles : `github/spec-kit`, `docs.bmad-method.org`.
+## Reference bridge
+Documented hybrid pattern (BMAD plans → Spec-Kit executes) and a concrete implementation: `oimiragieo/BMAD-SPEC-KIT`. See also the official docs: `github/spec-kit`, `docs.bmad-method.org`.
