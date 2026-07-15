@@ -1,11 +1,13 @@
 # Tasks: Phase 0 — Vertical Skeleton
 
+> **Status: BLOCKED / REQUIRES REGENERATION.** Do not execute this task list. ADR-0003 requires evidence spikes and invalidates the former Goose CLI subprocess tasks. Regenerate after architecture readiness.
+
 **Spec**: `specs/001-phase0-walking-skeleton/spec.md` | **Plan**: `specs/001-phase0-walking-skeleton/plan.md`
 
 > Exhaustive TDD detail (complete code, commands, tests per step): `docs/superpowers/plans/2026-07-15-skein-phase0-walking-skeleton.md`. This file is the **Spec-Kit index**; each task links back to it. `[P]` = parallelizable (independent files). TDD is mandatory per task.
 
 ## Phase Setup & Discovery
-- [ ] **T000** (Story 1.0) Goose spike → ADR `docs/superpowers/adr/0001-goose-integration.md`: integration path (CLI subprocess) + confirmed headless flags. *Blocking for T005.*
+- [ ] **T000** (Story 1.0) Runtime composition spike → evidence bundle + ADR-0003 decision: native Rust loop vs embedded/goosed Goose vs OpenCode/Cline worker surfaces. Must prove turn-level I/O, tool mediation, correlation and engine-enforced termination. *Blocking for all runtime implementation tasks.*
 - [ ] **T001** (Story 1.1) Cargo workspace scaffolding (`skein-core`, `skein-cli`) + `rust-toolchain.toml` + CI **Windows/macOS/Linux matrix** (`fmt`/`clippy -D warnings`/`test`).
 
 ## Core (domain + ports) — TDD

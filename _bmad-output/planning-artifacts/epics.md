@@ -28,12 +28,12 @@ FR-1 → Stories 1.6/1.7 · FR-3 → Story 1.4 · FR-6 → Story 1.3 · FR-10 �
 - Epics 7+ — v2→v8 (perception, cowork, generation, video, omni, voice, translation) & enterprise track
 
 ## Epic 1: Phase 0 — Vertical skeleton
-**Goal:** prove the complete vertical slice `CLI → headless core → Goose (headless) → LiteLLM Gateway → model`, with Local silo persistence, Ledger, and secrets foundation. Independently testable deliverable. TDD implementation detail: `specs/001-phase0-walking-skeleton/tasks.md`.
+**Goal:** prove the complete vertical slice `CLI → Skein control plane → selected per-turn runtime/worker → model gateway → model`, with Local silo persistence, Ledger, secrets foundation and turn-level governance. The runtime path is selected by ADR-0003 evidence before implementation. Independently testable deliverable. TDD implementation detail: `specs/001-phase0-walking-skeleton/tasks.md` after regeneration.
 
 ### Story 1.0: Goose integration spike (ADR)
 As a maintainer, I want to settle the Goose integration on facts, So that the implementation tasks are concrete.
 **Acceptance Criteria:**
-**Given** Goose installed **When** `goose run` is tested headless **Then** an ADR (`docs/superpowers/adr/0001`) fixes the approach (CLI subprocess) and the exact flags.
+**Given** candidate runtimes/workers are available **When** the ADR-0003 spike suite measures turn-level events, tool mediation, correlation, termination and local packaging **Then** an evidence bundle selects the Phase 0 path or defaults to the native Rust loop.
 
 ### Story 1.1: Workspace scaffolding + tri-OS CI
 As a dev, I want a Cargo workspace + CI, So that the code compiles and is verified on Windows/macOS/Linux.
@@ -52,7 +52,7 @@ As a user, I want to call a model through a single gateway, So that I can switch
 **Given** an OpenAI-compat endpoint **When** `complete()` is called **Then** the content is extracted; `health()` reflects the state. Realizes FR-3.
 
 ### Story 1.5: GooseRuntime (headless CLI adapter)
-As a dev, I want to encapsulate Goose behind `AgentRuntime`, So that the core does not depend on Goose.
+As a developer, I want a versioned `WorkerAdapter` contract and one evidence-selected implementation, so that the control plane remains independent from every agent runtime.
 **Given** a goose binary (stub) **When** `run()` executes **Then** stdout→`Event::Token`, end→`Event::Done`.
 
 ### Story 1.6: ChatService (orchestration + persistence)

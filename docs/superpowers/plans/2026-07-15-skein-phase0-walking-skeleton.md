@@ -1,10 +1,12 @@
 # Skein — Phase 0: Vertical Slice (Walking Skeleton) — Implementation Plan
 
+> **SUPERSEDED AS AN EXECUTABLE PLAN.** This document preserves useful TDD examples, but ADR-0003 invalidates its original Goose CLI subprocess architecture. Do not execute its tasks verbatim. Complete the runtime/workflow/context/Tool-Gateway spikes, then regenerate the authoritative Spec-Kit plan and tasks.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Prove Skein's complete vertical slice: `skein` CLI → headless core → Goose (dependency, headless mode) → LiteLLM Gateway → model, with session persistence in the **Local silo** and reload.
+**Goal:** Prove Skein's complete vertical slice: `skein` CLI → Skein-owned control plane → selected governed runtime/worker → model gateway → model, with session persistence in the **Local silo** and reload.
 
-**Architecture:** Headless core in Rust (crate `skein-core`) exposing a programmatic API; reference CLI (`skein-cli`). Goose is integrated as an **upstream dependency** via its headless CLI (`goose run`) wrapped behind our `AgentRuntime` trait (anti-corruption layer). LiteLLM serves as an OpenAI-compatible gateway (`:4000/v1`) to a local model (Ollama by default). Persistence is handled by a SQLite store **namespaced per silo** (`local`).
+**Architecture:** Skein-owned Rust control plane exposing a programmatic API; reference CLI (`skein-cli`); versioned worker/runtime port; replaceable model gateway (LiteLLM initially); SQLite storage namespaced per silo. The concrete worker path is selected by ADR-0003 evidence. A batch `goose run` subprocess cannot implement the governed loop.
 
 **Tech Stack:** Rust (2021 edition), Cargo workspace · `tokio` (async) · `rusqlite` (SQLite) · `reqwest` (HTTP) · `serde`/`serde_json` · `clap` (CLI) · `thiserror`/`anyhow` · `tracing` + `tracing-subscriber` (observability) · `wiremock` + `assert_cmd` + `tempfile` (tests) · Goose CLI (external binary) · LiteLLM (external Python proxy).
 

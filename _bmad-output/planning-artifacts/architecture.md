@@ -62,10 +62,20 @@ Layers → directories: `crates/skein-core/` (domain + ports), `crates/skein-*-a
 - **Prevents:** runaway loops; reflect/retry that trusts model self-judgment (unreliable, can degrade output).
 - **Rule:** every agent loop / loop node runs under a `LoopController` — termination/budgets are engine-enforced (the model never decides to stop), and reflect/retry is anchored to external ground truth (tests/compiler/linters/tool results). Loop state + reflections persist to the Ledger (AD-5, AD-7); breaches escalate to a human (AD-6, §7.4). Verify at 3 levels: action / iteration / terminal.
 
-### AD-8 — Hierarchical config resolution, "the highest level locks"
+### AD-8 — Hierarchical value resolution, explicit locks and security floors
 - **Binds:** FR-14, FR-15, FR-7 (harness), FR-3/FR-11 (egress/secrets)
 - **Prevents:** config divergence between levels; bypassing a higher-level lock.
-- **Rule:** config is resolved along Silo▸Team▸Project▸Conversation; a setting fixed at one level is authoritative for the levels below it; otherwise the lowest level applies. A single resolver for harness/tracker/egress/providers/secrets. Remains bounded to the silo (AD-2).
+- **Rule:** config is resolved along Silo▸Team▸Project▸Conversation. Without a lock, the most specific value wins. An explicit higher-scope lock caps lower scopes. Security constraints are monotonic floors: lower scopes may tighten but not weaken them. A single resolver governs harness/tracker/egress/providers/secrets and remains bounded to the silo (AD-2).
+
+### AD-10 — Skein owns control; workers are replaceable
+- **Binds:** FR-1, FR-13, FR-16, FR-18
+- **Prevents:** an external runtime hiding model/tool events or becoming the source of truth for policy, workflow state, evidence or completion.
+- **Rule:** the Rust control plane owns the loop and canonical state. Workers are invoked through a versioned contract and are accepted only when the required turn-level events, correlation, approvals and termination controls are observable and enforceable. See ADR-0003.
+
+### AD-11 — Context is selected, reproducible and budgeted
+- **Binds:** FR-17, FR-10
+- **Prevents:** repository dumping, untraceable summaries and exhaustion of output/tool-result headroom.
+- **Rule:** each model call persists a `ContextManifest`; smallest-sufficient retrieval is the default; full-context loading is explicit and benchmark-gated. Source hashes and selection rationale are Ledger-linked.
 
 ### Allowed dependencies (who may depend on whom)
 
@@ -80,7 +90,7 @@ graph TD
   CORE --> SEC[SecretProvider port]
   CORE --> LED[Ledger port]
   CORE --> CTL[Controller port]
-  RT --> GOOSE[Goose adapter]
+  RT --> WORKERS[Optional worker adapters]
   GW --> LITELLM[LiteLLM adapter]
   BK --> SQLITE[SQLite / Remote adapter]
   SEC --> KEYRING[OS/SOPS/1Password/OpenBao/Infisical adapters]
@@ -100,7 +110,8 @@ graph TD
 | Name | Version |
 | --- | --- |
 | Rust | 1.79 (MSRV) |
-| Goose | upstream dependency (v6.x) |
+| Skein control plane | Rust, version pinned by workspace toolchain |
+| Agent workers | Optional adapters (Goose, OpenCode, Cline, Hermes, Claude Code, others) |
 | LiteLLM | proxy (100+ providers) |
 | SQLite (rusqlite) | 0.31 (bundled) |
 | Tauri | 2.x (UI, v1+) |
@@ -127,13 +138,15 @@ skein/
 
 | Capability / FR | Lives in | Governed by |
 | --- | --- | --- |
-| FR-1 agentic loop | skein-core + Goose adapter | AD-1, AD-3 |
+| FR-1 agentic loop | skein-core + optional worker adapters | AD-1, AD-3, ADR-0003 |
 | FR-3 multi-provider | ModelGateway port + LiteLLM | AD-3, AD-4 |
 | FR-6 modes/silos | Backend port + ModeSupervisor | AD-2 |
 | FR-8 identity/RBAC | IdentityProvider port + RBAC | AD-6 |
 | FR-10 ledger | Ledger port + Gateway capture | AD-5 |
 | FR-11 secrets | SecretProvider port | AD-4, AD-5 |
 | FR-12 cowork/multimodal | Controller port + typed Content | AD-3 |
+| FR-17 context management | ContextManager + ContextManifest + retrieval adapters | AD-5, AD-11 |
+| FR-18 governed workers | WorkerAdapter + CapabilityRegistry | AD-3, AD-10, ADR-0003 |
 | FR-13 workflow | WorkflowEngine port + Ledger | AD-7, AD-5 |
 | FR-14 task tracking | TaskTracker port (local/Vikunja/Jira) | AD-3, AD-8 |
 | FR-15 hierarchy/config | Silo▸Team▸Project▸Conversation resolver | AD-8, AD-2 |

@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-15
 
-**Status**: Draft
+**Status**: Draft — architecture-spike blocked; plan/tasks require regeneration
 
 **Input**: Derived from `_bmad-output/planning-artifacts/epics.md` (Epic 1) and the design `docs/superpowers/specs/2026-07-15-skein-design.md` (§8 Phase 0).
 
@@ -13,7 +13,7 @@
 ### User Story 1 - Persisted conversation that acts on files (Priority: P1)
 As a user, I start a conversation from the terminal; the agent reads/writes a file, and my session is persisted and can be reloaded.
 
-**Why this priority**: this is the exit criterion for Phase 0 — it proves the complete vertical slice (CLI → core → Goose → Gateway → model → silo).
+**Why this priority**: this is the exit criterion for Phase 0 — it proves the complete vertical slice (CLI → Skein control plane → governed per-turn runtime/worker → Gateway → model → silo).
 
 **Independent Test**: `skein chat -t "..."` then `skein session show <id>` reloads user+assistant; an expected file exists.
 
@@ -86,6 +86,6 @@ As a user, I can see everything sent to/received from the model (Ledger) and no 
 
 ## Assumptions
 - Ollama is the default local model (cross-platform); LiteLLM runs locally (`:4000`).
-- Goose is integrated via its headless CLI (upstream dependency; see ADR 0001).
+- The runtime/worker path is selected by ADR-0003 spikes. Batch CLI subprocess execution is explicitly disallowed for the governed core loop because it hides turn-level model/tool events.
 - No cloud secrets in Phase 0; the only managed secret is the Gateway key (OS keyring).
 - v1 is text-only; multimodal is out of scope (v2+).

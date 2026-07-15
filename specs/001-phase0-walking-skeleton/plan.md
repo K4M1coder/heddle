@@ -1,9 +1,11 @@
 # Implementation Plan: Phase 0 — Vertical Skeleton
 
+> **Status: BLOCKED / REQUIRES REGENERATION.** ADR-0003 supersedes the former headless-Goose subprocess assumption. Run the runtime, workflow, context and Tool Gateway spikes, then regenerate this plan and `tasks.md` through the BMAD × Spec-Kit gates before implementation.
+
 **Branch**: `001-phase0-walking-skeleton` | **Date**: 2026-07-15 | **Spec**: `specs/001-phase0-walking-skeleton/spec.md`
 
 ## Summary
-Prove Skein's vertical slice (CLI → headless core → headless Goose → LiteLLM Gateway → local model) with Local silo persistence, an event-sourced Ledger, and a SecretProvider foundation. Approach: anti-corruption layer (Skein types & ports), Goose integrated via a CLI subprocess (ADR 0001), TDD tests without a network (stubs + wiremock + provider mock), and a manual smoke test for the real LLM loop.
+Prove Skein's vertical slice (CLI → Skein control plane → selected per-turn runtime/worker → model gateway → local model) with Local silo persistence, an event-sourced Ledger, context manifest and SecretProvider foundation. The concrete runtime is selected by ADR-0003 evidence; a batch CLI subprocess is not a valid core-loop implementation.
 
 ## Technical Context
 **Language/Version**: Rust 1.79 (MSRV)

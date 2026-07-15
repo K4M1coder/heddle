@@ -3,7 +3,8 @@
 - **Codename**: Skein *("a skein of geese" = a flight of geese, a nod to Goose; and a skein of intertwined threads = the connectors/models woven together)*
 - **Date**: 2026-07-15
 - **Status**: Design validated — awaiting review before implementation plan
-- **Author**: cthedrez@sodiuswillert.com (with assistance from Claude Code)
+- **Author and project owner**: Cédric Thedrez (`kamicoder` on GitHub, `cethgame` elsewhere)
+- **Project status**: independent open-source project
 - **Method**: written in the **Spec-Kit** style (Spec → Plan → Tasks → Implement); verifiable artifacts in the **BMAD** style.
 
 > ⚠️ This document describes **what** to build and **why**. The **detailed how** (tasks, sequencing) will be the subject of a separate implementation plan, produced after review of this spec.
@@ -15,7 +16,7 @@
 ## 1. Vision & objectives
 
 ### 1.1 Problem
-SodiusWillert teams today use siloed AI tools (chat, code assistant, automations) without a unified harness, without native integration to their stack (Atlassian, M365), and without control over model choice (cloud vs local/sovereign).
+Individuals and teams currently use siloed AI tools (chat, code assistants, automations) without a unified harness, native integration with their working environment, or consistent control over model choice (cloud, local, or sovereign).
 
 ### 1.2 Vision
 A **single agentic tool**, local-first, bringing together **chat**, **code** and **cowork** (PC control), equipped with a powerful harness (context management, tools, skills), natively integrating business connectors via **MCP**, able to plug into **all AI providers** (cloud and local) and embedding its own inference, with the **BMAD / Spec-Kit / powerskills** methods as first-class skills.
@@ -49,14 +50,16 @@ v1 is **text**. Multimodal and collaborative evolution is planned across version
 | Decision | Chosen option | Rationale |
 |---|---|---|
 | **Strategy** | Build on a **neutral open-source base** | Avoids vendor lock-in + reuses a proven harness. |
-| **Core foundation / language** | **Goose (Rust)** + **Python sidecar** | Goose: Rust, MCP-native, Apache-2.0, Linux Foundation, multi-provider, Windows OK. Python for the AI ecosystem. |
+| **Core foundation / language** | **Skein-owned Rust control plane** + optional Python/TypeScript sidecars | Rust owns policy, workflow, Ledger, context and stable API contracts. Existing agents and language-specific engines remain replaceable workers/adapters (ADR 0003). |
 | **Model gateway** | **LiteLLM** | OpenAI-compatible entry point to 100+ cloud **and** local providers; cost/quotas/guardrails. |
 | **Frameworks** | BMAD / Spec-Kit / powerskills packaged as **recipes/skills** | Integration = packaging + orchestration, not rewrite. |
 | **PC control** | **Abstract hybrid** `Controller` interface | Interchangeable back-ends (Computer Use API **or** local enigo/xcap). No lock-in. |
 | **Deployment** | **Local-first**, team backend **enableable** | The desktop is autonomous; team mode is a layer on top. |
 | **Platforms** | **First-class cross-platform: Windows + macOS + Linux** (on equal footing) | Rust/Tauri/Goose/LiteLLM/SQLite/keyring are all multi-OS; CI on all three; per-OS signing. |
 | **Surfaces** | **Headless core → CLI (reference) → UI (layer)** | Automatable, testable; the UI adds no capability of its own. |
-| **Goose strategy** | **Upstream dependency** by default; **hybrid fork/patch** if a core need is not exposed, **with a PR sent upstream** | Minimal maintenance cost; the fork converges toward upstream instead of diverging; good open-source citizen. |
+| **Agent-runtime strategy** | Native Skein loop by default; Goose/OpenCode/Cline/Hermes/Claude Code and others are optional `WorkerAdapter`s or sources of compatible components | Guarantees turn-level governance and prevents an external agent from owning policy, workflow state or evidence (ADR 0003). |
+| **Packaging** | One product/repository/version/installer/command; modular monolith with optional supervised sidecars/workers | Simple local use without forcing every inference, browser or ML engine into one process. |
+| **Context strategy** | Smallest-sufficient, reproducible `ContextManifest`; 1M-token windows are overflow capacity, not default working memory | Long-context models still degrade with position and complexity; selection, provenance and compression are core capabilities (§4.15). |
 | **Editable harness** | **Layered** config: **team** base (leads, lockable) + **local** overrides (user) — see §5.4 | Team governance + local freedom, without breaking silo isolation. |
 | **Identity** | **Pluggable** provider: local store (default) / LDAP-AD / OIDC / Entra ID / Google Workspace — §7.9 | Local-first offline; enterprise IdP + groups in Server/Remote mode. |
 | **Authorization** | **RBAC** roles+permissions at **3 scopes** (global / silos / intra-silo) — §7.10 | Fine-grained control of usage, silo access, and functions/settings. |
@@ -84,7 +87,7 @@ v1 is **text**. Multimodal and collaborative evolution is planned across version
 Guiding principle: **headless core**, the CLI is the complete reference client, the UI is a layer. Every UI capability exists in the CLI; every CLI capability is exposed by the API.
 
 ```
-        ┌───────────────── HEADLESS CORE (Goose, Rust) ─────────────────┐
+        ┌────────────── SKEIN HEADLESS CONTROL PLANE (Rust) ────────────┐
         │  Complete programmatic API (JSON-RPC / local HTTP)             │
         │  Agentic runtime · Context · Tool/skill/provider dispatch      │
         └───────────────────────────┬───────────────────────────────────┘
@@ -118,7 +121,7 @@ Each component: **one role**, an **explicit interface**, **testable in isolation
 - **API**: same surface, for automation/CI/third parties; subject to the mode's exposure/authz.
 - **UI (Tauri)**: only emits CLI/API commands, displays events. No business logic.
 
-### 4.2 Agentic core (`core/`, Rust — Goose)
+### 4.2 Agentic core (`core/`, Rust — Skein-owned loop)
 ```rust
 enum Content { Text(..), Image(..), Audio(..), Doc(..), Video(..) }  // typed abstraction (from v2)
 struct Message { role: Role, parts: Vec<Content> }
@@ -129,7 +132,7 @@ trait Agent {
   fn register_skill(&mut self, skill: Recipe);         // = BMAD/Spec-Kit/…
 }
 ```
-Depends on: `ModelGateway`, `Backend`, MCP extensions, skill engine. The agent loop is governed by a **`LoopController`** (loop engineering, §4.14): engine-enforced termination/budgets and ground-truth-anchored reflect/retry.
+Depends on: `ModelGateway`, `Backend`, governed Tool/MCP Gateway, skill engine, `LoopController`, and optional `WorkerAdapter`s. A worker never owns canonical workflow state, policy decisions, evidence or completion.
 
 **Typed content abstraction** (introduced in v2, cross-cutting): a `Message` carries `parts` of types `text | image | audio | doc | video`. This is the **only core addition** required by the entire multimodal roadmap; concrete modalities are then provider capabilities (Gateway) or specialized tools — never a rewrite of the agentic loop.
 
@@ -143,13 +146,13 @@ Each connector = one MCP server (Jira/Bitbucket/Confluence, Outlook/SharePoint/T
 - This same **enablement policy applies to every pluggable component**: identity providers (§7.9), secret backends (§7.13), task trackers (§4.13), model providers/routes (§4.5), and controllers (§4.9). One mechanism, all components.
 
 ### 4.4 Skills / recipes engine (`skills/`)
-Loads BMAD (21+ agents, artifacts), Spec-Kit (Spec→Plan→Tasks→Implement), powerskills/superpowers as invocable **Goose YAML recipes** (`/spec`, `/bmad`, …).
+Loads BMAD, Spec-Kit, powerskills/superpowers and project-defined skills through Skein's canonical skill/workflow contracts. Goose recipes and other external formats are import/export adapters, not the canonical representation.
 ```
 Recipe = { name, description, instructions, required_extensions[], params[], prompt }
 ```
 
 ### 4.5 Model gateway (`gateway/`, LiteLLM)
-OpenAI-compatible entry point (`POST /v1/chat/completions`) → 100+ cloud/local providers; routing, cost/quotas, load-balancing, guardrails. Goose plugs in via an "openai-compatible" provider.
+OpenAI-compatible entry point (`POST /v1/chat/completions`) → cloud/local providers; routing, cost/quotas, load-balancing and guardrails. LiteLLM is the initial replaceable adapter; Skein owns model capability descriptors and policy routing.
 **Traceability chokepoint**: all model I/O passes through here → the Gateway **captures model inputs/outputs to the Ledger (§4.11)**, whatever the emitting runtime.
 
 ### 4.6 Inference layer (`inference/`)
@@ -284,6 +287,16 @@ trait LoopController {                              // middleware/hooks around e
 - **HITL escalation**: on budget/failure-threshold breach or `needsApproval` tools → pause as a durable Ledger event, await human approve/reject (reuses §7.4 confirmations).
 - **Simplicity gate** (Anthropic): prefer the simplest solution; add loop autonomy only when it earns measurable value.
 
+### 4.15 Context manager and million-token operating model
+
+Skein MUST NOT equate an advertised context window with reliable working memory. A one-million-token window is useful overflow capacity, but repository-wide injection is neither required nor desirable. The context manager builds a versioned `ContextManifest` for every model call, recording selected sources, hashes, classifications, token allocation and selection rationale.
+
+The manager combines repository and symbol maps, lexical and semantic search, dependency graphs, artifact relations, ACL-aware retrieval, lazy loading, source-linked summaries and trajectory compression. Requirements, security policy and acceptance criteria may be pinned; incidental history may be compacted or omitted.
+
+Normal operation targets the **smallest sufficient context**, commonly tens of thousands of tokens. Output/tool-result reserve and loop headroom are protected from input expansion. Full-context loading is an explicit diagnostic strategy and MUST be benchmarked against retrieval-based selection before becoming a workflow default.
+
+Research and feasibility baseline: `docs/research/agent-platform-landscape.md` (including *Lost in the Middle*, RULER and LongCodeBench).
+
 ---
 
 ## 5. Connectivity, modes & isolation
@@ -333,12 +346,13 @@ Data and config are organized in a **hierarchy**, different depending on the mod
   Local mode          :   Silo(local) ▸ Project ▸ Conversation      (no teams)
 ```
 
-**Config resolution (harness, TaskTracker, egress, providers, secrets…) — "highest locks lowest":**
-- A setting **fixed** at a given level is **authoritative (lock) for all lower levels**.
-- If not fixed higher up, it is **modifiable at the lowest level** (down to the **conversation**, changeable from one conversation to another).
-- Precedence: **Silo > Team > Project > Conversation**. This is the **generalization of the §5.4 harness lock** to the whole hierarchy (a single resolution mechanism governs harness, TaskTracker, egress, providers).
+**Config resolution (harness, TaskTracker, egress, providers, secrets…):**
+- **Setting a value is not the same as locking it.** Without an explicit lock, the most specific configured value wins (Conversation > Project > Team > Silo).
+- An explicit lock caps lower scopes; the highest explicit lock wins.
+- Security policy is a **monotonic floor**: lower scopes may tighten restrictions but never weaken a higher-scope security constraint.
+- This single resolver governs harness, TaskTracker, egress, providers and secrets.
 
-**Example (TaskTracker)**: if the silo fixes "Jira", all teams/projects/conversations below use Jira; if nothing is fixed above, a project (or a conversation) may choose local Vikunja. In **Local mode**, the same rule applies without the Team level.
+**Example (TaskTracker)**: if the silo explicitly locks "Jira", all teams/projects/conversations below use Jira; if it only supplies Jira as an unlocked default, a project or conversation may choose local Vikunja. In **Local mode**, the same rule applies without the Team level.
 
 - **Isolation preserved**: the hierarchy lives *within* a silo; it never crosses the silo boundary (§5.3). Team membership remains the authorization boundary (§7.10).
 
@@ -527,7 +541,8 @@ External IdPs (LDAP/OIDC/Entra/Google) + **advanced RBAC** (§7.9-7.10), advance
 
 | Risk / question | Impact | Approach |
 |---|---|---|
-| ~~Integrate vs fork Goose~~ **(DECIDED)** | — | **Upstream dependency by default**; hybrid fork/patch if a core need is not exposed, **with a PR sent upstream** (the fork converges, does not diverge). |
+| Agent-runtime composition | **High** | ADR 0003: Skein owns the loop; bounded spikes compare native Rust, Goose, OpenCode and Cline integration surfaces before accepting a worker path. |
+| Effective use of very long contexts | **High** | `ContextManifest` + repo/symbol maps + hybrid retrieval + position-sensitive benchmark; 1M context is overflow, not a substitute for context engineering. |
 | Reliability of cowork *grounding* (click anchoring) | Medium | Computer Use hybrid first, local afterward. |
 | Multi-OS local inference packaging (llama.cpp/vLLM; vLLM poorly suited to Windows/macOS) | Medium | Ollama as robust and cross-platform default; optional GPU vLLM (especially Linux). |
 | Per-OS signing/notarization (Authenticode + macOS Developer ID) | Medium | Integrate signing into the release CI from the start; Apple/Windows developer accounts required. |
@@ -551,7 +566,7 @@ External IdPs (LDAP/OIDC/Entra/Google) + **advanced RBAC** (§7.9-7.10), advance
 ## 11. Glossary
 - **Silo**: watertight data partition associated with a mode (and a team in Remote).
 - **Leader / Follower**: instance exposing its backend / instance attached to a leader.
-- **Recipe**: Goose YAML bundle (instructions + extensions + prompt) = a skill.
+- **Recipe**: an external declarative task/skill bundle (for example Goose YAML) imported into Skein's canonical skill/workflow representation.
 - **Controller**: abstraction of PC control (capture + keyboard/mouse).
 - **Sidecar**: auxiliary Python process (embeddings/RAG/eval).
 - **Principal**: authenticated entity (user/service) carrying an identity and groups.

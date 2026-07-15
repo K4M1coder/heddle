@@ -8,7 +8,7 @@ updated: 2026-07-15
 *Local-first AI agentic tool, unifying chat, code and cowork.*
 
 ## 0. Document Purpose
-This PRD is aimed at the PM, SodiusWillert stakeholders and downstream workflows (architecture, epics/stories). It defines the **what** and the **why**; the **how** lives in `architecture.md`. The exhaustive design (reference) is `docs/superpowers/specs/2026-07-15-skein-design.md`. Vocabulary anchored in §3 Glossary; features with nested FRs; assumptions indexed in §9.
+This PRD is intended for the project owner, open-source contributors, product stakeholders, and downstream workflows (architecture, epics/stories). It defines the **what** and the **why**; the **how** lives in `architecture.md`. The exhaustive design reference is `docs/superpowers/specs/2026-07-15-skein-design.md`. Vocabulary is anchored in §3 Glossary; features contain nested FRs; assumptions are indexed in §9.
 
 ## 1. Vision
 Skein is a **single, local-first AI agentic tool**, bringing together **chat**, **code** and **cowork** (PC control) behind a headless core equipped with an advanced harness (context, tools, skills). It connects to **all AI providers** (cloud and local), embeds its own inference, natively integrates business connectors (Atlassian, M365) via MCP, and masters the **BMAD / Spec-Kit / powerskills** methods. It gives the user **full transparency and reversibility** (each step is an inspectable/replayable "commit") and **enterprise compliance** (identity, RBAC, audit, GDPR/ISO/SOC2/AI Act/NIS2).
@@ -83,7 +83,7 @@ The user can route to a cloud OR local provider; in Local mode, only local provi
 ### 4.10 Workflow engine (native, Archon-inspired)
 **Description:** the harness natively sequences multi-agent actions across the connected tools, over the entire SDLC (design→dev→tests→packaging→deployment). Realizes UJ-1.
 #### FR-13: Event-sourced workflow
-The user/agent can define and execute a workflow (agent/tool/subagent/approval/condition/parallel/loop nodes); each step is logged in the Ledger (durable, replayable, resumable). Goose recipes and BMAD/Spec-Kit flows are workflows.
+The user/agent can define and execute a workflow (agent/tool/subagent/approval/condition/parallel/loop nodes); each step is logged in the Ledger (durable, replayable, resumable). Goose recipes and BMAD/Spec-Kit flows are external formats projected into the canonical workflow/artifact model.
 - **Consequences (testable):** an interrupted workflow can be resumed from the last Ledger Step.
 #### FR-16: Engine-enforced loop control (loop engineering)
 Every agent loop and loop node is governed by a `LoopController`: externally-enforced termination (iteration/token/cost budget + no-progress detection), ground-truth-anchored reflect/retry (tests/compiler/tools, not self-judgment), three verification levels (action/iteration/terminal), and human escalation on threshold breach. Node types: ReAct, Reflexion, Self-Refine, evaluator-optimizer. See design §4.14, research `docs/research/loop-engineering.md`.
@@ -93,11 +93,18 @@ Every agent loop and loop node is governed by a `LoopController`: externally-enf
 #### FR-14: Pluggable TaskTracker
 The user can track tasks through an interchangeable backend: local (silo), **Vikunja** (embedded OSS) or **Jira** (via MCP). Workflows reflect their progress there.
 #### FR-15: Hierarchy & config resolution
-Data/config is organized into **Silo ▸ Team ▸ Project ▸ Conversation** (Local mode: without Team). A setting fixed at one level **locks the lower levels** ("the highest wins"); otherwise it is modifiable down to the conversation.
-- **Consequences (testable):** a TaskTracker fixed at the silo applies to all projects/conversations; if not fixed, a project can choose another backend.
+Data/config is organized into **Silo ▸ Team ▸ Project ▸ Conversation** (Local mode: without Team). Values and locks are separate: without a lock, the most specific value wins; the highest explicit lock caps lower scopes. Security settings form a monotonic floor, so lower scopes may tighten but never weaken them.
+- **Consequences (testable):** an explicitly locked TaskTracker at silo scope applies below; an unlocked default may be overridden at project or conversation scope.
+
+### 4.12 Context management and agent workers
+#### FR-17: Reproducible smallest-sufficient context
+Every model call has a `ContextManifest` that records selected sources, source hashes, classifications, token allocation and selection rationale. Repository maps, symbol/dependency indexes, hybrid retrieval, lazy loading and trajectory compression are used before whole-repository loading. Million-token windows are overflow capacity, not default working memory.
+
+#### FR-18: Replaceable governed workers
+Skein owns the agent loop and may delegate bounded work to compatible workers (native, Goose, OpenCode, Cline, Hermes, Claude Code or others). A worker is eligible only when its contract exposes the model/tool/approval/termination events required by policy and Ledger capture.
 
 ## 5. Non-Goals (Explicit)
-- No rewrite of a harness from scratch (we adopt Goose).
+- No wholesale rewrite of commodity infrastructure. Skein implements its differentiating control plane and reuses model, MCP, browser, storage, inference and observability components behind adapters.
 - No separate server product (the team backend = an exposed instance).
 - No dependence on a single provider (AI, IdP, secrets).
 - No simple web chatbot without local execution.
@@ -121,9 +128,10 @@ Agentic code assistant · multi-provider + local inference · Atlassian+M365 con
 - **SM-C1**: do not gain speed by bypassing confirmations/redaction/egress — security takes precedence over latency.
 
 ## 8. Open Questions
-1. Future migration of the Goose integration (CLI subprocess → goosed REST → crate) — to be decided by later spikes.
-2. Exact token-level capture format via LiteLLM logging (Gateway→Ledger ingestion).
-3. Local-first identity model (key pairs) → transition to enterprise OIDC.
+1. Worker strategy — native Rust loop is the baseline; bounded spikes determine whether Goose, OpenCode, Cline or other workers satisfy the turn-level governance contract.
+2. Context quality — benchmark smallest-sufficient retrieval against full-context loading, including million-token and middle-position cases.
+3. Exact token-level capture format via Gateway→Ledger ingestion.
+4. Local-first identity model (key pairs) → transition to enterprise OIDC.
 
 ## 9. Assumptions Index
 - [ASSUMPTION §2] Cowork requires a real workstation (no pure thin client).
