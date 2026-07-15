@@ -59,6 +59,7 @@ Le v1 est **texte**. L'évolution multimodale et collaborative est planifiée en
 | **Autorisation** | **RBAC** rôles+permissions à **3 portées** (globale / silos / intra-silo) — §7.10 | Contrôle fin de l'usage, de l'accès aux silos et des fonctions/paramètres. |
 | **Observabilité** | **OpenTelemetry** + audit immuable, dès v1 — §7.11 | Standard exportable ; base transversale de la conformité. |
 | **Conformité** | **Compliance-by-design** : RGPD / ISO 27001 / SOC 2 / EU AI Act / NIS2 — §7.12 | Le logiciel fournit les contrôles ; la certification reste organisationnelle. |
+| **Traçabilité** | **Ledger event-sourced façon git** : chaque étape (I/O modèles, tools, état) immuable, inspectable, rejouable, réversible — §4.11 | Transparence totale (tout l'in/out modèles, pas que les résultats) ; capturé à la Gateway. |
 
 ### 2.1 Sources (état vérifié au 2026-07-15)
 - Goose : https://github.com/aaif-goose/goose · https://block-goose.mintlify.app/
@@ -133,6 +134,7 @@ Recipe = { name, description, instructions, required_extensions[], params[], pro
 
 ### 4.5 Passerelle de modèles (`gateway/`, LiteLLM)
 Point d'entrée OpenAI-compatible (`POST /v1/chat/completions`) → 100+ providers cloud/locaux ; routage, coût/quotas, load-balancing, guardrails. Goose s'y branche via un provider « openai-compatible ».
+**Chokepoint de traçabilité** : toute I/O modèle transite ici → la Gateway **capture entrées/sorties modèles vers le Ledger (§4.11)**, quel que soit le runtime émetteur.
 
 ### 4.6 Couche d'inférence (`inference/`)
 Modèles locaux (Ollama / llama.cpp / vLLM / LM Studio) exposés en endpoints OpenAI-compat, enregistrés dans LiteLLM. « Serveur d'inférence embarqué » = Ollama/llama.cpp packagé (+ vLLM optionnel GPU).
@@ -173,6 +175,35 @@ Les trois usages — captures en entrée (grounding, v2), pilotage PC et compagn
   ```
 - **Canal duplex streaming** (v7, *nouveauté du modèle d'exécution*) : l'audio temps réel exige un flux **bidirectionnel continu** (in et out simultanés), distinct de la boucle requête→réponse. Introduit une interface `RealtimeSession` (WebRTC/streaming ou API omni-realtime) — c'est le **seul jalon qui modifie le modèle d'exécution du cœur** (cf. risques §10).
 - **Traduction d'équipe** (v8) : composition STT→traduire→TTS (voix) + traduction texte, **par participant** selon un profil « langue maternelle » porté par le membre dans la **partition d'équipe** (§5), via le connecteur Teams/chat.
+
+### 4.11 Ledger d'exécution (event-sourced, façon git) — transversal, dès v1
+**Chaque étape est une révision immuable.** Skein enregistre, dans un journal **append-only, adressé par hachage et chaîné (parent→enfant)**, *tout* ce qui compose une exécution — pas seulement les résultats produits :
+- **Entrées modèles** : le contexte/prompt **exact** envoyé à chaque modèle.
+- **Sorties modèles** : la réponse **brute** de chaque modèle (avant post-traitement).
+- **Tool-calls** : appel (nom + arguments) **et** résultat.
+- **Changements d'état** : mutations de session/fichiers (avec snapshot pré-mutation quand c'est réversible).
+
+```rust
+struct StepId(String);                 // hash de contenu (comme un SHA de commit)
+struct Step {
+  id: StepId, parent: Option<StepId>,  // chaîne/DAG
+  ts: i64, principal: PrincipalId, silo: SiloRef,
+  kind: StepKind,                      // LlmRequest | LlmResponse | ToolCall | ToolResult | StateChange
+  payload: Content,                    // le contenu intégral (in ou out)
+}
+trait Ledger {
+  fn append(&self, step: Step) -> StepId;        // append-only
+  fn history(&self, session: SessionId) -> Vec<Step>;   // "git log"
+  fn show(&self, id: StepId) -> Step;            // inspecter in/out exacts
+  fn replay(&self, from: StepId) -> EventStream; // rejouer depuis un point
+  fn revert(&self, to: StepId) -> Result<()>;    // annuler (effets réversibles) + restaurer snapshot
+  fn branch(&self, from: StepId) -> SessionId;   // explorer une alternative
+}
+```
+- **Point de capture** : les entrées/sorties modèles sont capturées à la **Gateway (§4.5)** — chokepoint unique traversé par tout runtime (Goose inclus) → aucune I/O modèle n'échappe au journal.
+- **Réversibilité honnête** : effets internes (fichiers/session) **annulables** par snapshot ; effets externes irréversibles (e-mail envoyé, ticket créé) **enregistrés et signalés** comme non annulables (action compensatoire proposée, jamais auto).
+- **Isolation & sécurité** : le journal vit **dans le silo** (§5.3) ; il contient des prompts potentiellement sensibles → soumis au **trousseau/rédaction, à l'egress et à la rétention** (§7). C'est aussi la pièce maîtresse de la traçabilité RGPD/AI Act (§7.11-7.12).
+- **Surfaces** : `skein ledger log|show|replay|revert|branch` (CLI de référence) ; l'UI n'est qu'une vue de ce journal.
 
 ---
 
@@ -248,6 +279,7 @@ Entrée (UI/CLI/API)
 6. **Chaîne d'appro. (MCP & recipes)** : registre de confiance, épinglage de versions, revue avant activation. Pas de chargement silencieux.
 7. **Sûreté cowork / navigateur / voix (v2+)** : confirmations avant actions irréversibles ; pas de saisie de credentials ; captures d'écran, contenu web et audio confinés au silo + politique egress ; le compagnon navigateur n'agit jamais sur instruction trouvée *dans* une page (frontière §7.5).
 8. **Gouvernance du harness (§5.4)** : les réglages de sécurité sont **verrouillables** par chef d'équipe/projet/admin et **non surchargeables** en local ; toute édition de config (surtout sécurité) est **auditée et versionnée**. L'édition du harness est elle-même une action gouvernée, pas un contournement des règles ci-dessus.
+9. **Ledger d'exécution (§4.11)** : contient l'intégralité des prompts/réponses modèles → **donnée sensible**. Confiné au **silo**, soumis à l'**egress**, au **trousseau** (rédaction des secrets avant persistance), à une **politique de rétention** configurable, et à l'**accès RBAC** (qui peut lire le journal). Le ledger est la source de vérité de la traçabilité (§7.11-7.12) — il ne se contourne pas.
 
 ### 7.9 Identité (fournisseurs pluggables)
 Abstraction unique, plusieurs back-ends interchangeables — même pattern de couplage inversé que le reste :
@@ -280,7 +312,7 @@ Autorisation **deny-by-default**, évaluée à trois niveaux imbriqués :
 
 ### 7.11 Observabilité
 - **Traces / métriques / logs** via **OpenTelemetry** (standard, exportable vers l'outillage de l'entreprise). Intégrée **dès v1** (peu coûteux tôt, pénible à rétrofit).
-- **Journal d'audit** immuable : authN/authZ, tool-calls, éditions de harness/sécurité, accès aux silos — horodaté, attribué au principal, borné au silo.
+- **Journal d'audit** immuable : authN/authZ, tool-calls, éditions de harness/sécurité, accès aux silos — horodaté, attribué au principal, borné au silo. Complémentaire du **Ledger d'exécution (§4.11)** qui, lui, capture le *contenu* (I/O modèles) : l'audit dit « qui a fait quoi », le ledger dit « quoi exactement a été envoyé/reçu ».
 - **Métriques produit** : coût/tokens par provider (via LiteLLM), latence, taux d'échec des tools ; **respectent la politique egress** (pas d'export hors politique).
 
 ### 7.12 Conformité (compliance-by-design)
@@ -384,6 +416,9 @@ IdP externes (LDAP/OIDC/Entra/Google) + **RBAC avancé** (§7.9-7.10), audit ava
 | Coût/latence de la génération vidéo (v5) | Moyen | Providers cloud d'abord ; local GPU optionnel ; jobs asynchrones. |
 | Publication & sécurité de l'extension navigateur (v3) | Moyen | Périmètre de permissions minimal ; revue store Chrome/Edge ; frontière anti-injection stricte. |
 | Qualité/latence traduction temps réel (v8) | Moyen | Modèles dédiés + fallback texte ; profil langue explicite par membre. |
+| Croissance du Ledger (§4.11) : volume des prompts/réponses stockés | Moyen | Rétention configurable, compaction/archivage, adressage par hachage (dédup), stockage de gros blobs hors DB. |
+| Secrets présents dans les prompts capturés par le Ledger | **Élevé** | Rédaction/masquage avant persistance ; chiffrement au repos ; accès RBAC ; jamais de sortie hors egress. |
+| Event sourcing = décision d'archi fondatrice (coûteuse à rétrofit) | Moyen | Capturer dès v1 (Phase 0) même si revert/branch avancés viennent après — voir plan Phase 0. |
 
 ---
 
@@ -398,3 +433,5 @@ IdP externes (LDAP/OIDC/Entra/Google) + **RBAC avancé** (§7.9-7.10), audit ava
 - **RBAC** : contrôle d'accès par rôles+permissions, à 3 portées (globale / silos / intra-silo).
 - **Omni-orchestrateur** : couche qui compose plusieurs modèles spécialisés pour simuler un modèle unique.
 - **Harness** : configuration du comportement de l'agent (instructions, tools, skills, contexte, politiques) — éditable en couches équipe/locale.
+- **Ledger d'exécution** : journal append-only, adressé par hachage et chaîné (façon commits git), capturant chaque étape (I/O modèles, tool-calls, changements d'état) ; inspectable, rejouable, réversible, révisable.
+- **Event sourcing** : l'état est dérivé d'un journal d'événements immuables plutôt que muté en place — permet historique, replay et time-travel.

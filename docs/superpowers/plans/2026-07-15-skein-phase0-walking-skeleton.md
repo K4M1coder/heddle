@@ -14,6 +14,7 @@
 - **Local-first** : Phase 0 = **mode `local` uniquement**. **Egress réseau OFF par défaut** → la Gateway pointe vers un modèle **local** (Ollama). Aucun appel cloud.
 - **Isolation par silo** : toute donnée persistée est préfixée/namespacée par le silo (`local` en Phase 0). Aucune lecture hors silo.
 - **Observabilité dès v1** : chaque crate initialise `tracing` ; les événements clés (démarrage run, tool-call, persistance) sont tracés.
+- **Ledger dès v1 (event sourcing)** : chaque étape (prompt envoyé / réponse reçue) est capturée dans un journal **append-only, chaîné par hachage** (§4.11 du spec). Phase 0 = capture *au niveau étape* + inspection (`skein ledger log|show`) ; revert/branch/capture token-level via Gateway = phases suivantes.
 - **Qualité** : `cargo fmt`, `cargo clippy -D warnings`, `cargo test` doivent passer. TDD strict (test rouge → code → test vert → commit).
 - **Commits** : Conventional Commits. Commit fréquent (à chaque tâche minimum).
 - **Édition Rust** : 2021. **MSRV** : 1.79.
@@ -38,6 +39,7 @@ skein/
 │  │     ├─ silo.rs                # SiloStore (SQLite, namespacé)
 │  │     ├─ gateway.rs             # GatewayClient (OpenAI-compat)
 │  │     ├─ runtime.rs             # AgentRuntime trait + GooseRuntime
+│  │     ├─ ledger.rs              # LedgerStore (append-only, chaîné par hachage)
 │  │     └─ error.rs               # SkeinError
 │  └─ skein-cli/
 │     ├─ Cargo.toml
@@ -1111,7 +1113,278 @@ git commit -m "feat(cli): commandes chat + session list/show (client de référe
 
 ---
 
-### Task 8: Vérification du critère de sortie Phase 0 (smoke test réel + doc)
+### Task 8: Ledger d'exécution (event-sourced) — capture & inspection
+
+**Files:**
+- Create: `crates/skein-core/src/ledger.rs`
+- Modify: `crates/skein-core/src/lib.rs` (ajouter `pub mod ledger;`), `crates/skein-core/Cargo.toml` (ajouter `sha2`), `crates/skein-cli/src/main.rs` (câbler l'append + sous-commande `ledger`)
+
+**Interfaces:**
+- Consumes: `SkeinError`/`Result` (Task 2), `SiloStore` DB (Task 3, même fichier), `ChatService::chat` sortie `(sid, events)` (Task 6).
+- Produces:
+  - `enum StepKind { LlmRequest, LlmResponse, ToolCall, ToolResult, StateChange }`
+  - `struct Step { id: String, parent: Option<String>, seq: i64, kind: StepKind, payload: String }`
+  - `struct LedgerStore` avec `open(path, namespace)`, `append(session_id, kind, payload) -> Result<String>` (retourne l'id = hash chaîné), `log(session_id) -> Result<Vec<Step>>`, `show(id) -> Result<Step>`.
+
+- [ ] **Step 1: Ajouter la dépendance de hachage**
+
+Dans `crates/skein-core/Cargo.toml`, section `[dependencies]`, ajouter :
+```toml
+sha2 = "0.10"
+```
+
+- [ ] **Step 2: Écrire le test rouge (append-only + chaînage par hachage)**
+
+`crates/skein-core/src/ledger.rs` :
+```rust
+use crate::error::{Result, SkeinError};
+use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::path::Path;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn append_chains_by_hash_and_is_ordered() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("skein.db");
+        let led = LedgerStore::open(&db, "local").unwrap();
+
+        let id1 = led.append("s1", StepKind::LlmRequest, "prompt exact").unwrap();
+        let id2 = led.append("s1", StepKind::LlmResponse, "réponse brute").unwrap();
+
+        let steps = led.log("s1").unwrap();
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0].parent, None);
+        assert_eq!(steps[1].parent.as_deref(), Some(id1.as_str()));
+        assert_eq!(steps[1].id, id2);
+
+        // Le show restitue le payload EXACT (in/out), pas seulement un résultat.
+        assert_eq!(led.show(&id1).unwrap().payload, "prompt exact");
+        assert_eq!(led.show(&id2).unwrap().payload, "réponse brute");
+    }
+
+    #[test]
+    fn ledger_respects_namespace_isolation() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("skein.db");
+        let local = LedgerStore::open(&db, "local").unwrap();
+        local.append("s1", StepKind::LlmRequest, "secret").unwrap();
+        let remote = LedgerStore::open(&db, "remote").unwrap();
+        assert!(remote.log("s1").unwrap().is_empty());
+    }
+}
+```
+
+- [ ] **Step 3: Lancer le test (échec attendu)**
+
+Run: `cargo test -p skein-core ledger`
+Expected: FAIL (LedgerStore non défini).
+
+- [ ] **Step 4: Implémenter `LedgerStore`**
+
+Ajouter au-dessus du bloc `#[cfg(test)]` :
+```rust
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StepKind { LlmRequest, LlmResponse, ToolCall, ToolResult, StateChange }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Step {
+    pub id: String,
+    pub parent: Option<String>,
+    pub seq: i64,
+    pub kind: StepKind,
+    pub payload: String,
+}
+
+pub struct LedgerStore {
+    conn: Connection,
+    namespace: String,
+}
+
+impl LedgerStore {
+    pub fn open(path: &Path, namespace: &str) -> Result<LedgerStore> {
+        let conn = Connection::open(path)?;
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS ledger (
+                id TEXT NOT NULL,
+                namespace TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                seq INTEGER NOT NULL,
+                parent TEXT,
+                kind TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                PRIMARY KEY (id, namespace)
+            );",
+        )?;
+        Ok(LedgerStore { conn, namespace: namespace.to_string() })
+    }
+
+    pub fn append(&self, session_id: &str, kind: StepKind, payload: &str) -> Result<String> {
+        let (seq, parent): (i64, Option<String>) = {
+            let count: i64 = self.conn.query_row(
+                "SELECT COUNT(*) FROM ledger WHERE session_id = ?1 AND namespace = ?2",
+                rusqlite::params![session_id, self.namespace],
+                |r| r.get(0),
+            )?;
+            let parent = if count == 0 {
+                None
+            } else {
+                Some(self.conn.query_row(
+                    "SELECT id FROM ledger WHERE session_id = ?1 AND namespace = ?2 ORDER BY seq DESC LIMIT 1",
+                    rusqlite::params![session_id, self.namespace],
+                    |r| r.get::<_, String>(0),
+                )?)
+            };
+            (count, parent)
+        };
+
+        // id = hash de (parent + kind + payload) → adressage de contenu chaîné (comme un commit).
+        let kind_str = serde_json::to_string(&kind)?;
+        let mut hasher = Sha256::new();
+        hasher.update(parent.as_deref().unwrap_or("").as_bytes());
+        hasher.update(kind_str.as_bytes());
+        hasher.update(payload.as_bytes());
+        let id = format!("{:x}", hasher.finalize());
+
+        self.conn.execute(
+            "INSERT INTO ledger (id, namespace, session_id, seq, parent, kind, payload)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![id, self.namespace, session_id, seq, parent, kind_str, payload],
+        )?;
+        Ok(id)
+    }
+
+    pub fn log(&self, session_id: &str) -> Result<Vec<Step>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, parent, seq, kind, payload FROM ledger
+             WHERE session_id = ?1 AND namespace = ?2 ORDER BY seq",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![session_id, self.namespace], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?,
+                r.get::<_, i64>(2)?, r.get::<_, String>(3)?, r.get::<_, String>(4)?))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (id, parent, seq, kind, payload) = row?;
+            out.push(Step { id, parent, seq, kind: serde_json::from_str(&kind)?, payload });
+        }
+        Ok(out)
+    }
+
+    pub fn show(&self, id: &str) -> Result<Step> {
+        self.conn.query_row(
+            "SELECT id, parent, seq, kind, payload FROM ledger WHERE id = ?1 AND namespace = ?2",
+            rusqlite::params![id, self.namespace],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?,
+                    r.get::<_, i64>(2)?, r.get::<_, String>(3)?, r.get::<_, String>(4)?)),
+        )
+        .map_err(|_| SkeinError::NotFound(format!("step {id}")))
+        .and_then(|(id, parent, seq, kind, payload)| {
+            Ok(Step { id, parent, seq, kind: serde_json::from_str(&kind)?, payload })
+        })
+    }
+}
+```
+
+- [ ] **Step 5: Déclarer le module**
+
+Dans `crates/skein-core/src/lib.rs`, ajouter :
+```rust
+pub mod ledger;
+```
+
+- [ ] **Step 6: Lancer les tests (vert attendu)**
+
+Run: `cargo test -p skein-core ledger`
+Expected: PASS (chaînage par hachage + isolation par namespace).
+
+- [ ] **Step 7: Câbler le ledger dans la CLI (capture au niveau étape + sous-commande)**
+
+Dans `crates/skein-cli/src/main.rs` : (a) après le `chat`, enregistrer le prompt (LlmRequest) et la réponse assistant (LlmResponse) ; (b) ajouter `ledger log|show`.
+
+Ajouter dans l'`enum Cmd` :
+```rust
+    /// Journal d'exécution (façon git)
+    #[command(subcommand)]
+    Ledger(LedgerCmd),
+```
+Ajouter :
+```rust
+#[derive(clap::Subcommand)]
+enum LedgerCmd {
+    Log { session: String },
+    Show { id: String },
+}
+```
+Dans le bras `Cmd::Chat`, après avoir obtenu `(sid, events)` et **avant** le `println!("session {sid}")`, insérer :
+```rust
+            let ledger = skein_core::ledger::LedgerStore::open(&cli.db, "local")?;
+            ledger.append(&sid, skein_core::ledger::StepKind::LlmRequest, &text)?;
+            let assistant: String = events.iter().filter_map(|e| match e {
+                skein_core::event::Event::Token(t) => Some(t.as_str()),
+                _ => None,
+            }).collect::<Vec<_>>().join("\n");
+            ledger.append(&sid, skein_core::ledger::StepKind::LlmResponse, &assistant)?;
+```
+Ajouter les bras de commande :
+```rust
+        Cmd::Ledger(LedgerCmd::Log { session }) => {
+            let ledger = skein_core::ledger::LedgerStore::open(&cli.db, "local")?;
+            for s in ledger.log(&session)? {
+                println!("{} {:?} [{}]", &s.id[..12.min(s.id.len())], s.kind, s.payload.len());
+            }
+        }
+        Cmd::Ledger(LedgerCmd::Show { id }) => {
+            let ledger = skein_core::ledger::LedgerStore::open(&cli.db, "local")?;
+            let s = ledger.show(&id)?;
+            println!("{:?}\n{}", s.kind, s.payload);
+        }
+```
+
+- [ ] **Step 8: Écrire le test E2E CLI du ledger**
+
+Ajouter dans `crates/skein-cli/tests/cli.rs` :
+```rust
+#[test]
+fn ledger_captures_prompt_and_response() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = fake_goose(dir.path());
+    let db = dir.path().join("skein.db");
+
+    let mut cmd = Command::cargo_bin("skein").unwrap();
+    cmd.args(["--db", db.to_str().unwrap(), "--goose-bin", &bin, "chat", "-t", "question exacte"])
+       .current_dir(dir.path());
+    cmd.assert().success();
+
+    // Le journal contient l'entrée ET la sortie modèle, pas juste le résultat.
+    let mut cmd2 = Command::cargo_bin("skein").unwrap();
+    cmd2.args(["--db", db.to_str().unwrap(), "ledger", "log", "s000001"]);
+    cmd2.assert().success()
+        .stdout(predicates::str::contains("LlmRequest"))
+        .stdout(predicates::str::contains("LlmResponse"));
+}
+```
+
+- [ ] **Step 9: Lancer les tests (vert attendu)**
+
+Run: `cargo test -p skein-core && cargo test -p skein-cli`
+Expected: PASS. Puis `cargo fmt --all && cargo clippy --all-targets -- -D warnings` sans warning.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add crates/skein-core/src/ledger.rs crates/skein-core/src/lib.rs crates/skein-core/Cargo.toml crates/skein-cli/src/main.rs crates/skein-cli/tests/cli.rs
+git commit -m "feat(ledger): journal event-sourced chaîné par hachage + capture prompt/réponse + skein ledger log|show"
+```
+
+---
+
+### Task 9: Vérification du critère de sortie Phase 0 (smoke test réel + doc)
 
 **Files:**
 - Create: `docs/superpowers/plans/phase0-smoke-test.md`
@@ -1143,11 +1416,19 @@ cat hello.txt                                   # contient "skein"
 ```
 Consigner les résultats dans le doc (capture de sortie).
 
-- [ ] **Step 4: Vérifier l'egress OFF (local uniquement)**
+- [ ] **Step 4: Vérifier le Ledger (transparence in/out) + capture token-level via Gateway**
+
+```bash
+./target/release/skein ledger log s000001    # montre LlmRequest ET LlmResponse
+./target/release/skein ledger show <id>       # affiche le contenu exact (in ou out)
+```
+Pour la capture **token-level** de l'I/O modèle réelle (au-delà du niveau étape), activer la journalisation LiteLLM (callback fichier JSONL) dans `config/litellm.config.yaml` et confirmer qu'une paire requête/réponse par appel est écrite. Consigner le format observé (il paramétrera l'ingestion Gateway→Ledger d'une phase ultérieure). *Limite Phase 0 assumée : le ledger CLI capture le niveau étape ; l'ingestion token-level complète via la Gateway est une phase suivante.*
+
+- [ ] **Step 5: Vérifier l'egress OFF (local uniquement)**
 
 Confirmer dans `config/litellm.config.yaml` qu'aucun provider cloud n'est listé ; le run fonctionne hors ligne (couper le réseau et refaire le Step 2). Consigner.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add docs/superpowers/plans/phase0-smoke-test.md
@@ -1160,14 +1441,15 @@ git commit -m "docs: procédure et résultats du smoke test Phase 0 (critère de
 
 - **Cœur headless + contrat d'événements** → Tasks 2 (Event), 6 (ChatService), 7 (CLI consomme le core). ✅
 - **CLI = client de référence** → Task 7. ✅
-- **1 provider via LiteLLM** → Task 4 + Task 8 (Ollama). ✅
-- **Connecteur filesystem** → assuré par l'extension developer/filesystem de **Goose** (Task 0 spike + Task 8) ; Skein orchestre. ✅
+- **1 provider via LiteLLM** → Task 4 + Task 9 (Ollama). ✅
+- **Connecteur filesystem** → assuré par l'extension developer/filesystem de **Goose** (Task 0 spike + Task 9) ; Skein orchestre. ✅
 - **Persistance silo Local** → Task 3 + Task 6. ✅
-- **Isolation par silo** → Task 3 (test `namespaces_are_isolated`). ✅
-- **Egress OFF / local-first** → Task 4 (config locale) + Task 8 Step 4. ✅
+- **Isolation par silo** → Task 3 (test `namespaces_are_isolated`) + Task 8 (test ledger namespace). ✅
+- **Ledger event-sourced dès v1** (§4.11 : capture in/out modèles, inspectable) → Task 8 (`LedgerStore` + `skein ledger log|show`) + Task 9 Step 4. ✅
+- **Egress OFF / local-first** → Task 4 (config locale) + Task 9 Step 5. ✅
 - **Observabilité dès v1** → `init_tracing` (Task 1) + `tracing::info!` (Task 5). ✅
 - **Décision Goose (dépendance upstream)** → Task 0 (ADR). ✅
-- **Critère de sortie Phase 0** (conversation qui lit/écrit un fichier, persistée & rechargée) → Task 8. ✅
+- **Critère de sortie Phase 0** (conversation qui lit/écrit un fichier, persistée & rechargée) → Task 9. ✅
 
 **Hors périmètre Phase 0 (phases suivantes, non couverts ici volontairement)** : UI Tauri, sidecar Python/RAG, modes Serveur/Remote, RBAC/IdP, connecteurs Atlassian/M365, skills BMAD/Spec-Kit, multimodal v2+. Chacun aura son propre plan.
 
