@@ -1451,7 +1451,7 @@ git commit -m "docs: procédure et résultats du smoke test Phase 0 (critère de
 - **Décision Goose (dépendance upstream)** → Task 0 (ADR). ✅
 - **Critère de sortie Phase 0** (conversation qui lit/écrit un fichier, persistée & rechargée) → Task 9. ✅
 
-**Hors périmètre Phase 0 (phases suivantes, non couverts ici volontairement)** : UI Tauri, sidecar Python/RAG, modes Serveur/Remote, RBAC/IdP, connecteurs Atlassian/M365, skills BMAD/Spec-Kit, multimodal v2+. Chacun aura son propre plan.
+**Hors périmètre Phase 0 (phases suivantes, non couverts ici volontairement)** : UI Tauri, sidecar Python/RAG, modes Serveur/Remote, RBAC/IdP, connecteurs Atlassian/M365, skills BMAD/Spec-Kit, multimodal v2+, **gestion des secrets `SecretProvider`** (§7.13 du spec — arrive avec les premiers secrets réels : providers cloud & connecteurs ; la Phase 0 n'utilise qu'Ollama local sans clé). Le principe *référence-pas-valeur* + rédaction du ledger est néanmoins un invariant dès qu'un secret existe. Chacun aura son propre plan.
 
 ## Notes de risque (Phase 0)
 

@@ -60,6 +60,7 @@ Le v1 est **texte**. L'évolution multimodale et collaborative est planifiée en
 | **Observabilité** | **OpenTelemetry** + audit immuable, dès v1 — §7.11 | Standard exportable ; base transversale de la conformité. |
 | **Conformité** | **Compliance-by-design** : RGPD / ISO 27001 / SOC 2 / EU AI Act / NIS2 — §7.12 | Le logiciel fournit les contrôles ; la certification reste organisationnelle. |
 | **Traçabilité** | **Ledger event-sourced façon git** : chaque étape (I/O modèles, tools, état) immuable, inspectable, rejouable, réversible — §4.11 | Transparence totale (tout l'in/out modèles, pas que les résultats) ; capturé à la Gateway. |
+| **Secrets** | **`SecretProvider` pluggable, résolution JIT** : SOPS+age / 1Password / OpenBao / Infisical (+ trousseau OS) — §7.13 | Références jamais valeurs ; défaut simple ; reco conformité ; natif (hot-path) + MCP optionnel. |
 
 ### 2.1 Sources (état vérifié au 2026-07-15)
 - Goose : https://github.com/aaif-goose/goose · https://block-goose.mintlify.app/
@@ -272,7 +273,7 @@ Entrée (UI/CLI/API)
 ## 7. Sécurité, identité, observabilité & conformité
 
 1. **AuthN (Remote/leader)** : identité vérifiée à l'attache via un **fournisseur d'identité pluggable** (§7.9). Accès **deny-by-default**. **TLS obligatoire** dès exposition.
-2. **Secrets** : coffre OS (Windows Credential Manager/DPAPI ; Keychain/secret-service). **Jamais en clair**. **Un trousseau par silo**. L'agent n'entre jamais de credentials dans un formulaire.
+2. **Secrets** : gérés via un **`SecretProvider` pluggable à résolution juste-à-temps** (§7.13) — la config ne stocke que des **références**, jamais des valeurs. Coffre OS par défaut. **Jamais en clair**, **un trousseau par silo**, **rédaction du Ledger/audit**. L'agent n'entre jamais de credentials dans un formulaire.
 3. **Egress par mode** : Local = aucune sortie (local uniquement) ; Serveur/Remote = sortie selon **politique explicite** (allow-list d'endpoints).
 4. **Garde-fous d'exécution** : actions destructives/irréversibles → **confirmation** (ou allow-list en CI) ; **bac à sable** pour code/shell ; journal d'audit des tool-calls (quoi/quand/quel silo).
 5. **Défense injection de prompt** : tout contenu rapporté par un tool (e-mail, page, issue, capture) est **donnée, pas instruction**. Consignes trouvées dans du contenu externe → signalées, jamais exécutées.
@@ -280,6 +281,33 @@ Entrée (UI/CLI/API)
 7. **Sûreté cowork / navigateur / voix (v2+)** : confirmations avant actions irréversibles ; pas de saisie de credentials ; captures d'écran, contenu web et audio confinés au silo + politique egress ; le compagnon navigateur n'agit jamais sur instruction trouvée *dans* une page (frontière §7.5).
 8. **Gouvernance du harness (§5.4)** : les réglages de sécurité sont **verrouillables** par chef d'équipe/projet/admin et **non surchargeables** en local ; toute édition de config (surtout sécurité) est **auditée et versionnée**. L'édition du harness est elle-même une action gouvernée, pas un contournement des règles ci-dessus.
 9. **Ledger d'exécution (§4.11)** : contient l'intégralité des prompts/réponses modèles → **donnée sensible**. Confiné au **silo**, soumis à l'**egress**, au **trousseau** (rédaction des secrets avant persistance), à une **politique de rétention** configurable, et à l'**accès RBAC** (qui peut lire le journal). Le ledger est la source de vérité de la traçabilité (§7.11-7.12) — il ne se contourne pas.
+
+### 7.13 Gestion des secrets (`SecretProvider` pluggable, résolution juste-à-temps)
+Principe : **on stocke des *références*, jamais des valeurs**. Le secret est résolu **JIT** au moment précis de l'exécution d'une commande ou d'une authentification, injecté en mémoire (env du sous-processus ou en-tête d'auth), **jamais persisté**, **rédigé du Ledger/audit/logs**, et effacé de la mémoire après usage (type `zeroize`-on-drop).
+
+```rust
+struct SecretRef(String);   // URI: keychain:// | sops:// | op:// | bao:// | infisical://
+trait SecretProvider {
+  fn resolve(&self, r: &SecretRef) -> Result<SecretValue>; // JIT, en mémoire
+  fn requires_network(&self) -> bool;                       // pour la politique egress
+}
+impl OsKeychain   // défaut zéro-config, hors-ligne (Windows Credential Manager/DPAPI, Keychain, secret-service)
+impl SopsAge      // fichiers chiffrés versionnables, hors-ligne (défaut simple portable)
+impl OnePassword  // op CLI / SDK / MCP — références op://
+impl OpenBao      // serveur Vault-compatible (OSS, Linux Foundation)
+impl Infisical    // CLI `infisical run` / MCP
+```
+
+- **Choix utilisateur** parmi : **SOPS+age**, **1Password**, **OpenBao**, **Infisical** (+ trousseau OS). **Défaut** : trousseau OS (zéro-config) ; **défaut simple portable** : SOPS+age.
+- **Intégration** : adaptateur **natif par défaut** pour le hot-path JIT (plus rapide, moindre surface d'attaque — un secret ne transite pas par un tool-call) ; **MCP en option** (1Password, Infisical).
+- **Cohérence egress (§7.3)** : `requires_network()` gouverne la disponibilité. En **mode Local** (egress OFF), seuls les back-ends **hors-ligne** (OS keychain, SOPS+age) fonctionnent ; les back-ends en ligne (1Password cloud, OpenBao serveur, Infisical) exigent Serveur/Remote + egress explicite.
+- **Recommandation de conformité** :
+
+| Besoin | Reco |
+|---|---|
+| Local / individuel, minimisation RGPD, hors-ligne | **SOPS+age** ou trousseau OS |
+| Équipe/entreprise avec **rotation, révocation, audit centralisés** (ISO 27001 / SOC 2 / NIS2) | **OpenBao** (auto-hébergé, contrôle total) ou **1Password Business** |
+| Compromis dev-friendly auto-hébergeable | **Infisical** |
 
 ### 7.9 Identité (fournisseurs pluggables)
 Abstraction unique, plusieurs back-ends interchangeables — même pattern de couplage inversé que le reste :
@@ -435,3 +463,5 @@ IdP externes (LDAP/OIDC/Entra/Google) + **RBAC avancé** (§7.9-7.10), audit ava
 - **Harness** : configuration du comportement de l'agent (instructions, tools, skills, contexte, politiques) — éditable en couches équipe/locale.
 - **Ledger d'exécution** : journal append-only, adressé par hachage et chaîné (façon commits git), capturant chaque étape (I/O modèles, tool-calls, changements d'état) ; inspectable, rejouable, réversible, révisable.
 - **Event sourcing** : l'état est dérivé d'un journal d'événements immuables plutôt que muté en place — permet historique, replay et time-travel.
+- **SecretProvider** : back-end de secrets pluggable (SOPS+age, 1Password, OpenBao, Infisical, trousseau OS) résolvant des *références* en valeurs **juste-à-temps**, sans jamais persister la valeur.
+- **Résolution JIT (secrets)** : le secret n'est déchiffré/récupéré qu'à l'instant de son usage (exécution/auth), gardé en mémoire éphémère, rédigé des journaux.
