@@ -25,13 +25,14 @@ Un **outil agentique unique**, local-first, réunissant **chat**, **code** et **
 4. **Frameworks BMAD / Spec-Kit / powerskills** intégrés comme skills invocables.
 
 ### 1.4 Hors périmètre v1 (versions ultérieures)
-Le v1 est **texte**. L'évolution multimodale et collaborative est planifiée en versions v2→v7 + une piste parallèle entreprise — voir la **§8 Roadmap d'évolution**. Résumé :
-- **v2** : entrées multimodales (documents/images, audio, grounding visuel) + cowork/pilotage PC + compagnon navigateur + ingestion web.
-- **v3** : sorties génératives (image, audio/TTS, fichiers Office).
-- **v4** : images animées + vidéo.
-- **v5** : modèle omni (in+out unifié).
-- **v6** : audio temps réel (voix streaming duplex).
-- **v7** : traduction temps réel multilingue (Teams / chat d'équipe).
+Le v1 est **texte**. L'évolution multimodale et collaborative est planifiée en versions v2→v8 + une piste parallèle entreprise — voir la **§8 Roadmap d'évolution**. Progression logique : *percevoir → agir → générer → animer → unifier → parler → traduire*.
+- **v2 — Perception** (entrées) : abstraction de contenu typé + documents/images (OCR+vision) + audio (STT) + grounding visuel + ingestion/mémoire web.
+- **v3 — Action** (cowork) : pilotage PC (local / Computer Use) + compagnon navigateur (Chrome/Edge) + navigation web temps réel.
+- **v4 — Génération** de médias : image + audio/TTS + fichiers Office.
+- **v5 — Temporel** : images animées + vidéo.
+- **v6 — Omni** : **orchestration multi-modèles** (parallèle/séquentiel en arrière-plan) donnant l'illusion d'un modèle unique ; un vrai modèle omni est un cas particulier branché via la Gateway.
+- **v7 — Voix temps réel** : audio streaming duplex faible latence.
+- **v8 — Traduction** temps réel multilingue (Teams / chat d'équipe, langue maternelle par membre).
 - **Piste ⟂** : durcissement équipe/entreprise (SSO/OIDC, audit avancé, RAG avancé, vLLM GPU, catalogue de recipes), cadencée par l'adoption d'équipe.
 
 ### 1.5 Non-objectifs (principes YAGNI)
@@ -141,7 +142,7 @@ impl RemoteBackend    // client du leader, partition d'équipe
 struct ModeSupervisor { fn detect()->NetState; fn switch(Mode); fn heartbeat(); }
 ```
 
-### 4.9 Controller cowork (`controller/`, interface posée en v1, impl. v2)
+### 4.9 Controller cowork (`controller/`, interface posée en v1 ; capture v2, pilotage v3)
 Abstraction unique du pilotage d'une surface externe (capture + actions), avec **plusieurs canaux interchangeables** :
 ```rust
 trait Controller {
@@ -152,12 +153,20 @@ impl ComputerUseController   // API Anthropic (grounding fourni)
 impl LocalController         // desktop : enigo (clavier/souris) + xcap (capture)
 impl BrowserController       // compagnon navigateur (extension Chrome/Edge, type "Claude for Chrome")
 ```
-Les trois — captures en entrée (v2c), pilotage PC, compagnon navigateur — réutilisent **la même brique de grounding visuel**. Ce sont trois implémentations d'un même trait, pas trois développements distincts.
+Les trois usages — captures en entrée (grounding, v2), pilotage PC et compagnon navigateur (v3) — réutilisent **la même brique de grounding visuel**. Ce sont trois implémentations d'un même trait, pas trois développements distincts.
 
-### 4.10 Modalités génératives & flux temps réel (v3+)
-- **Génération** (v3/v4) : tools/connecteurs spécialisés — image (modèle via Gateway), **TTS** (audio), **fichiers Office** (docx/pptx/xlsx via bibliothèques matures), **vidéo** (v4). Chaque sortie est un `Content` typé produit par un tool ; le cœur n'en dépend pas.
-- **Canal duplex streaming** (v6, *nouveauté du modèle d'exécution*) : l'audio temps réel exige un flux **bidirectionnel continu** (in et out simultanés), distinct de la boucle requête→réponse. Introduit une interface `RealtimeSession` (WebRTC/streaming ou API omni-realtime) — c'est le **seul jalon qui modifie le modèle d'exécution du cœur** (cf. risques §10).
-- **Traduction d'équipe** (v7) : composition STT→traduire→TTS (voix) + traduction texte, **par participant** selon un profil « langue maternelle » porté par le membre dans la **partition d'équipe** (§5), via le connecteur Teams/chat.
+### 4.10 Modalités génératives, orchestration omni & flux temps réel (v4+)
+- **Génération** (v4/v5) : tools/connecteurs spécialisés — image (modèle via Gateway), **TTS** (audio), **fichiers Office** (docx/pptx/xlsx via bibliothèques matures), **vidéo** (v5). Chaque sortie est un `Content` typé produit par un tool ; le cœur n'en dépend pas.
+- **Orchestrateur omni** (v6) : couche entre `Agent` et `Gateway` qui **décompose** une requête multimodale, route chaque sous-tâche vers le **modèle spécialisé** approprié (vision, ASR, TTS, image, LLM) — **en parallèle** quand les sous-tâches sont indépendantes, **en séquentiel** quand elles dépendent l'une de l'autre — puis **recompose** une réponse unifiée. Donne l'**illusion d'un modèle omni unique tout en restant multi-provider**. Un vrai modèle omni = une route parmi d'autres.
+  ```rust
+  trait OmniOrchestrator {
+    fn plan(&self, input: Message) -> Vec<SubTask>;         // décomposition
+    fn dispatch(&self, tasks: Vec<SubTask>) -> Vec<Content>; // // parallèle/séquentiel via Gateway
+    fn compose(&self, parts: Vec<Content>) -> Message;       // recomposition
+  }
+  ```
+- **Canal duplex streaming** (v7, *nouveauté du modèle d'exécution*) : l'audio temps réel exige un flux **bidirectionnel continu** (in et out simultanés), distinct de la boucle requête→réponse. Introduit une interface `RealtimeSession` (WebRTC/streaming ou API omni-realtime) — c'est le **seul jalon qui modifie le modèle d'exécution du cœur** (cf. risques §10).
+- **Traduction d'équipe** (v8) : composition STT→traduire→TTS (voix) + traduction texte, **par participant** selon un profil « langue maternelle » porté par le membre dans la **partition d'équipe** (§5), via le connecteur Teams/chat.
 
 ---
 
@@ -232,36 +241,39 @@ Cœur headless + contrat d'API/événements figés ; CLI minimale ; 1 provider v
 - **UI** Tauri (Chat + Code).
 **Sortie** : depuis UI *et* CLI *et* API, scénario réel — « lire spec Confluence → plan Spec-Kit → code TDD → PR Bitbucket → ticket Jira », en basculant cloud↔local, isolation des silos vérifiée par test.
 
-> À partir d'ici, **roadmap d'évolution multimodale & collaborative**. Chaque version reste local-first et respecte silos/egress/authz. L'ordre suit les **dépendances techniques**, pas les catégories — le pivot est le *grounding visuel* (v2c), réutilisé par captures/cowork/navigateur.
+> À partir d'ici, **roadmap d'évolution multimodale & collaborative**. Progression logique : *percevoir → agir → générer → animer → unifier → parler → traduire*. Chaque version reste local-first et respecte silos/egress/authz, et s'appuie sur la précédente. Pivot technique : le *grounding visuel* (v2), réutilisé par captures/cowork/navigateur.
 
-### Socle v2 — Abstraction de contenu typé (transversal, prérequis)
-Le cœur passe de texte à `Content` typé (`text|image|audio|doc|video`, §4.2). Seul ajout cœur de toute la roadmap.
-**Sortie** : un `Message` multi-parts traverse le pipeline et est persisté/rechargé sans perte de type.
+### v2 — Perception (entrées multimodales)
+D'abord l'**abstraction de contenu typé** (`Content = text|image|audio|doc|video`, §4.2) — seul ajout cœur de toute la roadmap — puis :
+- **Documents + images** : parsing/OCR + vision.
+- **Audio en entrée** : speech-to-text.
+- **Grounding visuel** (ancrage sur capture) — *brique pivot* réutilisée en v3.
+- **Web** : ingestion/mémorisation de contenu web dans le RAG du silo.
+**Sortie** : résumer, dans une même requête, un PDF + une image + un extrait audio + une page web, persisté sans perte de type.
 
-### v2 — Entrées multimodales + cowork + web
-- **v2a** Documents + images : parsing/OCR + vision.
-- **v2b** Audio en entrée : speech-to-text.
-- **v2c** **Grounding visuel** (ancrage sur capture) — *brique pivot*.
-- **Cowork + compagnon web** (regroupés ici car même brique) : `LocalController`/`ComputerUseController` (pilotage PC) + `BrowserController` (extension Chrome/Edge) + **ingestion/mémorisation web** (RAG du silo) et **navigation temps réel**.
-**Sortie** : (a) résumer un PDF + une image + un extrait audio dans une même requête ; (b) piloter une appli tierce et une page web sur une tâche scriptée, avec confirmations.
+### v3 — Action (cowork & pilotage)
+Réutilise le grounding v2 pour **agir** sur des surfaces externes :
+- **Pilotage PC** : `LocalController` (enigo/xcap) + `ComputerUseController` (API).
+- **Compagnon navigateur** : `BrowserController` (extension Chrome/Edge) + **navigation web temps réel**.
+**Sortie** : piloter une appli tierce **et** une page web sur une tâche scriptée, avec confirmations sur actions irréversibles.
 
-### v3 — Sorties génératives
-Image (via Gateway), audio/**TTS**, **fichiers Office** (docx/pptx/xlsx). Indépendant — peut chevaucher v2.
+### v4 — Génération de médias (sorties)
+Image (via Gateway), audio/**TTS**, **fichiers Office** (docx/pptx/xlsx). Indépendant de v3 — peut chevaucher.
 **Sortie** : produire un .docx + une image + un clip audio à partir d'un prompt, artefacts persistés au silo.
 
-### v4 — Temporel
-Images animées + **vidéo** (dépend de la génération d'image v3).
+### v5 — Temporel (animation & vidéo)
+Images animées + **vidéo** (dépend de la génération d'image v4).
 **Sortie** : générer un court clip vidéo à partir d'une consigne + assets.
 
-### v5 — Omni (in+out unifié)
-Branchement d'un **modèle omni** via la Gateway une fois le pipeline typé complet des deux côtés.
-**Sortie** : une conversation unique mêlant texte/image/audio en entrée et sortie via un seul modèle.
+### v6 — Omni (illusion d'un modèle unique)
+**Orchestrateur omni** (§4.10) : décompose une requête multimodale, route vers les modèles spécialisés (parallèle/séquentiel en arrière-plan), recompose. Illusion d'un modèle unique **sans dépendance à un modèle omni propriétaire** ; un vrai omni est une route parmi d'autres.
+**Sortie** : une conversation unique mêlant texte/image/audio en entrée et sortie, servie par plusieurs modèles orchestrés de façon transparente.
 
-### v6 — Audio temps réel (voix streaming duplex)
-Interface `RealtimeSession` (canal bidirectionnel continu) — **modifie le modèle d'exécution du cœur** (cf. §10).
+### v7 — Voix temps réel (audio streaming duplex)
+Interface `RealtimeSession` (canal bidirectionnel continu) — **modifie le modèle d'exécution du cœur** (cf. §10). S'appuie sur l'orchestration v6.
 **Sortie** : conversation vocale en direct, faible latence, interruptible.
 
-### v7 — Traduction temps réel multilingue
+### v8 — Traduction temps réel multilingue
 Chacun **écrit/lit/parle/entend dans sa langue maternelle** dans Teams / un chat d'équipe. Composition STT→traduction→TTS + traduction texte, par participant (profil langue porté par la partition d'équipe §5).
 **Sortie** : deux membres de langues différentes échangent (texte + voix), chacun dans sa langue, via le connecteur Teams/chat.
 
@@ -292,10 +304,11 @@ SSO/OIDC, audit avancé, RAG avancé, vLLM GPU, connecteurs additionnels, catalo
 | Compatibilité licences (Apache/MIT/…) pour distribution commerciale | Moyen | Audit licences en CI (`cargo deny`, équivalents). |
 | Périmètre MVP large (4 axes) | Moyen | Phase 0 dérisque l'archi ; scénario de sortie force l'intégration. |
 | Maturité de l'authz équipe local-first | Moyen | Clés en v1, SSO en piste entreprise. |
-| **Canal duplex streaming (v6)** modifie le modèle d'exécution du cœur | **Élevé** | Isoler dans `RealtimeSession` ; s'appuyer d'abord sur une API omni-realtime avant un stack WebRTC maison. |
-| Coût/latence de la génération vidéo (v4) | Moyen | Providers cloud d'abord ; local GPU optionnel ; jobs asynchrones. |
-| Publication & sécurité de l'extension navigateur (v2) | Moyen | Périmètre de permissions minimal ; revue store Chrome/Edge ; frontière anti-injection stricte. |
-| Qualité/latence traduction temps réel (v7) | Moyen | Modèles dédiés + fallback texte ; profil langue explicite par membre. |
+| **Canal duplex streaming (v7)** modifie le modèle d'exécution du cœur | **Élevé** | Isoler dans `RealtimeSession` ; s'appuyer d'abord sur une API omni-realtime avant un stack WebRTC maison. |
+| Complexité de l'orchestrateur omni (v6) : latence de composition, cohérence | Moyen | Router simple d'abord (règles par type de `Content`) ; paralléliser l'indépendant ; mesurer la latence de recomposition. |
+| Coût/latence de la génération vidéo (v5) | Moyen | Providers cloud d'abord ; local GPU optionnel ; jobs asynchrones. |
+| Publication & sécurité de l'extension navigateur (v3) | Moyen | Périmètre de permissions minimal ; revue store Chrome/Edge ; frontière anti-injection stricte. |
+| Qualité/latence traduction temps réel (v8) | Moyen | Modèles dédiés + fallback texte ; profil langue explicite par membre. |
 
 ---
 
