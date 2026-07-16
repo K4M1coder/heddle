@@ -7,6 +7,8 @@ build_authorization: NOT_READY
 
 # Skein Planning, Bootstrap, CI/CD, and Staging Quality Gates
 
+> **Calibration (ADR-0004):** this document is the **team/enterprise-tier target contract**. For the current **solo v0**, the mandatory bar is ADR-0004 D1 (bucket-A contracts + five spikes + Spec-Kit gates for the current slice + tri-OS CI). Spike code is authorized under ADR-0004 D2 quarantine. The full G0–G6 regime activates on the team/enterprise trigger, not before.
+
 ## Gate Authority
 
 This document is normative under `PROJECT-GOVERNANCE.md`. It governs design completion and the engineering substrate before product implementation. It does not authorize product code. Current authorization remains `NOT_READY` until every mandatory gate is independently approved and the owner records explicit authorization.
