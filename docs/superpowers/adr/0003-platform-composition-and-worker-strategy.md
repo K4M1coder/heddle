@@ -1,6 +1,8 @@
 # ADR-0003: Platform composition and worker strategy
 
-**Status:** Proposed — **4/5 spikes complete** (1 runtime→native loop+ACP boundary; 2 workflow→lossless Archon↔canonical; 3 context→repo-map beats full-context at representative scale; 4 tool governance→rmcp gateway deny/approve/redact/replay). **Spike 5 (tri-OS offline install) is CI-blocked here** (needs macOS+Linux). Awaiting owner Accept/Revise decision. Evidence: `docs/superpowers/spikes/*-evidence.md`  
+**Status:** **Accepted** (2026-07-16) — architecture direction confirmed by 4/5 spikes on tested code (1 runtime→native loop+ACP boundary; 2 workflow→lossless Archon↔canonical; 3 context→repo-map beats full-context at representative scale; 4 tool governance→rmcp gateway deny/approve/redact/replay). Spike 5 (tri-OS offline install) is *operational, not architectural*: it does not gate this decision and is now mechanized by `.github/workflows/spikes.yml` (must go green on Windows/macOS/Linux before product build authorization). Evidence: `docs/superpowers/spikes/*-evidence.md`.
+
+**Rationale for accepting before Spike 5:** the one-way-door questions ADR-0003 exists to answer — who owns the loop, tool governance, workflow reuse, context strategy — are all resolved by Spikes 1–4. Spike 5 tests packaging/portability, which can revise the *bootstrap*, never the *architecture*. Deferring acceptance for it would be process theater (ADR-0004 D1).  
 **Date:** 2026-07-15  
 **Decider:** Cédric Thedrez (`kamicoder`)  
 **Research:** `docs/research/agent-platform-landscape.md`

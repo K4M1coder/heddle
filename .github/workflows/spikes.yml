@@ -1,0 +1,48 @@
+name: spikes
+# Runs the quarantined evidence spikes (ADR-0004 D2) on all three OSes.
+# This is the executable mechanism for Spike 5 (tri-OS build/test) and the
+# G1/G3 substrate. It builds/tests each standalone workspace under spikes/*.
+on:
+  push:
+    paths: ["spikes/**", ".github/workflows/spikes.yml"]
+  pull_request:
+    paths: ["spikes/**", ".github/workflows/spikes.yml"]
+  workflow_dispatch: {}
+
+jobs:
+  spikes:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build & test each spike workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          for d in spikes/*/; do
+            if [ -f "$d/Cargo.toml" ]; then
+              echo "::group::$d"
+              cargo test --manifest-path "$d/Cargo.toml" --locked || cargo test --manifest-path "$d/Cargo.toml"
+              echo "::endgroup::"
+            fi
+          done
+      - name: Offline re-test (Spike 5 — no network after fetch)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for d in spikes/*/; do
+            if [ -f "$d/Cargo.toml" ]; then
+              cargo fetch --manifest-path "$d/Cargo.toml"
+            fi
+          done
+          for d in spikes/*/; do
+            if [ -f "$d/Cargo.toml" ]; then
+              echo "::group::offline $d"
+              cargo test --manifest-path "$d/Cargo.toml" --offline
+              echo "::endgroup::"
+            fi
+          done
