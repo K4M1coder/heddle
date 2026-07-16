@@ -1,0 +1,13 @@
+# SPIKE — quarantined per ADR-0004 D2. Throwaway; never imported by product code.
+[package]
+name = "mcp-gateway"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+rmcp = { version = "2.2", features = ["server", "client", "macros", "transport-io"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "sync", "time"] }
+serde_json = "1"
+schemars = "1"
+serde = { version = "1", features = ["derive"] }

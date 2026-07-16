@@ -4,7 +4,16 @@ baseline_commit: 5389a48321646ce2c4de2978efd14207acce904a
 
 # Story 1.1: Runtime ownership spike (ADR-0003 Spike 1)
 
-Status: review
+Status: done
+
+## Senior Developer Review (AI)
+
+- **Reviewer:** adversarial subagent (BMAD blind-hunter), fresh context, 2026-07-16
+- **Outcome:** CHANGES-REQUIRED (documentation-only) → **fixes applied** → **Approved**
+- **Refuted (1):** "C1 FAIL by design / unfixable" for ACP — false: ACP `_meta`/`ExtNotification` (`schema/src/v1/ext.rs`) can carry raw model I/O with worker cooperation. Reworded to "unavailable through existing workers"; strengthens the ACP-facade decision.
+- **Weakened→corrected (3):** C3 races send-phase only (now marked PARTIAL); C1 request-side is exact-pre-serialization not wire-byte (reworded); "Ledger-ready" → "Ledger-shaped, in-memory".
+- **Held:** reproducibility (4/4 re-run), citations accurate, Option B "no embeddable loop" true, decision logic sound.
+- **Net:** no code rework; decision (native loop + ACP boundary + reduced-assurance workers) unchanged. All fixes are in the evidence note + this story.
 
 ## Story
 
@@ -88,10 +97,10 @@ claude-fable-5 (Claude Code, loop mode iteration 1)
 ### Completion Notes List
 
 - Option A (native Skein-owned loop) PASSES criteria 1–4 with observable proofs:
-  C1 byte-exact request payload + raw response captured per turn (incl. tool-result feedback into turn 2);
+  C1 raw response byte-exact; request = exact pre-serialization payload (structural assert, not wire/headers);
   C2 `ToolIntercepted` strictly precedes `ToolExecuted`; Deny path blocks execution entirely;
-  C3 mid-turn external cancel via CancellationToken, process alive, <5s;
-  C4 all events share run_id with gap-free monotonic seq (Ledger-ready).
+  C3 PARTIAL: send-phase external cancel via CancellationToken, process alive, <5s (body/tool cancel = follow-up);
+  C4 all events share run_id, gap-free seq (Ledger-shaped, in-memory; durability out of scope).
 - Deviation (pre-authorized in story): in-process tool behind the Mediator instead of full rmcp round-trip — the mediation point is proven; rmcp integration is a follow-up probe for the evidence note.
 - Effort estimate (C5, option A partial): loop core ≈150 LOC + 4 tests ≈160 LOC, one afternoon incl. toolchain install. Remaining risk: MCP wiring (rmcp) + streaming.
 - Tasks 3–5 (options B goose-sdk / C ACP worker, evidence note + ADR decision) → next loop iterations.

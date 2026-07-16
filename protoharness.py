@@ -1,9 +1,10 @@
-import requests
 import json
 import os
 import sys
 import traceback
-from typing import List, Dict, Any
+from typing import List
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 
 def configure_utf8_runtime() -> None:
@@ -25,13 +26,16 @@ class AgentConfig:
     Gestionnaire de configuration minimaliste pour les connexions LLM.
     Tout est centralisé ici pour une maintenance facile et une fiabilité accrue.
     """
-    def __init__(self, base_url: str = "http://localhost:11434", default_model: str = "llama3"):
-        self.base_url = base_url
+    def __init__(self, base_url: str = "http://localhost:11434", default_model: str = ""):
+        self.base_url = base_url.rstrip("/")
         # NOTE: Le modèle est critique pour la performance de l'agent.
         self.default_model = default_model
 
     def get_ollama_url(self) -> str:
         return f"{self.base_url}/api/generate"
+
+    def get_tags_url(self) -> str:
+        return f"{self.base_url}/api/tags"
 
 
 # ============================================
@@ -46,6 +50,37 @@ class OllamaClient:
     def __init__(self, config: AgentConfig):
         self.config = config
         print(f"[INIT] Connecté au client Ollama sur {config.base_url}.")
+        if not self.config.default_model:
+            self.config.default_model = self._select_installed_model()
+        print(f"[INIT] Modèle sélectionné : {self.config.default_model}")
+
+    def _select_installed_model(self) -> str:
+        """Sélectionne le modèle demandé par l'environnement ou le premier installé."""
+        requested_model = os.environ.get("OLLAMA_MODEL", "").strip()
+        request = Request(self.config.get_tags_url(), method="GET")
+
+        try:
+            with urlopen(request, timeout=5) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as error:
+            raise RuntimeError(
+                f"Impossible de récupérer les modèles Ollama : {error}"
+            ) from error
+
+        models = [item.get("name", "") for item in data.get("models", [])]
+        models = [model for model in models if model]
+        if not models:
+            raise RuntimeError(
+                "Aucun modèle Ollama n'est installé. Installez-en un avec 'ollama pull'."
+            )
+        if requested_model:
+            if requested_model not in models:
+                raise RuntimeError(
+                    f"Le modèle OLLAMA_MODEL='{requested_model}' n'est pas installé. "
+                    f"Modèles disponibles : {', '.join(models)}"
+                )
+            return requested_model
+        return models[0]
 
     def generate_response(self, 
                            prompt: str, 
@@ -65,27 +100,36 @@ class OllamaClient:
             "model": model,
             "prompt": prompt,
             "stream": False,  # Non-streaming pour la simplicité du prototype
+            "format": "json" if 'liste nommée "steps"' in prompt else "",
             "options": {"temperature": 0.1} # Température basse pour la fiabilité/logique
         }
 
+        if not payload["format"]:
+            del payload["format"]
+
         try:
-            response = requests.post(url, json=payload)
-            response.raise_for_status() # Lève une exception pour les codes 4xx/5xx
-            
-            data = response.json()
+            body = json.dumps(payload).encode("utf-8")
+            request = Request(
+                url,
+                data=body,
+                headers={"Content-Type": "application/json; charset=utf-8"},
+                method="POST",
+            )
+            with urlopen(request, timeout=300) as response:
+                data = json.loads(response.read().decode("utf-8"))
             return data.get("response", "").strip()
 
-        except requests.exceptions.ConnectionError:
-            print("\n[ERREUR Critique] Impossible de se connecter à Ollama.")
-            print("Vérifiez que l'instance Ollama est lancée et que le modèle est pullé.")
-            return "EXECUTION_FAILED: Vérifiez la connexion ou le modèle."
-        except requests.exceptions.HTTPError as e:
-             if response.status_code == 404:
-                 return f"ERROR: Le chemin API n'existe pas ou le modèle '{model}' est inconnu."
-             print(f"\n[ERREUR HTTP] Erreur {response.status_code}: {e}")
-             return "EXECUTION_FAILED: Erreur HTTP de l'API Ollama."
-        except Exception as e:
-            return f"FATAL ERROR during API call: {e}"
+        except HTTPError as error:
+            detail = error.read().decode("utf-8", errors="replace")
+            raise RuntimeError(
+                f"Erreur HTTP Ollama {error.code} pour le modèle '{model}' : {detail}"
+            ) from error
+        except (URLError, TimeoutError) as error:
+            raise RuntimeError(
+                f"Impossible de communiquer avec Ollama sur {url} : {error}"
+            ) from error
+        except json.JSONDecodeError as error:
+            raise RuntimeError("Ollama a retourné une réponse JSON invalide.") from error
 
 
 # ============================================
@@ -189,7 +233,7 @@ if __name__ == "__main__":
 
     try:
         # Initialisation avec le modèle par défaut (assurez-vous qu'il existe localement)
-        config = AgentConfig(default_model="llama3") 
+        config = AgentConfig()
         client = OllamaClient(config=config)
         agent = AgentCore(client=client)
 
