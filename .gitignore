@@ -8,3 +8,7 @@ dist/
 
 # personal prototype (not part of the product; kept locally, untracked)
 protoharness.py
+
+target/
+Cargo.lock
+target/

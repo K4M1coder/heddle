@@ -20,6 +20,9 @@ development_status:
   1-10-secretprovider-foundation-jit: backlog
   1-11-exit-criteria-smoke-test: backlog
 
+  # First product code slice (crates/skein-core) — owner-delegated 2026-07-16
+  3-1-skein-core-foundation: done   # 6/6 tests; spec specs/003-skein-core-foundation/
+
   # Epic 2+ — not yet decomposed into stories (deferred per DESIGN-COMPLETENESS-POLICY bucket C)
   epic-2: backlog   # v1/1a Agentic code assistant
   epic-3: backlog   # v1/1b Multi-provider + local inference
