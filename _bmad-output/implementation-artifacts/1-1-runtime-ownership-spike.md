@@ -1,6 +1,10 @@
+---
+baseline_commit: 5389a48321646ce2c4de2978efd14207acce904a
+---
+
 # Story 1.1: Runtime ownership spike (ADR-0003 Spike 1)
 
-Status: ready-for-dev
+Status: in-progress
 
 ## Story
 
@@ -22,12 +26,12 @@ Pre-registered in `docs/superpowers/spikes/spike-protocol.md` (Spike 1). For EAC
 
 ## Tasks / Subtasks
 
-- [ ] Task 1 — Scaffold quarantine workspace (AC: all)
-  - [ ] Create `spikes/runtime-loop/` as a STANDALONE cargo workspace (own `Cargo.toml`; NOT a member of any root workspace; never imported by product code)
-  - [ ] Stub OpenAI-compatible endpoint for deterministic tests (wiremock or a 20-line axum stub) so no network/model is required for criteria 1–4
-- [ ] Task 2 — Option A: native loop (AC: 1,2,3,4,5)
-  - [ ] Minimal loop: POST /chat/completions (reqwest or async-openai) → parse tool_calls → dispatch via `rmcp` client to a toy MCP server (or an in-process tool) → loop
-  - [ ] Prove: log exact request/response JSON per turn; intercept tool call before exec; cancel via `tokio::select!`/CancellationToken mid-run; tag all events with run_id
+- [x] Task 1 — Scaffold quarantine workspace (AC: all)
+  - [x] Create `spikes/runtime-loop/` as a STANDALONE cargo workspace (own `Cargo.toml`; NOT a member of any root workspace; never imported by product code)
+  - [x] Stub OpenAI-compatible endpoint for deterministic tests (wiremock) so no network/model is required for criteria 1–4
+- [x] Task 2 — Option A: native loop (AC: 1,2,3,4,5)
+  - [x] Minimal loop: POST /chat/completions (reqwest) → parse tool_calls → dispatch to an in-process tool behind a Mediator (rmcp MCP wiring = follow-up probe, noted in evidence) → loop
+  - [x] Prove: log exact request/response JSON per turn; intercept tool call before exec; cancel via `tokio::select!`/CancellationToken mid-run; tag all events with run_id — **4/4 criteria tests green**
 - [ ] Task 3 — Option B: embedded goose-sdk (AC: 1,2,3,4,5)
   - [ ] Add `goose-sdk`/`goose-sdk-types` (or current crate names from crates.io / git) as deps; drive one session programmatically
   - [ ] Probe the API surface for: per-turn events? tool-call hook? cancellation? If a criterion has NO API, record FAIL with the evidence (doc/source link) — do not fork to make it pass
@@ -74,10 +78,30 @@ docs/superpowers/spikes/runtime-loop-evidence.md   # output (the real deliverabl
 
 ### Agent Model Used
 
-(to fill at execution)
+claude-fable-5 (Claude Code, loop mode iteration 1)
 
 ### Debug Log References
 
+- `cargo test` (spikes/runtime-loop): 4 passed / 0 failed in 0.16s (first run after 35.8s cold build)
+- Machine had NO Rust toolchain — installed rustup 1.97.0 via winget (bootstrap.ps1 step 1); ADR-0004 D4 validated in practice
+
 ### Completion Notes List
 
+- Option A (native Skein-owned loop) PASSES criteria 1–4 with observable proofs:
+  C1 byte-exact request payload + raw response captured per turn (incl. tool-result feedback into turn 2);
+  C2 `ToolIntercepted` strictly precedes `ToolExecuted`; Deny path blocks execution entirely;
+  C3 mid-turn external cancel via CancellationToken, process alive, <5s;
+  C4 all events share run_id with gap-free monotonic seq (Ledger-ready).
+- Deviation (pre-authorized in story): in-process tool behind the Mediator instead of full rmcp round-trip — the mediation point is proven; rmcp integration is a follow-up probe for the evidence note.
+- Effort estimate (C5, option A partial): loop core ≈150 LOC + 4 tests ≈160 LOC, one afternoon incl. toolchain install. Remaining risk: MCP wiring (rmcp) + streaming.
+- Tasks 3–5 (options B goose-sdk / C ACP worker, evidence note + ADR decision) → next loop iterations.
+
 ### File List
+
+- spikes/runtime-loop/Cargo.toml (new — quarantine workspace)
+- spikes/runtime-loop/.gitignore (new)
+- spikes/runtime-loop/opt-a-native/Cargo.toml (new)
+- spikes/runtime-loop/opt-a-native/src/lib.rs (new — native loop, ~150 LOC)
+- spikes/runtime-loop/opt-a-native/tests/criteria.rs (new — 4 pre-registered criteria tests)
+- _bmad-output/implementation-artifacts/sprint-status.yaml (modified — 1-1 in-progress)
+- _bmad-output/implementation-artifacts/1-1-runtime-ownership-spike.md (modified — this record)

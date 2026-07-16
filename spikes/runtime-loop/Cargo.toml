@@ -1,0 +1,4 @@
+# SPIKE WORKSPACE — quarantined per ADR-0004 D2. Throwaway code; never imported by product code.
+[workspace]
+resolver = "2"
+members = ["opt-a-native"]
