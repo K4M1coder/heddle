@@ -1,6 +1,6 @@
 # ADR-0003: Platform composition and worker strategy
 
-**Status:** Proposed — Spike 1/5 complete (runtime ownership DECIDED: native Skein-owned loop, ACP as client boundary, external ACP agents as reduced-assurance workers — see `docs/superpowers/spikes/runtime-loop-evidence.md`); Spikes 2–5 pending for full acceptance  
+**Status:** Proposed — **4/5 spikes complete** (1 runtime→native loop+ACP boundary; 2 workflow→lossless Archon↔canonical; 3 context→repo-map beats full-context at representative scale; 4 tool governance→rmcp gateway deny/approve/redact/replay). **Spike 5 (tri-OS offline install) is CI-blocked here** (needs macOS+Linux). Awaiting owner Accept/Revise decision. Evidence: `docs/superpowers/spikes/*-evidence.md`  
 **Date:** 2026-07-15  
 **Decider:** Cédric Thedrez (`kamicoder`)  
 **Research:** `docs/research/agent-platform-landscape.md`

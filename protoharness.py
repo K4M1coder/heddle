@@ -50,13 +50,9 @@ class OllamaClient:
     def __init__(self, config: AgentConfig):
         self.config = config
         print(f"[INIT] Connecté au client Ollama sur {config.base_url}.")
-        if not self.config.default_model:
-            self.config.default_model = self._select_installed_model()
-        print(f"[INIT] Modèle sélectionné : {self.config.default_model}")
 
-    def _select_installed_model(self) -> str:
-        """Sélectionne le modèle demandé par l'environnement ou le premier installé."""
-        requested_model = os.environ.get("OLLAMA_MODEL", "").strip()
+    def get_installed_models(self) -> List[str]:
+        """Retourne les modèles actuellement installés dans Ollama."""
         request = Request(self.config.get_tags_url(), method="GET")
 
         try:
@@ -73,14 +69,7 @@ class OllamaClient:
             raise RuntimeError(
                 "Aucun modèle Ollama n'est installé. Installez-en un avec 'ollama pull'."
             )
-        if requested_model:
-            if requested_model not in models:
-                raise RuntimeError(
-                    f"Le modèle OLLAMA_MODEL='{requested_model}' n'est pas installé. "
-                    f"Modèles disponibles : {', '.join(models)}"
-                )
-            return requested_model
-        return models[0]
+        return models
 
     def generate_response(self, 
                            prompt: str, 
@@ -230,29 +219,89 @@ class AgentCore:
 
 
 # ============================================
-# 💻 EXÉCUTION PRINCIPALE ET TEST
+# 💻 EXÉCUTION PRINCIPALE
 # ============================================
+
+def choose_model(models: List[str]) -> str:
+    """Demande à l'utilisateur de choisir un modèle dans une liste numérotée."""
+    if not sys.stdin.isatty():
+        from tkinter import Tk, simpledialog
+
+        root = Tk()
+        root.withdraw()
+        model_list = "\n".join(
+            f"{index}. {model}" for index, model in enumerate(models, start=1)
+        )
+        choice = simpledialog.askinteger(
+            "ProtoHarness — modèle",
+            f"Modèles Ollama disponibles :\n\n{model_list}\n\nChoisis un numéro :",
+            minvalue=1,
+            maxvalue=len(models),
+            parent=root,
+        )
+        root.destroy()
+        if choice is None:
+            raise KeyboardInterrupt
+        return models[choice - 1]
+
+    print("\nModèles Ollama disponibles :")
+    for index, model in enumerate(models, start=1):
+        print(f"  {index}. {model}")
+
+    while True:
+        choice = input(f"\nChoisis un modèle [1-{len(models)}] : ").strip()
+        if choice.isdigit() and 1 <= int(choice) <= len(models):
+            return models[int(choice) - 1]
+        print("Choix invalide. Entre le numéro du modèle.")
+
+
+def read_user_prompt() -> str:
+    """Lit le prompt dans le terminal ou dans une fenêtre avec Code Runner."""
+    if sys.stdin.isatty():
+        prompt = input("\nQue veux-tu demander à l'agent ?\n> ").strip()
+    else:
+        from tkinter import Tk, simpledialog
+
+        root = Tk()
+        root.withdraw()
+        value = simpledialog.askstring(
+            "ProtoHarness — prompt",
+            "Que veux-tu demander à l'agent ?",
+            parent=root,
+        )
+        root.destroy()
+        if value is None:
+            raise KeyboardInterrupt
+        prompt = value.strip()
+
+    if not prompt:
+        raise ValueError("Le prompt ne peut pas être vide.")
+    return prompt
+
+
+def main() -> None:
+    config = AgentConfig()
+    client = OllamaClient(config=config)
+    config.default_model = choose_model(client.get_installed_models())
+    print(f"[INIT] Modèle sélectionné : {config.default_model}")
+
+    user_goal = read_user_prompt()
+
+    agent = AgentCore(client=client)
+    final_result = agent.run_agent(user_goal)
+
+    print("\n" + "#" * 80)
+    print("✨ RÉSULTAT FINAL DE L'AGENT ✨".center(80))
+    print("-" * 80)
+    print(final_result)
+    print("#" * 80)
+
 
 if __name__ == "__main__":
     configure_utf8_runtime()
 
     try:
-        # Initialisation avec le modèle par défaut (assurez-vous qu'il existe localement)
-        config = AgentConfig()
-        client = OllamaClient(config=config)
-        agent = AgentCore(client=client)
-
-        user_goal_1 = "Détermine la meilleure stratégie d'investissement pour un petit capital. Tu dois commencer par chercher des tendances économiques et calculer le potentiel de croissance."
-        
-        print("\n##############################################################")
-        print("### TEST 1: SCÉNARIO COMPOSÉ (Planification, Tools, Critique) ###")
-        final_result = agent.run_agent(user_goal_1)
-
-        print("\n" + "#"*80)
-        print("✨ RÉSULTAT FINAL DE L'AGENT ✨".center(80))
-        print("-" * 30)
-        print(final_result)
-        print("#"*80)
+        main()
     except KeyboardInterrupt:
         print("\n[ARRÊT] Interruption demandée.", file=sys.stderr)
         sys.exit(130)

@@ -1,0 +1,11 @@
+# SPIKE 3 — quarantined per ADR-0004 D2. Throwaway; never imported by product code.
+[package]
+name = "context-repomap"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+tree-sitter = "0.24"
+tree-sitter-rust = "0.23"
+streaming-iterator = "0.1"
