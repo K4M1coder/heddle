@@ -1,0 +1,12 @@
+# SPIKE 2 — quarantined per ADR-0004 D2. Throwaway; never imported by product code.
+[package]
+name = "workflow-archon"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+
+[dev-dependencies]

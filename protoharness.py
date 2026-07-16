@@ -152,9 +152,10 @@ class AgentCore:
         Est le point de rupture entre la logique et l'environnement réel.
         """
         print(f"\n{'='*20} EXÉCUTION D'ACTION : {action} {'='*20}")
-        if "rechercher" in action:
+        action_normalized = action.casefold()
+        if any(verb in action_normalized for verb in ("rechercher", "analyser", "identifier")):
             return f"Observation: Des résultats de recherche pour '{action}' ont été trouvés. Le point clé est X."
-        elif "calculer" in action:
+        elif "calculer" in action_normalized:
             # Simule un calcul réussi
             return f"Observation: L'opération mathématique demandée a abouti à la valeur 42."
         else:
@@ -177,15 +178,19 @@ class AgentCore:
         Ne réponds qu'avec un JSON valide contenant une liste nommée "steps". Chaque étape doit être une chaîne décrivant l'action (ex: 'rechercher le prix de l\'euro') ou la fonction à appeler.
         Exemple de réponse attendue : {{"steps": ["Action 1", "Action 2"]}}
         """
-        print("[PHASE 1/3] 🧠 Génération du Planification...")
+        print("[PHASE 1/3] 🧠 Génération de la planification...")
         plan_response = self.llm_client.generate_response(plan_prompt, self.llm_client.config.default_model)
 
         try:
             # Tente de charger le JSON généré par l'LLM
             plan_json = json.loads(plan_response)
             steps: List[str] = plan_json.get("steps", [])
+            if not isinstance(steps, list) or not all(isinstance(step, str) for step in steps):
+                raise TypeError("La propriété 'steps' doit être une liste de chaînes.")
+            if not steps:
+                raise ValueError("Le modèle a retourné un plan vide.")
             print(f"✅ Planification réussie. Détecté {len(steps)} étapes : {', '.join(steps)}")
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
             print("\n[ATTENTION] Échec de l'analyse JSON du plan. Traitement des résultats bruts.")
             return f"Erreur critique lors de la planification. Le modèle n'a pas retourné un format JSON valide. Réponse brute reçue: {plan_response}"
 
