@@ -1,6 +1,20 @@
 import requests
 import json
+import os
+import sys
+import traceback
 from typing import List, Dict, Any
+
+
+def configure_utf8_runtime() -> None:
+    """Configure les entrées/sorties texte en UTF-8, notamment sous Windows."""
+    os.environ.setdefault("PYTHONUTF8", "1")
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
 
 # ============================================
 # 1. CONFIGURATION ET PARAMÈTRES (Config)
@@ -171,6 +185,8 @@ class AgentCore:
 # ============================================
 
 if __name__ == "__main__":
+    configure_utf8_runtime()
+
     try:
         # Initialisation avec le modèle par défaut (assurez-vous qu'il existe localement)
         config = AgentConfig(default_model="llama3") 
@@ -188,8 +204,14 @@ if __name__ == "__main__":
         print("-" * 30)
         print(final_result)
         print("#"*80)
-
-
+    except KeyboardInterrupt:
+        print("\n[ARRÊT] Interruption demandée.", file=sys.stderr)
+        sys.exit(130)
     except Exception as e:
-        print(f"\n[ERREUR FATALE] Une exception inattendue est survenue : {e}")
+        print(
+            f"\n[ERREUR FATALE] Une exception inattendue est survenue : {e}",
+            file=sys.stderr,
+        )
+        traceback.print_exc()
+        sys.exit(1)
 

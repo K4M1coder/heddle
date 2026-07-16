@@ -4,7 +4,7 @@ baseline_commit: 5389a48321646ce2c4de2978efd14207acce904a
 
 # Story 1.1: Runtime ownership spike (ADR-0003 Spike 1)
 
-Status: in-progress
+Status: review
 
 ## Story
 
@@ -32,15 +32,15 @@ Pre-registered in `docs/superpowers/spikes/spike-protocol.md` (Spike 1). For EAC
 - [x] Task 2 — Option A: native loop (AC: 1,2,3,4,5)
   - [x] Minimal loop: POST /chat/completions (reqwest) → parse tool_calls → dispatch to an in-process tool behind a Mediator (rmcp MCP wiring = follow-up probe, noted in evidence) → loop
   - [x] Prove: log exact request/response JSON per turn; intercept tool call before exec; cancel via `tokio::select!`/CancellationToken mid-run; tag all events with run_id — **4/4 criteria tests green**
-- [ ] Task 3 — Option B: embedded goose-sdk (AC: 1,2,3,4,5)
-  - [ ] Add `goose-sdk`/`goose-sdk-types` (or current crate names from crates.io / git) as deps; drive one session programmatically
-  - [ ] Probe the API surface for: per-turn events? tool-call hook? cancellation? If a criterion has NO API, record FAIL with the evidence (doc/source link) — do not fork to make it pass
-- [ ] Task 4 — Option C: ACP worker (AC: 1,2,3,4,5)
-  - [ ] Use `agent-client-protocol` Rust SDK; drive `goose acp`/`goosed` (or the ACP example agent if goose unavailable) as an external worker
-  - [ ] Probe: does ACP surface model payloads (or only assistant messages)? tool-call permission callbacks? cancellation? correlation ids?
-- [ ] Task 5 — Evidence note + decision (AC: 5 + decision output)
-  - [ ] Write `docs/superpowers/spikes/runtime-loop-evidence.md`: criteria matrix (A/B/C × 5 criteria, PASS/FAIL/PARTIAL + proof pointer), effort estimates, recommendation
-  - [ ] Update ADR-0003 status accordingly; update sprint-status story → `review`; append memlog entry (decision)
+- [x] Task 3 — Option B: embedded goose-sdk (AC: 1,2,3,4,5)
+  - [x] Added `goose-sdk 0.1.0-alpha.1` as probe dep; fetched + inspected published source
+  - [x] **FINDING: no embeddable loop exists** — the SDK is ACP wire types + uniffi provider bindings; its own example spawns `goose acp` (FAIL-with-evidence recorded, no forking; Option B collapses into Option C)
+- [x] Task 4 — Option C: ACP worker (AC: 1,2,3,4,5)
+  - [x] Probed `agent-client-protocol 1.2.0` + schema 1.4.0 source: `session/request_permission` (C2 PASS), cancellation semantics (C3 PASS), `SessionId` (C4 PASS)
+  - [x] **C1 FAIL by design**: SessionUpdate carries message/thought/tool-call chunks, never raw model request/response payloads
+- [x] Task 5 — Evidence note + decision (AC: 5 + decision output)
+  - [x] `docs/superpowers/spikes/runtime-loop-evidence.md` written (criteria matrix + decision)
+  - [x] ADR-0003 updated (Spike 1/5 decided: native loop + ACP boundary + reduced-assurance workers); sprint-status → `review`; memlog appended
 
 ## Dev Notes
 

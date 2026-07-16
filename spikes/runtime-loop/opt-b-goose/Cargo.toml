@@ -1,0 +1,8 @@
+[package]
+name = "opt-b-goose"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+goose-sdk = "0.1.0-alpha.1"

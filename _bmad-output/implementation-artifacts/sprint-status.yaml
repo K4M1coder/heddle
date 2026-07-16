@@ -7,7 +7,7 @@ updated: 2026-07-16
 development_status:
   # Epic 1 — Phase 0: Vertical skeleton (spec: specs/001-phase0-walking-skeleton/)
   epic-1: in-progress
-  1-1-runtime-ownership-spike: in-progress   # story file: 1-1-runtime-ownership-spike.md
+  1-1-runtime-ownership-spike: review   # Spike 1 complete — evidence: docs/superpowers/spikes/runtime-loop-evidence.md
   1-2-workspace-scaffolding-tri-os-ci: backlog
   1-3-domain-types-content-message-event: backlog
   1-4-silostore-sqlite-isolation: backlog

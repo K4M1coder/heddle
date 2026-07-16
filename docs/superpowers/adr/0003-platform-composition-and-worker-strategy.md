@@ -1,6 +1,6 @@
 # ADR-0003: Platform composition and worker strategy
 
-**Status:** Proposed — requires architecture-readiness gate  
+**Status:** Proposed — Spike 1/5 complete (runtime ownership DECIDED: native Skein-owned loop, ACP as client boundary, external ACP agents as reduced-assurance workers — see `docs/superpowers/spikes/runtime-loop-evidence.md`); Spikes 2–5 pending for full acceptance  
 **Date:** 2026-07-15  
 **Decider:** Cédric Thedrez (`kamicoder`)  
 **Research:** `docs/research/agent-platform-landscape.md`
