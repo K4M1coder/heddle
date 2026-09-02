@@ -44,8 +44,9 @@
       line is an import line, a line inside `fn gateway` / `fn live_server`, or the `no_tools`
       doc comment — no pre-existing `#[test]` body changed, so specs 004/005/006 stay
       controls (SC-004, FR-006)
-- [ ] **T6** no drift: `git diff dev` empty on every `Cargo.toml`, on `spikes/` and on
-      `.github/` (SC-003, SC-005)
+- [x] **T6** no drift: `git diff dev` empty on every `Cargo.toml`, on `spikes/` and on
+      `.github/`. `core.yml` already runs the three gates on `crates/**` at toolchain 1.97 —
+      confirmed, unedited (SC-003, SC-005)
 - [ ] **T7** tick the allowlist bullet in `specs/006-loop-tool-wiring/tasks.md`; set this spec's
       Status
 
