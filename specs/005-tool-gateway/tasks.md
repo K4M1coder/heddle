@@ -27,7 +27,7 @@
 - [x] **T2** `SkeinError::ToolDenied` and `SkeinError::Tool` (FR-002/FR-006)
 - [x] **T3** RED — `crates/skein-core/tests/tool_gateway.rs` with `CountingTransport` and all 6
       tests; compile failure observed and recorded
-- [ ] **T4** `tool` — `ToolCall`/`ToolOutcome`/`ToolTransport`/`ToolPolicy`/`Decision`/
+- [x] **T4** `tool` — `ToolCall`/`ToolOutcome`/`ToolTransport`/`ToolPolicy`/`Decision`/
       `Redactor`/`CapturedResult`/`ToolGateway::call`/`replay_tool_calls`
       (FR-001/002/003/004/005)
 - [ ] **T5** `crates/skein-mcp` skeleton + root `[workspace.dependencies]` entries (FR-007)

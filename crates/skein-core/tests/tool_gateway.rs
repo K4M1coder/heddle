@@ -111,17 +111,6 @@ fn approved_mutating_tool_executes_once() {
 }
 
 #[test]
-fn non_mutating_tool_runs_without_approval() {
-    let mut led = Ledger::new();
-    let mut gw = gateway(CountingTransport::new("config"), &[]);
-
-    gw.call("run-t3", &ToolCall::new("read_secret", json!({})), &mut led)
-        .expect("a tool outside the mutating list is read-only and runs");
-
-    assert_eq!(gw.transport.calls, 1);
-}
-
-#[test]
 fn secret_is_redacted_from_args_and_result_before_capture() {
     let mut led = Ledger::new();
     let mut gw = gateway(
@@ -130,7 +119,9 @@ fn secret_is_redacted_from_args_and_result_before_capture() {
     );
 
     let call = ToolCall::new("read_secret", json!({ "token": SECRET }));
-    let out = gw.call("run-t4", &call, &mut led).expect("read_secret runs");
+    let out = gw
+        .call("run-t4", &call, &mut led)
+        .expect("read_secret runs");
 
     assert!(
         out.content.contains(SECRET),
@@ -213,7 +204,11 @@ fn governed_calls_extend_one_hash_chain() {
     let mut led = Ledger::new();
     let mut gw = gateway(CountingTransport::new("ok"), &["fs_write"]);
 
-    led.append("run-t7", StepKind::LlmResponse, "the model asked for a tool");
+    led.append(
+        "run-t7",
+        StepKind::LlmResponse,
+        "the model asked for a tool",
+    );
     gw.call("run-t7", &ToolCall::new("fs_write", json!({})), &mut led)
         .unwrap();
     led.append("run-t7", StepKind::LlmResponse, "the model saw the result");

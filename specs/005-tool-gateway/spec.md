@@ -17,7 +17,8 @@ unless it has been explicitly approved, and the refusal is on the record.
 2. **Given** the same tool now approved, **When** the gateway calls it, **Then** the
    transport is invoked exactly once and the step kinds are `[ToolCall, Approval, ToolResult]`.
 3. **Given** a tool absent from the mutating list, **When** the gateway calls it, **Then** it
-   is treated as read-only and runs.
+   is treated as read-only and runs (exercised by the User Story 2 scenario, whose
+   `read_secret` is unlisted and executes).
 4. **Given** a denial against a **live** MCP server, **When** the gateway is asked to call
    the mutating tool, **Then** the server's invocation counter stays at 0.
 
