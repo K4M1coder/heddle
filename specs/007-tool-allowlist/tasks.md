@@ -33,8 +33,11 @@
       failure observed and recorded below
 - [x] **T3** GREEN — `ToolAccess`, `ToolPolicy.allowed`, the rewritten `decide`, and the
       `lib.rs` re-export (FR-001/002/003/004/005)
-- [ ] **T4** gates: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets
-      -D warnings`, `cargo test --workspace` (SC-001)
+- [x] **T4** gates: `cargo fmt --all --check` clean; `cargo clippy --workspace --all-targets
+      -- -D warnings` clean (no `type_complexity` objection to the tuple vector, so the
+      `AllowedTools` alias the plan held in reserve was not needed); `cargo test --workspace`
+      **40/40** — 35 pre-existing + 5 new, 2026-09-03. Windows leg observed; macOS and Linux
+      unobserved until the repository has a remote (SC-001)
 - [ ] **T5** control diff: `native_loop.rs`, `loop_ctl.rs`, `ledger.rs` and `error.rs` unchanged;
       no pre-existing test *body* changed (SC-004, FR-006)
 - [ ] **T6** no drift: `git diff dev` empty on every `Cargo.toml`, on `spikes/` and on
@@ -50,6 +53,19 @@
 35 pre-existing + 5 new = 40.
 
 ## Observed red (Constitution III)
+
+- **T2** `cargo build --workspace --all-targets`, 2026-09-03:
+  - `error[E0432]: unresolved import skein_core::ToolAccess`
+    (`crates/skein-core/tests/tool_gateway.rs`,
+    `crates/skein-core/tests/native_loop.rs`,
+    `crates/skein-mcp/tests/rmcp_gateway.rs:16:52`)
+  - `error: could not compile skein-core (test "tool_gateway") due to 1 previous error`
+  - `error: could not compile skein-core (test "native_loop") due to 1 previous error`
+  - `error: could not compile skein-mcp (test "rmcp_gateway") due to 1 previous error`
+  - The `ToolPolicy::new` argument-type errors the plan also expected are *not* in this
+    output: rustc abandons a crate once import resolution fails, so the unresolved
+    `ToolAccess` import is the only diagnostic each test crate reaches. Same red, one
+    diagnostic per crate instead of two.
 
 ## Next slice (not this feature)
 - [ ] ACP client facade over the native loop + gateway
