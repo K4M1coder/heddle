@@ -61,7 +61,8 @@
 
 ## Next slice (not this feature)
 - [ ] ACP client facade over the native loop + gateway
-- [ ] wire the gateway into `NativeLoop` (`TurnResponse.tool_calls`, mid-loop tool mediation,
-      prompt-injection handling of tool output)
+- [x] wire the gateway into `NativeLoop` (`TurnResponse.tool_calls`, mid-loop tool mediation,
+      tool output fed back as labelled `Role::User` data) — `specs/006-loop-tool-wiring/`.
+      Real prompt-injection defense (a typed `Content::ToolResult`) is still open there.
 - [ ] silo-backed durable Ledger (SQLite) + `SecretProvider` (OS keychain)
 - [ ] `skein-cli` reference client

@@ -1,6 +1,6 @@
 # Feature Specification: wire the Tool Gateway into the native loop (v0 strict-local)
 
-**Feature Branch:** `006-loop-tool-wiring` · **Created:** 2026-09-03 · **Status:** Draft
+**Feature Branch:** `006-loop-tool-wiring` · **Created:** 2026-09-03 · **Status:** Implemented (v0 slice)
 **Input:** ADR-0003 (Accepted, decision A = native Skein-owned loop, decision 4 = tool
 governance via `rmcp`) · design §4.2/§4.3/§4.11/§4.14/§7 · builds directly on
 `specs/004-native-loop` (Implemented, 15/15) and `specs/005-tool-gateway` (Implemented, 26/26),

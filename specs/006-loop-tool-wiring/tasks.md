@@ -31,26 +31,28 @@
 
 ## Done
 - [x] **T0** `specs/006-loop-tool-wiring/{spec.md,plan.md,tasks.md}` + branch from `dev`
-- [ ] **T1** `ToolGateway::call_captured` — the governed body moved verbatim, `call` reduced to
+- [x] **T1** `ToolGateway::call_captured` — the governed body moved verbatim, `call` reduced to
       a delegate; no behaviour change, all 26 tests still green (FR-004)
-- [ ] **T2** RED — `RecordingTransport`, `no_tools()`, `reply_with_tools()` and all 8 new tests
+- [x] **T2** RED — `RecordingTransport`, `no_tools()`, `reply_with_tools()` and all 8 new tests
       in `crates/skein-core/tests/native_loop.rs`, plus the 9th in
       `crates/skein-mcp/tests/rmcp_gateway.rs`; compile failure observed and recorded
-- [ ] **T3** `TurnResponse.tool_calls` — serde-defaulted, and the stale `model.rs` doc comment
+- [x] **T3** `TurnResponse.tool_calls` — serde-defaulted, and the stale `model.rs` doc comment
       corrected (FR-001)
-- [ ] **T4** `NativeLoop<C, P, T>` carries a `pub gateway: ToolGateway<T>` injected at
+- [x] **T4** `NativeLoop<C, P, T>` carries a `pub gateway: ToolGateway<T>` injected at
       construction (FR-002)
-- [ ] **T5** mediation inside `run`: gateway per call in declaration order, between the turn's
+- [x] **T5** mediation inside `run`: gateway per call in declaration order, between the turn's
       `BudgetSpent` append and `probe.observe()`; redacted feedback as `Role::User`; denial
       survives, any other tool error propagates (FR-002/003/004/005/006)
-- [ ] **T6** `fmt --check`, `clippy --workspace --all-targets -D warnings`,
-      `cargo test --workspace` (SC-001)
-- [ ] **T7** no dependency drift: `git diff dev` on every `Cargo.toml` empty (FR-007, SC-003)
-- [ ] **T8** CI: `core.yml` already covers `crates/**` at toolchain 1.97 — confirmed, unedited;
+- [x] **T6** `fmt --check`, `clippy --workspace --all-targets -D warnings`,
+      `cargo test --workspace` — **35/35** (spec 003's 6 + spec 004's 9 + spec 005's 6 gateway
+      + 5 rmcp + this slice's 8 loop + 1 rmcp), 2026-09-03. Windows leg observed; macOS and
+      Linux unobserved until the repository has a remote (SC-001)
+- [x] **T7** no dependency drift: `git diff dev` on every `Cargo.toml` empty (FR-007, SC-003)
+- [x] **T8** CI: `core.yml` already covers `crates/**` at toolchain 1.97 — confirmed, unedited;
       `git diff dev -- spikes/` empty (SC-005, ADR-0004 D2)
-- [ ] **T9** control diff: `tests/tool_gateway.rs` and `src/loop_ctl.rs` unchanged; spec 004's
+- [x] **T9** control diff: `tests/tool_gateway.rs` and `src/loop_ctl.rs` unchanged; spec 004's
       four Exit-variant tests differ only by the added `NativeLoop::new` argument (SC-004)
-- [ ] **T10** tick the loop-wiring bullet in `specs/005-tool-gateway/tasks.md`; set this spec's
+- [x] **T10** tick the loop-wiring bullet in `specs/005-tool-gateway/tasks.md`; set this spec's
       Status
 
 ## Observed red (Constitution III)
