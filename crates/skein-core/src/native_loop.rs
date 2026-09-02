@@ -44,6 +44,12 @@ impl<C: ModelClient, P: ProgressProbe> NativeLoop<C, P> {
         ledger: &mut Ledger,
         ctl: &mut LoopController,
     ) -> Result<LoopRun> {
+        // Checked before the first call, so "the budget is enforced before it is
+        // spent" is structural rather than a matter of turn ordering.
+        if let Some(exit) = ctl.should_exit(false) {
+            return Ok(terminate(ledger, run_id, exit, None));
+        }
+
         let mut messages = vec![prompt];
 
         loop {
