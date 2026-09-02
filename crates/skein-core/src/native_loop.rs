@@ -7,6 +7,7 @@ use crate::error::Result;
 use crate::ledger::{Ledger, StepKind};
 use crate::loop_ctl::{Exit, LoopController};
 use crate::model::{ModelClient, TurnRequest};
+use crate::tool::{ToolGateway, ToolTransport};
 
 /// The ground-truth progress signal (Constitution VIII(b)).
 /// Deliberately takes no model output: a probe that cannot see the model's words
@@ -23,16 +24,25 @@ pub struct LoopRun {
     pub final_message: Option<Message>,
 }
 
-/// Drives turns against a provider until the controller says stop.
-/// The collaborators are public so a caller can inspect the client it injected.
-pub struct NativeLoop<C: ModelClient, P: ProgressProbe> {
+/// Drives turns against a provider until the controller says stop, mediating
+/// every tool the model asks for through the gateway. The collaborators are
+/// public so a caller can inspect the client, probe and gateway it injected.
+/// The gateway is a concrete [`ToolGateway`], not a trait: the loop is generic
+/// over the transport so it never names a protocol (Constitution IV), while the
+/// governed step itself stays unsubstitutable (Constitution VI).
+pub struct NativeLoop<C: ModelClient, P: ProgressProbe, T: ToolTransport> {
     pub client: C,
     pub probe: P,
+    pub gateway: ToolGateway<T>,
 }
 
-impl<C: ModelClient, P: ProgressProbe> NativeLoop<C, P> {
-    pub fn new(client: C, probe: P) -> Self {
-        NativeLoop { client, probe }
+impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> NativeLoop<C, P, T> {
+    pub fn new(client: C, probe: P, gateway: ToolGateway<T>) -> Self {
+        NativeLoop {
+            client,
+            probe,
+            gateway,
+        }
     }
 
     /// Ledger and controller are borrowed, not owned: the caller inspects them
