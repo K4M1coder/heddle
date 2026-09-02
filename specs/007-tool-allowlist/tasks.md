@@ -38,8 +38,12 @@
       `AllowedTools` alias the plan held in reserve was not needed); `cargo test --workspace`
       **40/40** — 35 pre-existing + 5 new, 2026-09-03. Windows leg observed; macOS and Linux
       unobserved until the repository has a remote (SC-001)
-- [ ] **T5** control diff: `native_loop.rs`, `loop_ctl.rs`, `ledger.rs` and `error.rs` unchanged;
-      no pre-existing test *body* changed (SC-004, FR-006)
+- [x] **T5** control diff: `git diff dev` empty on `src/native_loop.rs`, `src/loop_ctl.rs`,
+      `src/ledger.rs`, `src/error.rs`, `src/model.rs`, `src/content.rs`,
+      `skein-mcp/src/lib.rs` and `tests/core.rs`. In the three test files every *removed*
+      line is an import line, a line inside `fn gateway` / `fn live_server`, or the `no_tools`
+      doc comment — no pre-existing `#[test]` body changed, so specs 004/005/006 stay
+      controls (SC-004, FR-006)
 - [ ] **T6** no drift: `git diff dev` empty on every `Cargo.toml`, on `spikes/` and on
       `.github/` (SC-003, SC-005)
 - [ ] **T7** tick the allowlist bullet in `specs/006-loop-tool-wiring/tasks.md`; set this spec's
