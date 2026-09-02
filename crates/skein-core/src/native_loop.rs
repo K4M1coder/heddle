@@ -69,11 +69,7 @@ impl<C: ModelClient, P: ProgressProbe> NativeLoop<C, P> {
 
             let resp = self.client.turn(&req)?;
             ledger.append(run_id, StepKind::LlmResponse, serde_json::to_string(&resp)?);
-            ledger.append(
-                run_id,
-                StepKind::BudgetSpent,
-                resp.tokens_used.to_string(),
-            );
+            ledger.append(run_id, StepKind::BudgetSpent, resp.tokens_used.to_string());
 
             let made_progress = self.probe.observe();
             ctl.record_iteration(resp.tokens_used, made_progress);
