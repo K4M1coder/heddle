@@ -25,9 +25,9 @@
   its toolchain pin is already 1.97 — confirmed, not edited).
 
 ## Tasks
-- [ ] **T0** `specs/007-tool-allowlist/{spec.md,plan.md,tasks.md}`; branch `007-tool-allowlist`
+- [x] **T0** `specs/007-tool-allowlist/{spec.md,plan.md,tasks.md}`; branch `007-tool-allowlist`
       cut from `dev`
-- [ ] **T1** record the control baseline: `cargo test --workspace` on `dev` before any edit
+- [x] **T1** record the control baseline: `cargo test --workspace` on `dev` before any edit
 - [ ] **T2** RED — the five new tests, and all four `ToolPolicy::new` construction sites
       migrated in the same commit (the workspace cannot compile between the two); compile
       failure observed and recorded below
@@ -41,6 +41,13 @@
       `.github/` (SC-003, SC-005)
 - [ ] **T7** tick the allowlist bullet in `specs/006-loop-tool-wiring/tasks.md`; set this spec's
       Status
+
+## Control baseline (T1)
+
+`cargo test --workspace` on `dev` / `31051cb`, working tree clean, 2026-09-03: **35 passing** —
+`tests/core.rs` 6, `tests/native_loop.rs` 17, `tests/tool_gateway.rs` 6,
+`skein-mcp/tests/rmcp_gateway.rs` 6; 0 failed, 0 ignored. This is the number T4 diffs against:
+35 pre-existing + 5 new = 40.
 
 ## Observed red (Constitution III)
 
