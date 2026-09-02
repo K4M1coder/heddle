@@ -12,7 +12,9 @@ use rmcp::model::{ServerCapabilities, ServerInfo};
 use rmcp::{tool, tool_handler, tool_router, ServerHandler, ServiceExt};
 use serde_json::json;
 use skein_core::{
-    replay_tool_calls, Ledger, Redactor, SkeinError, StepKind, ToolCall, ToolGateway, ToolPolicy,
+    replay_tool_calls, Ledger, LoopBudget, LoopController, Message, ModelClient, NativeLoop,
+    ProgressProbe, Redactor, SkeinError, StepKind, ToolCall, ToolGateway, ToolPolicy, TurnRequest,
+    TurnResponse,
 };
 use skein_mcp::RmcpToolTransport;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -204,4 +206,81 @@ fn c5_governed_run_verifies_chain() {
             StepKind::ToolResult,
         ]
     );
+}
+
+/// A model whose every turn is decided in advance, so the only live thing in the
+/// test is the MCP server.
+struct ScriptedModel {
+    script: Vec<TurnResponse>,
+    calls: usize,
+}
+
+impl ModelClient for ScriptedModel {
+    fn turn(&mut self, _req: &TurnRequest) -> skein_core::Result<TurnResponse> {
+        let i = self.calls;
+        self.calls += 1;
+        Ok(self.script[i].clone())
+    }
+}
+
+struct ScriptedProbe;
+
+impl ProgressProbe for ScriptedProbe {
+    fn observe(&mut self) -> bool {
+        true
+    }
+}
+
+fn scripted_reply(text: &str, final_output: bool, tool_calls: Vec<ToolCall>) -> TurnResponse {
+    TurnResponse {
+        message: Message::assistant_text(text),
+        tokens_used: 1,
+        final_output,
+        tool_calls,
+    }
+}
+
+#[test]
+fn c6_native_loop_calls_a_live_mcp_tool_mid_run() {
+    let (_rt, gateway, invocations) = live_server(&[]);
+    let model = ScriptedModel {
+        script: vec![
+            scripted_reply(
+                "reading config",
+                false,
+                vec![ToolCall::new("read_secret", json!({}))],
+            ),
+            scripted_reply("done", true, Vec::new()),
+        ],
+        calls: 0,
+    };
+    let mut lp = NativeLoop::new(model, ScriptedProbe, gateway);
+    let mut led = Ledger::new();
+    let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 10));
+
+    lp.run("run-m6", Message::user_text("go"), &mut led, &mut ctl)
+        .expect("the loop drives a live tool call");
+
+    assert_eq!(
+        invocations.load(Ordering::SeqCst),
+        1,
+        "the server itself is the ground truth for whether the tool ran"
+    );
+
+    let requests: Vec<TurnRequest> = led
+        .log("run-m6")
+        .into_iter()
+        .filter(|s| s.kind == StepKind::LlmRequest)
+        .map(|s| serde_json::from_str(&s.payload).unwrap())
+        .collect();
+    let fed_back = requests[1].messages[2].text();
+    assert!(
+        fed_back.starts_with("[tool_result tool=read_secret status=ok]"),
+        "{fed_back}"
+    );
+    assert!(
+        fed_back.contains("endpoint=https://x") && fed_back.contains("***"),
+        "the real server output reaches the model, redacted: {fed_back}"
+    );
+    assert!(!fed_back.contains(SECRET));
 }

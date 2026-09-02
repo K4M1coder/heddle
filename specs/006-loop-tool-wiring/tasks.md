@@ -55,7 +55,13 @@
 
 ## Observed red (Constitution III)
 
-*Recorded at T2.*
+- **T2** `cargo build --workspace --all-targets`, 2026-09-03:
+  - `error[E0560]: struct TurnResponse has no field named tool_calls` (×3)
+  - `error[E0061]: this function takes 2 arguments but 3 arguments were supplied` (×20 —
+    every `NativeLoop::new` site)
+  - `error[E0609]: no field gateway on type NativeLoop<ScriptedModel, ScriptedProbe>` (×7)
+  - `error: could not compile skein-core (test "native_loop") due to 28 previous errors`
+  - `error: could not compile skein-mcp (test "rmcp_gateway") due to 2 previous errors`
 
 ## Next slice (not this feature)
 - [ ] ACP client facade over the native loop + gateway
