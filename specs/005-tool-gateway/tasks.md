@@ -31,7 +31,7 @@
       `Redactor`/`CapturedResult`/`ToolGateway::call`/`replay_tool_calls`
       (FR-001/002/003/004/005)
 - [x] **T5** `crates/skein-mcp` skeleton + root `[workspace.dependencies]` entries (FR-007)
-- [ ] **T6** RED — `crates/skein-mcp/tests/rmcp_gateway.rs` with the live embedded rmcp server
+- [x] **T6** RED — `crates/skein-mcp/tests/rmcp_gateway.rs` with the live embedded rmcp server
       fixture and all 5 tests; compile failure observed and recorded
 - [ ] **T7** `RmcpToolTransport` — owns its `tokio` runtime, blocks behind the sync port
       (SC-002)
@@ -52,6 +52,10 @@
   `skein_core::ToolCall, skein_core::ToolGateway, skein_core::ToolOutcome,`
   `skein_core::ToolPolicy, skein_core::ToolTransport` —
   `error: could not compile skein-core (test "tool_gateway")`.
+- **T6** `cargo test -p skein-mcp`:
+  `error[E0432]: unresolved import skein_mcp::RmcpToolTransport` —
+  `no RmcpToolTransport in the root` —
+  `error: could not compile skein-mcp (test "rmcp_gateway")`.
 
 ## Next slice (not this feature)
 - [ ] ACP client facade over the native loop + gateway
