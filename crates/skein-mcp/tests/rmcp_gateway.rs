@@ -13,8 +13,8 @@ use rmcp::{tool, tool_handler, tool_router, ServerHandler, ServiceExt};
 use serde_json::json;
 use skein_core::{
     replay_tool_calls, Ledger, LoopBudget, LoopController, Message, ModelClient, NativeLoop,
-    ProgressProbe, Redactor, SkeinError, StepKind, ToolCall, ToolGateway, ToolPolicy, TurnRequest,
-    TurnResponse,
+    ProgressProbe, Redactor, SkeinError, StepKind, ToolAccess, ToolCall, ToolGateway, ToolPolicy,
+    TurnRequest, TurnResponse,
 };
 use skein_mcp::RmcpToolTransport;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -64,10 +64,24 @@ impl ServerHandler for DownstreamServer {
     }
 }
 
+/// The two tools `DownstreamServer` exposes, classified as an operator would.
+fn live_server(approved: &[&str]) -> (Runtime, ToolGateway<RmcpToolTransport>, Arc<AtomicUsize>) {
+    live_server_allowing(
+        &[
+            ("read_secret", ToolAccess::ReadOnly),
+            ("fs_write", ToolAccess::Mutating),
+        ],
+        approved,
+    )
+}
+
 /// A live client↔server pair over an in-process duplex. The returned runtime
 /// must be bound to a named local for the whole test body: dropping it kills the
 /// task serving the downstream side.
-fn live_server(approved: &[&str]) -> (Runtime, ToolGateway<RmcpToolTransport>, Arc<AtomicUsize>) {
+fn live_server_allowing(
+    allowed: &[(&str, ToolAccess)],
+    approved: &[&str],
+) -> (Runtime, ToolGateway<RmcpToolTransport>, Arc<AtomicUsize>) {
     let server_rt = Runtime::new().expect("server runtime");
     let (server_t, client_t) = server_rt.block_on(async { tokio::io::duplex(8192) });
     let invocations = Arc::new(AtomicUsize::new(0));
@@ -83,7 +97,10 @@ fn live_server(approved: &[&str]) -> (Runtime, ToolGateway<RmcpToolTransport>, A
     let gateway = ToolGateway::new(
         transport,
         ToolPolicy::new(
-            vec!["fs_write".into()],
+            allowed
+                .iter()
+                .map(|(name, access)| (name.to_string(), *access))
+                .collect(),
             approved.iter().map(|s| s.to_string()).collect(),
         ),
         Redactor::new(vec![SECRET.into()]),
@@ -283,4 +300,22 @@ fn c6_native_loop_calls_a_live_mcp_tool_mid_run() {
         "the real server output reaches the model, redacted: {fed_back}"
     );
     assert!(!fed_back.contains(SECRET));
+}
+
+#[test]
+fn c7_unlisted_tool_never_reaches_the_live_server() {
+    let (_rt, mut gw, invocations) =
+        live_server_allowing(&[("fs_write", ToolAccess::Mutating)], &[]);
+    let mut led = Ledger::new();
+
+    let err = gw
+        .call("run-m7", &ToolCall::new("read_secret", json!({})), &mut led)
+        .expect_err("a tool the operator never allowlisted must be denied");
+
+    assert!(matches!(err, SkeinError::ToolDenied { .. }), "got {err:?}");
+    assert_eq!(
+        invocations.load(Ordering::SeqCst),
+        0,
+        "the server really implements read_secret, so only the allowlist stopped it"
+    );
 }

@@ -6,8 +6,8 @@
 use serde_json::json;
 use skein_core::{
     Exit, Ledger, LoopBudget, LoopController, Message, ModelClient, NativeLoop, ProgressProbe,
-    Redactor, Result, Role, SkeinError, StepKind, ToolCall, ToolGateway, ToolOutcome, ToolPolicy,
-    ToolTransport, TurnRequest, TurnResponse,
+    Redactor, Result, Role, SkeinError, StepKind, ToolAccess, ToolCall, ToolGateway, ToolOutcome,
+    ToolPolicy, ToolTransport, TurnRequest, TurnResponse,
 };
 
 const SECRET: &str = "sk-SECRET-abc123";
@@ -128,15 +128,22 @@ fn gateway(transport: RecordingTransport, approved: &[&str]) -> ToolGateway<Reco
     ToolGateway::new(
         transport,
         ToolPolicy::new(
-            vec!["fs_write".into()],
+            vec![
+                ("fs_write".into(), ToolAccess::Mutating),
+                ("read_file".into(), ToolAccess::ReadOnly),
+                ("read_first".into(), ToolAccess::ReadOnly),
+                ("read_second".into(), ToolAccess::ReadOnly),
+                ("read_secret".into(), ToolAccess::ReadOnly),
+            ],
             approved.iter().map(|s| s.to_string()).collect(),
         ),
         Redactor::new(vec![SECRET.into()]),
     )
 }
 
-/// The gateway the tool-free tests of spec 004 carry: it governs nothing because
-/// nothing ever asks it to, and it proves that by exploding if it is asked.
+/// The gateway the tool-free tests of spec 004 carry: an empty allowlist denies
+/// every tool there is, and the transport proves it is never reached by
+/// exploding if it is asked.
 fn no_tools() -> ToolGateway<RecordingTransport> {
     ToolGateway::new(
         RecordingTransport::forbidden(),
@@ -787,4 +794,58 @@ fn tool_transport_failure_propagates_and_leaves_the_chain_verifiable() {
         "no ToolResult may be fabricated for a call that produced none"
     );
     led.verify_chain("run-toolerr").expect("chain verifies");
+}
+
+#[test]
+fn model_named_tool_outside_the_allowlist_never_reaches_the_transport() {
+    let model = ScriptedModel::new(vec![
+        reply_with_tools(
+            "let me just run this",
+            1,
+            false,
+            vec![ToolCall::new("shell_exec", json!({}))],
+        ),
+        reply("fine, no shell then", 1, true),
+    ]);
+    let mut lp = NativeLoop::new(
+        model,
+        ScriptedProbe::new(vec![true]),
+        gateway(RecordingTransport::new("pwned"), &[]),
+    );
+    let mut led = Ledger::new();
+    let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 10));
+
+    let run = lp
+        .run("run-unlisted", Message::user_text("go"), &mut led, &mut ctl)
+        .unwrap();
+
+    assert_eq!(run.exit, Exit::FinalOutput, "a refusal is not a failed run");
+    assert_eq!(
+        lp.gateway.transport.calls, 0,
+        "a name the operator never allowlisted must not reach the transport"
+    );
+    let k = kinds(&led, "run-unlisted");
+    assert!(k.contains(&StepKind::ToolCall) && k.contains(&StepKind::Approval));
+    assert!(
+        !k.contains(&StepKind::ToolResult),
+        "a refused call produced no result to capture"
+    );
+    let approval = led
+        .log("run-unlisted")
+        .into_iter()
+        .find(|s| s.kind == StepKind::Approval)
+        .expect("the refusal is on the record");
+    assert!(approval.payload.contains("denied"), "{}", approval.payload);
+
+    let requests: Vec<TurnRequest> = led
+        .log("run-unlisted")
+        .into_iter()
+        .filter(|s| s.kind == StepKind::LlmRequest)
+        .map(|s| serde_json::from_str(&s.payload).unwrap())
+        .collect();
+    let notice = requests[1].messages[2].text();
+    assert!(
+        notice.starts_with("[tool_result tool=shell_exec status=denied]"),
+        "the model is told plainly that the tool it named was refused: {notice}"
+    );
 }

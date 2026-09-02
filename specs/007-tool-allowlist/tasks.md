@@ -28,7 +28,7 @@
 - [x] **T0** `specs/007-tool-allowlist/{spec.md,plan.md,tasks.md}`; branch `007-tool-allowlist`
       cut from `dev`
 - [x] **T1** record the control baseline: `cargo test --workspace` on `dev` before any edit
-- [ ] **T2** RED — the five new tests, and all four `ToolPolicy::new` construction sites
+- [x] **T2** RED — the five new tests, and all four `ToolPolicy::new` construction sites
       migrated in the same commit (the workspace cannot compile between the two); compile
       failure observed and recorded below
 - [ ] **T3** GREEN — `ToolAccess`, `ToolPolicy.allowed`, the rewritten `decide`, and the

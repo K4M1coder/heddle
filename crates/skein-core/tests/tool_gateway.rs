@@ -4,8 +4,8 @@
 
 use serde_json::json;
 use skein_core::{
-    replay_tool_calls, Ledger, Redactor, Result, SkeinError, StepKind, ToolCall, ToolGateway,
-    ToolOutcome, ToolPolicy, ToolTransport,
+    replay_tool_calls, Ledger, Redactor, Result, SkeinError, StepKind, ToolAccess, ToolCall,
+    ToolGateway, ToolOutcome, ToolPolicy, ToolTransport,
 };
 
 const SECRET: &str = "sk-SECRET-abc123";
@@ -54,7 +54,11 @@ fn gateway(transport: CountingTransport, approved: &[&str]) -> ToolGateway<Count
     ToolGateway::new(
         transport,
         ToolPolicy::new(
-            vec!["fs_write".into()],
+            vec![
+                ("fs_write".into(), ToolAccess::Mutating),
+                ("read_secret".into(), ToolAccess::ReadOnly),
+                ("read_other".into(), ToolAccess::ReadOnly),
+            ],
             approved.iter().map(|s| s.to_string()).collect(),
         ),
         Redactor::new(vec![SECRET.into()]),
@@ -219,4 +223,71 @@ fn governed_calls_extend_one_hash_chain() {
         .expect("the gateway writes into the one chain, not a parallel log");
     let seqs: Vec<u64> = led.log("run-t7").iter().map(|s| s.seq).collect();
     assert_eq!(seqs, (0..seqs.len() as u64).collect::<Vec<_>>());
+}
+
+// ---- deny-by-default for tool identity (spec 007) ----
+
+#[test]
+fn unlisted_tool_is_denied_even_though_it_is_not_mutating() {
+    let mut led = Ledger::new();
+    let mut gw = gateway(CountingTransport::new("pwned"), &[]);
+
+    let err = gw
+        .call("run-t8", &ToolCall::new("shell_exec", json!({})), &mut led)
+        .expect_err("a tool nobody allowlisted must be denied, mutating or not");
+
+    assert!(
+        matches!(err, SkeinError::ToolDenied { ref tool, .. } if tool == "shell_exec"),
+        "expected ToolDenied for shell_exec, got {err:?}"
+    );
+    assert_eq!(gw.transport.calls, 0, "the transport must never be touched");
+    assert_eq!(
+        kinds(&led, "run-t8"),
+        vec![StepKind::ToolCall, StepKind::Approval],
+        "the attempt and the refusal are both on the record"
+    );
+    let approval = led.log("run-t8")[1].payload.clone();
+    assert!(
+        approval.contains("denied"),
+        "approval step must record the refusal: {approval}"
+    );
+    led.verify_chain("run-t8").expect("chain verifies");
+}
+
+#[test]
+fn allowlisted_read_only_tool_runs_without_approval() {
+    let mut led = Ledger::new();
+    let mut gw = gateway(CountingTransport::new("contents"), &[]);
+
+    let out = gw
+        .call("run-t9", &ToolCall::new("read_other", json!({})), &mut led)
+        .expect("an allowlisted read-only tool needs no approval");
+
+    assert_eq!(out.content, "contents");
+    assert_eq!(gw.transport.calls, 1, "executed exactly once");
+    assert_eq!(
+        kinds(&led, "run-t9"),
+        vec![StepKind::ToolCall, StepKind::Approval, StepKind::ToolResult]
+    );
+    let approval = led.log("run-t9")[1].payload.clone();
+    assert!(
+        approval.contains("allowed"),
+        "approval step must record the permission: {approval}"
+    );
+}
+
+#[test]
+fn approval_alone_does_not_admit_a_tool_missing_from_the_allowlist() {
+    let mut led = Ledger::new();
+    let mut gw = gateway(CountingTransport::new("pwned"), &["shell_exec"]);
+
+    let err = gw
+        .call("run-t10", &ToolCall::new("shell_exec", json!({})), &mut led)
+        .expect_err("identity is checked before, and independently of, approval");
+
+    assert!(
+        matches!(err, SkeinError::ToolDenied { ref tool, .. } if tool == "shell_exec"),
+        "expected ToolDenied for shell_exec, got {err:?}"
+    );
+    assert_eq!(gw.transport.calls, 0, "the transport must never be touched");
 }
