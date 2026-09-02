@@ -152,15 +152,27 @@ impl<T: ToolTransport> ToolGateway<T> {
         }
     }
 
-    /// The governed path. The Ledger is borrowed, not owned: the caller inspects
-    /// it afterwards, and the gateway's steps land in the same chain as the rest
-    /// of the run.
+    /// The governed path, returning only what the trusted caller needs.
     pub fn call(
         &mut self,
         run_id: &str,
         call: &ToolCall,
         ledger: &mut Ledger,
     ) -> Result<ToolOutcome> {
+        self.call_captured(run_id, call, ledger)
+            .map(|(outcome, _)| outcome)
+    }
+
+    /// The governed path, returning both the raw outcome for the trusted caller
+    /// and the redacted capture that is safe to put back in front of a model.
+    /// The Ledger is borrowed, not owned: the caller inspects it afterwards, and
+    /// the gateway's steps land in the same chain as the rest of the run.
+    pub fn call_captured(
+        &mut self,
+        run_id: &str,
+        call: &ToolCall,
+        ledger: &mut Ledger,
+    ) -> Result<(ToolOutcome, CapturedResult)> {
         // Recorded before the decision, so a refused attempt still names itself.
         let attempt = ToolCall {
             tool: call.tool.clone(),
@@ -199,7 +211,7 @@ impl<T: ToolTransport> ToolGateway<T> {
             StepKind::ToolResult,
             serde_json::to_string(&captured)?,
         );
-        Ok(outcome)
+        Ok((outcome, captured))
     }
 }
 
