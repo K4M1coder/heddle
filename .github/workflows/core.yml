@@ -4,9 +4,9 @@ name: core
 # No --locked: the root Cargo.lock is git-ignored.
 on:
   push:
-    paths: ["crates/**", "Cargo.toml", ".github/workflows/core.yml"]
+    paths: ["crates/**", "Cargo.toml", "rust-toolchain.toml", ".github/workflows/core.yml"]
   pull_request:
-    paths: ["crates/**", "Cargo.toml", ".github/workflows/core.yml"]
+    paths: ["crates/**", "Cargo.toml", "rust-toolchain.toml", ".github/workflows/core.yml"]
   workflow_dispatch: {}
 
 jobs:
@@ -18,7 +18,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.79
+      - uses: dtolnay/rust-toolchain@1.97
         with:
           components: rustfmt, clippy
       - name: Format

@@ -18,7 +18,7 @@ The scripts are **idempotent** (safe to re-run; each step checks before installi
 
 | Layer | Tool | Why |
 |---|---|---|
-| Languages | **Rust 1.79** (rustup; pinned by `rust-toolchain.toml`) · **Node LTS** (npx) · **Python 3.11+ via uv** | core / installers / sidecar & LiteLLM |
+| Languages | **Rust 1.97** (rustup; pinned by `rust-toolchain.toml`) · **Node LTS** (npx) · **Python 3.11+ via uv** | core / installers / sidecar & LiteLLM |
 | Quality | `rustfmt`, `clippy` (as toolchain components) · **pre-commit** | Constitution: `fmt` + `clippy -D warnings` green before merge |
 | Tests | `cargo test` (built-in) · dev-deps pulled by Cargo on first build (`wiremock`, `assert_cmd`, `tempfile`) | TDD (Constitution III) |
 | Model gateway | **LiteLLM** (`uv tool install litellm`) · config `config/litellm.config.yaml` | single OpenAI-compat entry point (design §4.5) |
