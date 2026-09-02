@@ -35,12 +35,14 @@
       fixture and all 5 tests; compile failure observed and recorded
 - [x] **T7** `RmcpToolTransport` — owns its `tokio` runtime, blocks behind the sync port
       (SC-002)
-- [ ] **T8** `fmt --check`, `clippy --workspace --all-targets -D warnings`,
-      `cargo test --workspace`; no dependency drift in `skein-core` (SC-001/SC-003)
-- [ ] **T9** CI: `core.yml` `paths:` covers `crates/**` and `rust-toolchain.toml`
-- [ ] **T10** `spikes/` untouched — clean `git diff`, and no `crates/` reference to
+- [x] **T8** `fmt --check`, `clippy --workspace --all-targets -D warnings`,
+      `cargo test --workspace` — **26/26** (spec 003's 6 + spec 004's 9 + this slice's 6
+      gateway + 5 rmcp), 2026-09-03; `git diff` on `crates/skein-core/Cargo.toml` empty
+      (SC-001/SC-003)
+- [x] **T9** CI: `core.yml` `paths:` covers `crates/**` and `rust-toolchain.toml`
+- [x] **T10** `spikes/` untouched — clean `git diff`, and no `crates/` reference to
       `mcp_gateway` or a `spikes/` path (SC-004, ADR-0004 D2)
-- [ ] **T11** `docs/superpowers/spikes/mcp-gateway-evidence.md` — the Spike 4 evidence note
+- [x] **T11** `docs/superpowers/spikes/mcp-gateway-evidence.md` — the Spike 4 evidence note
       ADR-0004 D2 requires and that was never written
 - [ ] **T12** tick the gateway half of the backlog bullet in specs 003 and 004; set this
       spec's Status
