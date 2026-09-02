@@ -3,11 +3,11 @@
 //! the hash-chained Ledger before it can influence anything else.
 
 use crate::content::Message;
-use crate::error::Result;
+use crate::error::{Result, SkeinError};
 use crate::ledger::{Ledger, StepKind};
 use crate::loop_ctl::{Exit, LoopController};
 use crate::model::{ModelClient, TurnRequest};
-use crate::tool::{ToolGateway, ToolTransport};
+use crate::tool::{ToolCall, ToolGateway, ToolTransport};
 
 /// The ground-truth progress signal (Constitution VIII(b)).
 /// Deliberately takes no model output: a probe that cannot see the model's words
@@ -81,6 +81,11 @@ impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> NativeLoop<C, P, T> {
             ledger.append(run_id, StepKind::LlmResponse, serde_json::to_string(&resp)?);
             ledger.append(run_id, StepKind::BudgetSpent, resp.tokens_used.to_string());
 
+            // Before the probe: design §4.14 names tool results as a ground-truth
+            // reflection anchor, so a probe that ran first could never see the
+            // effect of this turn's own tool (Constitution VIII(b)).
+            let feedback = self.mediate(run_id, &resp.tool_calls, ledger)?;
+
             let made_progress = self.probe.observe();
             ctl.record_iteration(resp.tokens_used, made_progress);
 
@@ -88,8 +93,47 @@ impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> NativeLoop<C, P, T> {
                 return Ok(terminate(ledger, run_id, exit, Some(resp.message)));
             }
             messages.push(resp.message);
+            messages.extend(feedback);
         }
     }
+
+    /// Runs the turn's requested calls sequentially, in the order the model
+    /// declared them, and returns what the model is told about each.
+    ///
+    /// A refusal is a governance decision the run is designed to survive: the
+    /// attempt and the verdict are already on the chain and the model is told
+    /// plainly. Any other tool error leaves the tool's effect unknown, so it ends
+    /// the run exactly as a provider failure does.
+    fn mediate(
+        &mut self,
+        run_id: &str,
+        calls: &[ToolCall],
+        ledger: &mut Ledger,
+    ) -> Result<Vec<Message>> {
+        let mut feedback = Vec::with_capacity(calls.len());
+        for call in calls {
+            let message = match self.gateway.call_captured(run_id, call, ledger) {
+                // The redacted capture, never the raw outcome: the history is
+                // replayed into the next request's payload, so feeding back the
+                // real secret would put it straight back on the chain.
+                Ok((_, captured)) => tool_message(&captured.tool, "ok", &captured.content),
+                Err(SkeinError::ToolDenied { tool, reason }) => {
+                    tool_message(&tool, "denied", &reason)
+                }
+                Err(e) => return Err(e),
+            };
+            feedback.push(message);
+        }
+        Ok(feedback)
+    }
+}
+
+/// Tool output is external content: it enters the conversation as user-role data
+/// under a label, never as a system instruction and never as the model's own
+/// words. The label is a marker, not an injection boundary — that needs a typed
+/// content variant (design §7 item 5).
+fn tool_message(tool: &str, status: &str, body: &str) -> Message {
+    Message::user_text(format!("[tool_result tool={tool} status={status}]\n{body}"))
 }
 
 /// The single place a run is closed out, so "every terminated run ends with
