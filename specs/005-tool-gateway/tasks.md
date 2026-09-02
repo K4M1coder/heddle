@@ -21,11 +21,11 @@
 
 ## Done
 - [x] **T0** `specs/005-tool-gateway/{spec.md,plan.md,tasks.md}` + branch from `dev`
-- [ ] **T1** toolchain 1.79 → 1.97 in `rust-toolchain.toml`, `Cargo.toml`,
+- [x] **T1** toolchain 1.79 → 1.97 in `rust-toolchain.toml`, `Cargo.toml`,
       `.github/workflows/core.yml` and `docs/DEVELOPMENT.md`, on its own commit before any new
       code; all three gates green on unchanged source (FR-008)
-- [ ] **T2** `SkeinError::ToolDenied` and `SkeinError::Tool` (FR-002/FR-006)
-- [ ] **T3** RED — `crates/skein-core/tests/tool_gateway.rs` with `CountingTransport` and all 6
+- [x] **T2** `SkeinError::ToolDenied` and `SkeinError::Tool` (FR-002/FR-006)
+- [x] **T3** RED — `crates/skein-core/tests/tool_gateway.rs` with `CountingTransport` and all 6
       tests; compile failure observed and recorded
 - [ ] **T4** `tool` — `ToolCall`/`ToolOutcome`/`ToolTransport`/`ToolPolicy`/`Decision`/
       `Redactor`/`CapturedResult`/`ToolGateway::call`/`replay_tool_calls`
@@ -44,6 +44,14 @@
       ADR-0004 D2 requires and that was never written
 - [ ] **T12** tick the gateway half of the backlog bullet in specs 003 and 004; set this
       spec's Status
+
+## Observed red (Constitution III)
+
+- **T3** `cargo test -p skein-core`:
+  `error[E0432]: unresolved imports skein_core::replay_tool_calls, skein_core::Redactor,`
+  `skein_core::ToolCall, skein_core::ToolGateway, skein_core::ToolOutcome,`
+  `skein_core::ToolPolicy, skein_core::ToolTransport` —
+  `error: could not compile skein-core (test "tool_gateway")`.
 
 ## Next slice (not this feature)
 - [ ] ACP client facade over the native loop + gateway
