@@ -1,0 +1,55 @@
+# Tasks: deny-by-default for tool identity (v0 strict-local)
+
+**Spec:** `specs/007-tool-allowlist/spec.md` · TDD (red→green), product code in
+`crates/skein-core`, branch `007-tool-allowlist` cut from `dev`.
+
+## Constitution Check (ADR-0004 D1 solo-v0 bar)
+- I Headless core ✅ (library API; no UI, no bin) · II Local-first ✅ (no network, no new deps,
+  no `Cargo.toml` touched)
+- III Test-First ✅ (T2 red before T3 green) · IV Inverted coupling ✅ (the transport seam is
+  untouched; `ToolPolicy` names no protocol and no server)
+- V Traceability ✅ (an unlisted tool is refused through the *existing* `[ToolCall, Approval]`
+  shape and the existing `SkeinError::ToolDenied` — no new `StepKind`, no second denial path;
+  `verify_chain` asserted on the new refusal)
+- VI Security ✅ (this slice restores the principle's opening clause: deny-by-default now
+  governs tool *identity*, not only mutation, and fails closed — `ToolPolicy::new(Vec::new(),
+  Vec::new())` allows nothing) · VII Neutrality ✅ (no new module, crate, `StepKind`, dependency
+  or builder; the superseded `mutating` field is deleted rather than kept alongside)
+- VIII Loop discipline ✅ **(a)** `loop_ctl.rs` and `native_loop.rs` byte-identical; a denied
+  tool burns exactly the iteration budget the mutating-denial path already burns. **(b)** the
+  probe still runs after the turn's tools, unchanged. **(c)** per-step capture of the attempt
+  and the decision is unchanged; the refusal reason is the only new text. **(d)** HITL
+  escalation still deferred — approval stays a separate configured list, deliberately not folded
+  into `ToolAccess`, so that seam survives.
+- Cross-platform ✅ (pure Rust, no `#[cfg]`; `core.yml`'s `paths:` already covers `crates/**` and
+  its toolchain pin is already 1.97 — confirmed, not edited).
+
+## Tasks
+- [ ] **T0** `specs/007-tool-allowlist/{spec.md,plan.md,tasks.md}`; branch `007-tool-allowlist`
+      cut from `dev`
+- [ ] **T1** record the control baseline: `cargo test --workspace` on `dev` before any edit
+- [ ] **T2** RED — the five new tests, and all four `ToolPolicy::new` construction sites
+      migrated in the same commit (the workspace cannot compile between the two); compile
+      failure observed and recorded below
+- [ ] **T3** GREEN — `ToolAccess`, `ToolPolicy.allowed`, the rewritten `decide`, and the
+      `lib.rs` re-export (FR-001/002/003/004/005)
+- [ ] **T4** gates: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets
+      -D warnings`, `cargo test --workspace` (SC-001)
+- [ ] **T5** control diff: `native_loop.rs`, `loop_ctl.rs`, `ledger.rs` and `error.rs` unchanged;
+      no pre-existing test *body* changed (SC-004, FR-006)
+- [ ] **T6** no drift: `git diff dev` empty on every `Cargo.toml`, on `spikes/` and on
+      `.github/` (SC-003, SC-005)
+- [ ] **T7** tick the allowlist bullet in `specs/006-loop-tool-wiring/tasks.md`; set this spec's
+      Status
+
+## Observed red (Constitution III)
+
+## Next slice (not this feature)
+- [ ] ACP client facade over the native loop + gateway
+- [ ] a typed `Content::ToolResult` variant and real prompt-injection defense; redacting the
+      tool *name* on its way into the Ledger
+- [ ] tool advertisement on `TurnRequest`, which needs tool discovery (`tools/list`)
+- [ ] cost / wall-clock budgets and `Exit::Error`; the `ts`/`principal`/`silo` fields design
+      §4.11 sketches on `Step`
+- [ ] silo-backed durable Ledger (SQLite) + `SecretProvider` (OS keychain)
+- [ ] `skein-cli` reference client
