@@ -10,6 +10,8 @@ pub enum SkeinError {
     LedgerIntegrity { seq: u64, detail: String },
     #[error("not found: {0}")]
     NotFound(String),
+    #[error("model provider: {0}")]
+    Model(String),
 }
 
 pub type Result<T> = std::result::Result<T, SkeinError>;
