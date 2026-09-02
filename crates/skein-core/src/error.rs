@@ -12,6 +12,12 @@ pub enum SkeinError {
     NotFound(String),
     #[error("model provider: {0}")]
     Model(String),
+    /// The governor refused: the transport was never reached.
+    #[error("tool denied: {tool}: {reason}")]
+    ToolDenied { tool: String, reason: String },
+    /// The tool itself failed; it may already have had an effect.
+    #[error("tool transport: {0}")]
+    Tool(String),
 }
 
 pub type Result<T> = std::result::Result<T, SkeinError>;
