@@ -19,21 +19,21 @@
   `spikes.yml` covered only `spikes/**`).
 
 ## Done
-- [ ] **T0** `specs/004-native-loop/{spec.md,plan.md,tasks.md}` + branch from `dev`
-- [ ] **T1** `SkeinError::Model(String)` (FR-006)
-- [ ] **T2** RED — `crates/skein-core/tests/native_loop.rs` with `ScriptedModel`/`ScriptedProbe`
+- [x] **T0** `specs/004-native-loop/{spec.md,plan.md,tasks.md}` + branch from `dev`
+- [x] **T1** `SkeinError::Model(String)` (FR-006)
+- [x] **T2** RED — `crates/skein-core/tests/native_loop.rs` with `ScriptedModel`/`ScriptedProbe`
       and all 9 tests; compile failure observed and recorded
-- [ ] **T3** `model` — `ModelClient`/`TurnRequest`/`TurnResponse` (FR-001)
-- [ ] **T4** `native_loop` — `ProgressProbe`/`LoopRun`/`NativeLoop::run` turn algorithm
+- [x] **T3** `model` — `ModelClient`/`TurnRequest`/`TurnResponse` (FR-001)
+- [x] **T4** `native_loop` — `ProgressProbe`/`LoopRun`/`NativeLoop::run` turn algorithm
       (FR-002/003/004/005)
-- [ ] **T5** pre-flight budget guard: exhausted budget ⇒ zero model calls (FR-003)
-- [ ] **T6** all four `Exit` variants reached through `NativeLoop::run` (SC-002)
-- [ ] **T7** provider error ⇒ `Err` with a still-verifiable chain (FR-006)
-- [ ] **T8** `fmt --check`, `clippy -D warnings`, `cargo test -p skein-core`;
-      no dependency drift (SC-003)
-- [ ] **T9** `.github/workflows/core.yml` — tri-OS fmt/clippy/test for the workspace
+- [x] **T5** pre-flight budget guard: exhausted budget ⇒ zero model calls (FR-003)
+- [x] **T6** all four `Exit` variants reached through `NativeLoop::run` (SC-002)
+- [x] **T7** provider error ⇒ `Err` with a still-verifiable chain (FR-006)
+- [x] **T8** `fmt --check`, `clippy -D warnings`, `cargo test -p skein-core` (15/15,
+      2026-09-03); no dependency drift (SC-003)
+- [x] **T9** `.github/workflows/core.yml` — tri-OS fmt/clippy/test for the workspace
       (ADR-0004 D1(d), SC-004)
-- [ ] **T10** tick spec 003's "Next slice" first bullet; set this spec's Status
+- [x] **T10** tick spec 003's "Next slice" first bullet; set this spec's Status
 
 ## Next slice (not this feature)
 - [ ] `rmcp` Tool Gateway (promote Spike 4) + ACP client facade

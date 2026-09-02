@@ -14,7 +14,7 @@
 - [x] **T6** `cargo test -p skein-core` (6/6), `clippy -D warnings` clean, `fmt --check` clean
 
 ## Next slice (not this feature)
-- [ ] `ModelClient` trait + native loop (promote Spike 1 Option A) writing each turn to the Ledger via LoopController
+- [x] `ModelClient` trait + native loop (promote Spike 1 Option A) writing each turn to the Ledger via LoopController — `specs/004-native-loop/`
 - [ ] `rmcp` Tool Gateway (promote Spike 4) + ACP client facade
 - [ ] silo-backed durable Ledger (SQLite) + `SecretProvider` (OS keychain)
 - [ ] `skein-cli` reference client

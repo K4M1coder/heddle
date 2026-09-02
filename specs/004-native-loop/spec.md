@@ -1,6 +1,6 @@
 # Feature Specification: native turn loop + ModelClient port (v0 strict-local)
 
-**Feature Branch:** `004-native-loop` · **Created:** 2026-09-03 · **Status:** Draft
+**Feature Branch:** `004-native-loop` · **Created:** 2026-09-03 · **Status:** Implemented (v0 slice)
 **Input:** ADR-0003 (Accepted, decision A = native Skein-owned loop) · Spike 1 evidence
 `docs/superpowers/spikes/runtime-loop-evidence.md` · design §4.2/§4.11/§4.14 ·
 builds directly on `specs/003-skein-core-foundation` (Implemented, 6/6).
@@ -65,7 +65,8 @@ depends on a concrete provider, and a test double is a first-class citizen.
   the model call count — not through isolated `LoopController` unit tests.
 - **SC-003**: `git diff` on `Cargo.toml` and `crates/skein-core/Cargo.toml` is empty.
 - **SC-004**: tri-OS CI (`.github/workflows/core.yml`) green on Windows, macOS, Linux
-  (ADR-0004 D1(d)).
+  (ADR-0004 D1(d)). The workflow is in place and its three commands pass locally on
+  Windows; the macOS and Linux legs are unobserved until the repository has a remote.
 
 ## Assumptions
 - **`ModelClient` is synchronous in v0.** The LiteLLM-backed client (BMAD Story 1.4) owns a
