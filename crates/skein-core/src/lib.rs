@@ -17,6 +17,6 @@ pub use loop_ctl::{Exit, LoopBudget, LoopController};
 pub use model::{ModelClient, TurnRequest, TurnResponse};
 pub use native_loop::{LoopRun, NativeLoop, ProgressProbe};
 pub use tool::{
-    replay_tool_calls, CapturedResult, Decision, Redactor, ToolCall, ToolGateway, ToolOutcome,
-    ToolPolicy, ToolTransport,
+    replay_tool_calls, CapturedResult, Decision, Redactor, ToolAccess, ToolCall, ToolGateway,
+    ToolOutcome, ToolPolicy, ToolTransport,
 };

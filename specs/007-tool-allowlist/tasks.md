@@ -31,7 +31,7 @@
 - [x] **T2** RED — the five new tests, and all four `ToolPolicy::new` construction sites
       migrated in the same commit (the workspace cannot compile between the two); compile
       failure observed and recorded below
-- [ ] **T3** GREEN — `ToolAccess`, `ToolPolicy.allowed`, the rewritten `decide`, and the
+- [x] **T3** GREEN — `ToolAccess`, `ToolPolicy.allowed`, the rewritten `decide`, and the
       `lib.rs` re-export (FR-001/002/003/004/005)
 - [ ] **T4** gates: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets
       -D warnings`, `cargo test --workspace` (SC-001)

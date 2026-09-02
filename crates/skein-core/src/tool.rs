@@ -44,34 +44,46 @@ pub enum Decision {
     Deny { reason: String },
 }
 
-/// Which tools may run. Mutability is configuration, not discovery: deriving it
-/// from a server's tool annotations is a later slice.
+/// How an allowlisted tool is classified. Access is configuration, not
+/// discovery: deriving it from a server's tool annotations is a later slice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolAccess {
+    ReadOnly,
+    Mutating,
+}
+
+/// Which tools may run at all, and how. Deny-by-default (Constitution VI): a
+/// name absent from `allowed` never reaches a transport, whatever it is — the
+/// tool name is model-chosen, so omission may not mean permission.
 pub struct ToolPolicy {
-    mutating: Vec<String>,
+    allowed: Vec<(String, ToolAccess)>,
     approved: Vec<String>,
 }
 
 impl ToolPolicy {
-    pub fn new(mutating: Vec<String>, approved: Vec<String>) -> Self {
-        ToolPolicy { mutating, approved }
+    pub fn new(allowed: Vec<(String, ToolAccess)>, approved: Vec<String>) -> Self {
+        ToolPolicy { allowed, approved }
     }
 
-    /// A mutating tool runs only with an explicit approval; anything else is
-    /// treated as read-only.
+    /// Identity first: an unlisted tool is refused whatever its access class.
+    /// Within the allowlist, a mutating tool still runs only with an explicit
+    /// approval.
     pub fn decide(&self, tool: &str) -> Decision {
-        if !self.mutating.iter().any(|m| m == tool) {
-            return Decision::Allow {
-                reason: "not mutating".into(),
+        let Some((_, access)) = self.allowed.iter().find(|(name, _)| name == tool) else {
+            return Decision::Deny {
+                reason: "tool is not in the allowlist".into(),
             };
-        }
-        if self.approved.iter().any(|a| a == tool) {
-            Decision::Allow {
+        };
+        match access {
+            ToolAccess::ReadOnly => Decision::Allow {
+                reason: "allowed, read-only".into(),
+            },
+            ToolAccess::Mutating if self.approved.iter().any(|a| a == tool) => Decision::Allow {
                 reason: "approved".into(),
-            }
-        } else {
-            Decision::Deny {
+            },
+            ToolAccess::Mutating => Decision::Deny {
                 reason: "mutating tool requires approval".into(),
-            }
+            },
         }
     }
 }
