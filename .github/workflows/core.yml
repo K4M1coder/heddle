@@ -1,0 +1,29 @@
+name: core
+# Tri-OS gate for the product crates (ADR-0004 D1(d)). spikes.yml covers only
+# spikes/**, so until now crates/ was never built on any OS in CI.
+# No --locked: the root Cargo.lock is git-ignored.
+on:
+  push:
+    paths: ["crates/**", "Cargo.toml", ".github/workflows/core.yml"]
+  pull_request:
+    paths: ["crates/**", "Cargo.toml", ".github/workflows/core.yml"]
+  workflow_dispatch: {}
+
+jobs:
+  core:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.79
+        with:
+          components: rustfmt, clippy
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Lint
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --workspace
