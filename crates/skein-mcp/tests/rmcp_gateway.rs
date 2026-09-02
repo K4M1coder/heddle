@@ -54,7 +54,7 @@ impl DownstreamServer {
     }
 }
 
-#[tool_handler]
+#[tool_handler(router = self.tool_router)]
 impl ServerHandler for DownstreamServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
@@ -65,13 +65,7 @@ impl ServerHandler for DownstreamServer {
 /// A live client↔server pair over an in-process duplex. The returned runtime
 /// must be bound to a named local for the whole test body: dropping it kills the
 /// task serving the downstream side.
-fn live_server(
-    approved: &[&str],
-) -> (
-    Runtime,
-    ToolGateway<RmcpToolTransport>,
-    Arc<AtomicUsize>,
-) {
+fn live_server(approved: &[&str]) -> (Runtime, ToolGateway<RmcpToolTransport>, Arc<AtomicUsize>) {
     let server_rt = Runtime::new().expect("server runtime");
     let (server_t, client_t) = server_rt.block_on(async { tokio::io::duplex(8192) });
     let invocations = Arc::new(AtomicUsize::new(0));
@@ -140,7 +134,11 @@ fn c3_secret_is_redacted_before_it_reaches_the_ledger() {
         out.content.contains(SECRET),
         "sanity: the live server really returns the secret"
     );
-    let payloads: Vec<String> = led.log("run-m3").iter().map(|s| s.payload.clone()).collect();
+    let payloads: Vec<String> = led
+        .log("run-m3")
+        .iter()
+        .map(|s| s.payload.clone())
+        .collect();
     assert!(
         payloads.iter().all(|p| !p.contains(SECRET)),
         "no captured payload may contain the secret: {payloads:?}"
