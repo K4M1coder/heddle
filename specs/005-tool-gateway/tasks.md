@@ -30,7 +30,7 @@
 - [x] **T4** `tool` — `ToolCall`/`ToolOutcome`/`ToolTransport`/`ToolPolicy`/`Decision`/
       `Redactor`/`CapturedResult`/`ToolGateway::call`/`replay_tool_calls`
       (FR-001/002/003/004/005)
-- [ ] **T5** `crates/skein-mcp` skeleton + root `[workspace.dependencies]` entries (FR-007)
+- [x] **T5** `crates/skein-mcp` skeleton + root `[workspace.dependencies]` entries (FR-007)
 - [ ] **T6** RED — `crates/skein-mcp/tests/rmcp_gateway.rs` with the live embedded rmcp server
       fixture and all 5 tests; compile failure observed and recorded
 - [ ] **T7** `RmcpToolTransport` — owns its `tokio` runtime, blocks behind the sync port
