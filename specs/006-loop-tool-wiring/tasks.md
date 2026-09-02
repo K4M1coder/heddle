@@ -67,9 +67,9 @@
 
 ## Next slice (not this feature)
 - [ ] ACP client facade over the native loop + gateway
-- [ ] `ToolPolicy` allowlist for model-chosen tool names — with the model naming the tool,
+- [x] `ToolPolicy` allowlist for model-chosen tool names — with the model naming the tool,
       "anything not classified mutating is allowed" is a materially weaker posture than it was
-      in slice 005 (spec Assumptions, R3)
+      in slice 005 (spec Assumptions, R3) → `specs/007-tool-allowlist/`
 - [ ] a typed `Content::ToolResult` variant and real prompt-injection defense; redacting the
       tool *name* on its way into the Ledger
 - [ ] tool advertisement on `TurnRequest`, which needs tool discovery (`tools/list`)

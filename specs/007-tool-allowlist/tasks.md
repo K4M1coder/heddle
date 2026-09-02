@@ -47,8 +47,8 @@
 - [x] **T6** no drift: `git diff dev` empty on every `Cargo.toml`, on `spikes/` and on
       `.github/`. `core.yml` already runs the three gates on `crates/**` at toolchain 1.97 —
       confirmed, unedited (SC-003, SC-005)
-- [ ] **T7** tick the allowlist bullet in `specs/006-loop-tool-wiring/tasks.md`; set this spec's
-      Status
+- [x] **T7** ticked the allowlist bullet in `specs/006-loop-tool-wiring/tasks.md`; this spec's
+      Status set to `Implemented (v0 slice)` at **40/40**, 2026-09-03
 
 ## Control baseline (T1)
 

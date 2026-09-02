@@ -1,6 +1,6 @@
 # Feature Specification: deny-by-default for tool identity (v0 strict-local)
 
-**Feature Branch:** `007-tool-allowlist` · **Created:** 2026-09-03 · **Status:** Draft
+**Feature Branch:** `007-tool-allowlist` · **Created:** 2026-09-03 · **Status:** Implemented (v0 slice)
 **Input:** `specs/006-loop-tool-wiring/spec.md` Assumptions R3 — *"`ToolPolicy` has no
 allowlist, and the tool name is now model-chosen"* — carried forward on that slice's
 "Next slice" list · Constitution VI (**Deny-by-default**) · design §4.3/§4.11.
