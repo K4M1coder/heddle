@@ -36,6 +36,7 @@
 - [x] **T10** tick spec 003's "Next slice" first bullet; set this spec's Status
 
 ## Next slice (not this feature)
-- [ ] `rmcp` Tool Gateway (promote Spike 4) + ACP client facade
+- [x] `rmcp` Tool Gateway (promote Spike 4) — `specs/005-tool-gateway/`
+- [ ] ACP client facade over the native loop + gateway
 - [ ] silo-backed durable Ledger (SQLite) + `SecretProvider` (OS keychain)
 - [ ] `skein-cli` reference client

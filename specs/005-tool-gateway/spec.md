@@ -1,6 +1,6 @@
 # Feature Specification: governed Tool Gateway + rmcp transport (v0 strict-local)
 
-**Feature Branch:** `005-tool-gateway` · **Created:** 2026-09-03 · **Status:** Draft
+**Feature Branch:** `005-tool-gateway` · **Created:** 2026-09-03 · **Status:** Implemented (v0 slice)
 **Input:** ADR-0003 (Accepted, decision 4 = tool governance via `rmcp`) · Spike 4 evidence
 `docs/superpowers/spikes/mcp-gateway-evidence.md` · design §4.3/§4.11/§4.14/§7.13 ·
 builds directly on `specs/004-native-loop` (Implemented, 15/15).

@@ -44,7 +44,7 @@
       `mcp_gateway` or a `spikes/` path (SC-004, ADR-0004 D2)
 - [x] **T11** `docs/superpowers/spikes/mcp-gateway-evidence.md` — the Spike 4 evidence note
       ADR-0004 D2 requires and that was never written
-- [ ] **T12** tick the gateway half of the backlog bullet in specs 003 and 004; set this
+- [x] **T12** tick the gateway half of the backlog bullet in specs 003 and 004; set this
       spec's Status
 
 ## Observed red (Constitution III)
