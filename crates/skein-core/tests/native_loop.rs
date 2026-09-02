@@ -262,7 +262,11 @@ fn loop_reaches_no_progress_on_external_ground_truth() {
         reply("almost there!", 1, false),
         reply("done", 1, true),
     ]);
-    let mut lp = NativeLoop::new(model, ScriptedProbe::new(vec![false, true, false]), no_tools());
+    let mut lp = NativeLoop::new(
+        model,
+        ScriptedProbe::new(vec![false, true, false]),
+        no_tools(),
+    );
     let mut led = Ledger::new();
     let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 2));
 
