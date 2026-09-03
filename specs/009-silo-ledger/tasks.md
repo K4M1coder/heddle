@@ -33,7 +33,7 @@ and the new `crates/skein-silo`, branch `009-silo-ledger` cut from `dev`.
       product code, and proved `bundled` builds on this Windows host. Two of the assumed
       spellings were wrong; see below
 - [x] **T2** control baseline: `cargo test --workspace` on `dev` before any edit — **52**
-- [ ] **T3** RED — the three `// ---- ledger store seam ----` tests in
+- [x] **T3** RED — the three `// ---- ledger store seam ----` tests in
       `crates/skein-core/tests/core.rs` against the not-yet-existing API; compiler errors
       recorded below
 - [ ] **T4** GREEN — `LedgerStore`, `Ledger::open`, the `store` field, fallible `append`,
@@ -99,6 +99,16 @@ is used by `ledger_store.rs` exactly as spelled here.
 - The append-only triggers behave as designed: `UPDATE` and `DELETE` both fail with the bare
   string `ledger is append-only`, and dropping the trigger with raw SQL then succeeds in forging
   a row — which is precisely the tamper-*evidence*-not-tamper-*proofing* boundary `s6` asserts.
+
+## Observed red (Constitution III)
+
+- **T3** `cargo test -p skein-core --test core`, 2026-09-03:
+  - `error[E0432]: unresolved import skein_core::LedgerStore` — *"no `LedgerStore` in the root"*
+    (`crates/skein-core/tests/core.rs:4:28`)
+  - `error: could not compile skein-core (test "core") due to 1 previous error`
+  - As in slices 007 and 008, rustc abandons the crate once import resolution fails, so this one
+    diagnostic is the whole red: the `Ledger::open` and fallible-`append` errors underneath it are
+    never reached.
 
 ## Next slice (not this feature)
 - [ ] `SecretProvider` (OS keychain) + JIT `Redactor` — spec 010, extending `crates/skein-silo`

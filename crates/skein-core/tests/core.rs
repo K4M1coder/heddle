@@ -1,6 +1,11 @@
 //! skein-core v0 acceptance tests (TDD, ground-truth assertions).
 
-use skein_core::{Content, Exit, Ledger, LoopBudget, LoopController, Message, Role, StepKind};
+use skein_core::{
+    Content, Exit, Ledger, LedgerStore, LoopBudget, LoopController, Message, Role, SkeinError, Step,
+    StepKind,
+};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 // ---- content ----
 
@@ -93,4 +98,100 @@ fn loop_honors_final_output_and_token_budget() {
     );
     ctl.record_iteration(60, true);
     assert_eq!(ctl.should_exit(false), Some(Exit::MaxTokens));
+}
+
+// ---- ledger store seam ----
+
+/// A `LedgerStore` double: records what it was handed, and can be made to fail
+/// on demand. The recording is shared so the test can read it after the store
+/// has been moved into the `Ledger`.
+#[derive(Clone, Default)]
+struct VecStore {
+    steps: Arc<Mutex<Vec<Step>>>,
+    failing: Arc<AtomicBool>,
+}
+
+impl VecStore {
+    fn loaded_with(steps: Vec<Step>) -> Self {
+        VecStore {
+            steps: Arc::new(Mutex::new(steps)),
+            failing: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    fn recorded(&self) -> Vec<Step> {
+        self.steps.lock().unwrap().clone()
+    }
+}
+
+impl LedgerStore for VecStore {
+    fn append(&mut self, step: &Step) -> skein_core::Result<()> {
+        if self.failing.load(Ordering::SeqCst) {
+            return Err(SkeinError::Storage("store is down".into()));
+        }
+        self.steps.lock().unwrap().push(step.clone());
+        Ok(())
+    }
+
+    fn load(&self) -> skein_core::Result<Vec<Step>> {
+        Ok(self.recorded())
+    }
+}
+
+#[test]
+fn ledger_open_replays_an_existing_store() {
+    let first = VecStore::default();
+    let mut led = Ledger::open(Box::new(first.clone())).unwrap();
+    led.append("run-p", StepKind::LlmRequest, "one").unwrap();
+    let second_id = led.append("run-p", StepKind::LlmResponse, "two").unwrap();
+    drop(led);
+
+    // A different Ledger over a store holding the same rows: the chain is the
+    // one that was persisted, not a fresh one.
+    let mut reopened = Ledger::open(Box::new(VecStore::loaded_with(first.recorded()))).unwrap();
+    let log = reopened.log("run-p");
+    assert_eq!(log.len(), 2, "both persisted steps are replayed");
+    assert_eq!(log[1].id, second_id);
+    reopened.verify_chain("run-p").expect("replayed chain verifies");
+
+    let third = reopened.append("run-p", StepKind::Exit, "done").unwrap();
+    let step = reopened.show(&third).unwrap();
+    assert_eq!(step.seq, 2, "the reopened chain continues");
+    assert_eq!(step.parent.as_deref(), Some(second_id.as_str()));
+    reopened.verify_chain("run-p").expect("continued chain verifies");
+}
+
+#[test]
+fn ledger_append_writes_through_to_the_store() {
+    let store = VecStore::default();
+    let mut led = Ledger::open(Box::new(store.clone())).unwrap();
+
+    let id = led.append("run-w", StepKind::ToolCall, "payload").unwrap();
+
+    let recorded = store.recorded();
+    assert_eq!(recorded.len(), 1, "the append reached the store");
+    assert_eq!(&recorded[0], led.show(&id).unwrap(), "same step, both sides");
+}
+
+#[test]
+fn ledger_append_failure_leaves_the_chain_unmoved() {
+    let store = VecStore::default();
+    store.failing.store(true, Ordering::SeqCst);
+    let mut led = Ledger::open(Box::new(store.clone())).unwrap();
+
+    let err = led
+        .append("run-f", StepKind::LlmRequest, "lost")
+        .expect_err("a store that cannot persist must not report success");
+    assert!(format!("{err}").contains("storage"), "{err}");
+    assert!(led.log("run-f").is_empty(), "the mirror never moved");
+    assert!(store.recorded().is_empty());
+
+    // The seq/parent derivation reads the mirror, so a healed store continues
+    // from where the chain actually is — no silently skipped step.
+    store.failing.store(false, Ordering::SeqCst);
+    let id = led.append("run-f", StepKind::LlmRequest, "kept").unwrap();
+    let step = led.show(&id).unwrap();
+    assert_eq!(step.seq, 0, "the failed append consumed no sequence number");
+    assert_eq!(step.parent, None);
+    led.verify_chain("run-f").unwrap();
 }
