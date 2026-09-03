@@ -240,9 +240,15 @@ impl<T: ToolTransport> ToolGateway<T> {
         call: &ToolCall,
         ledger: &mut Ledger,
     ) -> Result<(ToolOutcome, CapturedResult)> {
+        // The name is redacted for the same reason the arguments are: it is
+        // model-chosen text, so it can carry an echoed secret. Only the three
+        // recorded copies are scrubbed — the policy decides on the raw name
+        // below, and the transport receives the raw call.
+        let tool = self.redactor.redact(&call.tool);
+
         // Recorded before the decision, so a refused attempt still names itself.
         let attempt = ToolCall {
-            tool: call.tool.clone(),
+            tool: tool.clone(),
             args: self.redactor.redact_value(&call.args),
         };
         ledger.append(run_id, StepKind::ToolCall, serde_json::to_string(&attempt)?)?;
@@ -253,7 +259,7 @@ impl<T: ToolTransport> ToolGateway<T> {
             Decision::Deny { reason } => ("denied", reason.clone()),
         };
         let record = ApprovalRecord {
-            tool: call.tool.clone(),
+            tool: tool.clone(),
             decision: verdict.to_string(),
             reason: reason.clone(),
         };
@@ -270,7 +276,7 @@ impl<T: ToolTransport> ToolGateway<T> {
         let outcome = self.transport.call(call)?;
 
         let captured = CapturedResult {
-            tool: call.tool.clone(),
+            tool,
             content: self.redactor.redact(&outcome.content),
         };
         ledger.append(

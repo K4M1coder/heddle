@@ -43,7 +43,7 @@ branch `014-ledger-redaction` cut from `dev` after slice 013 merged.
       in `run`, with all 26 call sites updated in the same atomic commit. Its red is T4's tests
 - [x] **T4** RED (written before T3's green) — the three new tests in
       `crates/skein-core/tests/native_loop.rs`, plus the additive `ScriptedModel.seen` field
-- [ ] **T5** RED→GREEN — the tool-name redaction in `ToolGateway::call_captured`
+- [x] **T5** RED→GREEN — the tool-name redaction in `ToolGateway::call_captured`
 - [ ] **T6** GREEN — `SkeinSession::new` clones the injected redactor into both collaborators
 - [ ] **T7** RED→GREEN — one test in `crates/skein-acp/tests/acp_session.rs` proving a session's
       chain is redacted and pinning the `project_updates` consequence
@@ -88,6 +88,14 @@ All on 2026-09-03.
   `git diff` on that file shows nine deleted lines, every one of them a single-line
   `NativeLoop::new(model, probe, no_tools());` that rustfmt rewrapped once it grew a fourth
   argument, and no deleted assertion anywhere.
+
+- **T5** `cargo test -p skein-core --test tool_gateway` before the three recorded copies were
+  scrubbed — **1 failed, 9 passed**, and the failure printed the leak verbatim:
+  - `no captured payload may contain the secret: ["{\"tool\":\"read_sk-SECRET-abc123\",\"args\":{}}",
+    "{\"tool\":\"read_sk-SECRET-abc123\",\"decision\":\"denied\",\"reason\":\"tool is not in the
+    allowlist\"}"]` — both the `ToolCall` attempt and the `ApprovalRecord`, exactly the two the
+    request's description did not mention and the plan added.
+  - Green: **10 passed** in that target, with the nine unchanged.
 
 ## Gate run (T9)
 

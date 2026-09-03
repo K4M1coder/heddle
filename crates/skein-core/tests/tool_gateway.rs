@@ -227,6 +227,41 @@ fn governed_calls_extend_one_hash_chain() {
     assert_eq!(seqs, (0..seqs.len() as u64).collect::<Vec<_>>());
 }
 
+#[test]
+fn a_secret_in_a_tool_name_is_redacted_from_the_attempt_and_the_approval() {
+    let mut led = Ledger::new();
+    let mut gw = gateway(CountingTransport::new("pwned"), &[]);
+
+    // The tool name is model-chosen text, so it carries an echoed secret exactly
+    // as the arguments do.
+    let name = format!("read_{SECRET}");
+    let err = gw
+        .call("run-t11", &ToolCall::new(&name, json!({})), &mut led)
+        .expect_err("a tool nobody allowlisted must be denied");
+
+    assert!(
+        matches!(err, SkeinError::ToolDenied { ref tool, .. } if tool == &name),
+        "the trusted caller is still told which name was refused, raw: {err:?}"
+    );
+    assert_eq!(gw.transport.calls, 0, "the transport must never be touched");
+
+    let payloads: Vec<String> = led
+        .log("run-t11")
+        .iter()
+        .map(|s| s.payload.clone())
+        .collect();
+    assert!(
+        payloads.iter().all(|p| !p.contains(SECRET)),
+        "no captured payload may contain the secret: {payloads:?}"
+    );
+
+    let approval = led.log("run-t11")[1].payload.clone();
+    assert!(
+        approval.contains("read_***") && approval.contains("denied"),
+        "the policy decided on the raw name and the record holds the scrubbed one: {approval}"
+    );
+}
+
 // ---- deny-by-default for tool identity (spec 007) ----
 
 #[test]
