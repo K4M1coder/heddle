@@ -16,7 +16,7 @@
 ## Next slice (not this feature)
 - [x] `ModelClient` trait + native loop (promote Spike 1 Option A) writing each turn to the Ledger via LoopController — `specs/004-native-loop/`
 - [x] `rmcp` Tool Gateway (promote Spike 4) — `specs/005-tool-gateway/`
-- [ ] ACP client facade over the native loop + gateway
+- [x] ACP client facade over the native loop + gateway — `specs/008-acp-facade/`, `crates/skein-acp`
 - [x] silo-backed durable Ledger (SQLite) — `specs/009-silo-ledger/`, `crates/skein-silo`
 - [x] `SecretProvider` (OS keychain) + JIT `Redactor` — `specs/010-secret-provider/`
-- [ ] `skein-cli` reference client
+- [x] `skein-cli` reference client — `specs/011-skein-cli/`, `crates/skein-cli` (`skein ledger log|show|verify`, `skein secret set|delete`)

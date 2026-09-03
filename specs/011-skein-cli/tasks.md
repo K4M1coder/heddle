@@ -49,7 +49,7 @@ merged.
 - [x] **T10** control diff: `git diff dev` empty on `crates/skein-mcp/`, `crates/skein-acp/`,
       `crates/skein-silo/`, `spikes/`, `.github/` and `rust-toolchain.toml`
 - [x] **T11** dependency drift recorded per target
-- [ ] **T12** close out: correct `docs/DEVELOPMENT.md`'s two stale lines, tick the two stale
+- [x] **T12** close out: correct `docs/DEVELOPMENT.md`'s two stale lines, tick the two stale
       bullets in `specs/003-skein-core-foundation/tasks.md` and the first of spec 010's "Next
       slice", set this spec's Status
 
@@ -240,3 +240,25 @@ working tree's cached lock. Those seven are excluded below.
   violation. No `tokio`: every path is synchronous.
 
 ## Next slice (not this feature)
+- [ ] **`skein acp-agent` and `skein chat`, together with the real `ModelClient`** (BMAD Story
+      1.4). Deliberately deferred out of this slice rather than shipped behind a placeholder: an
+      echo model would put a fake in product code, and a model that only refuses is machinery with
+      no user and no caller. Both cost about one file each once a real client exists.
+- [ ] **redaction on the `LlmRequest`/`LlmResponse` path**, so `skein ledger show` cannot print a
+      conversation secret. `ToolCall`/`ToolResult` payloads already pass through the `Redactor` in
+      `ToolGateway::call_captured`, but `NativeLoop::run` appends model I/O **raw**. A real gap,
+      stated in this spec's Assumptions rather than hidden by redacting in the CLI — the fix
+      belongs to the governed loop, not to its client.
+- [ ] a non-echoing interactive prompt (`rpassword`-style) as an alternative to the refused
+      terminal stdin, once there is a way to test it
+- [ ] `skein ledger replay|revert|branch` — once `Ledger` has `replay(from)`, `revert(to)` and
+      `branch(from)` (still design §4.11's remainder)
+- [ ] `--json` output, for the second consumer that needs something other than tab-separated
+      columns
+- [ ] a config file holding `SecretRef`s and a default silo root, so `--root`/`$SKEIN_ROOT` is not
+      the only way to name a silo — the same config that `Redactor::resolve` has been waiting for
+      since slice 010
+- [ ] `Silo::open_existing()`, so a typo'd `--silo` leaves no empty directory behind
+- [ ] one keychain **per silo** (design §7.2), which is also what would make `--silo` meaningful
+      on `skein secret`
+- [ ] shell completions, and colour behind an explicit opt-in

@@ -211,8 +211,8 @@ excluded below.
   its `paths:` already covers `crates/**` and `Cargo.toml`, confirmed by reading.
 
 ## Next slice (not this feature)
-- [ ] `skein-cli` reference client: `skein secret set|delete` (the second caller of
-      `OsKeychain::store`/`delete`) and `skein ledger log|show|verify`
+- [x] `skein-cli` reference client: `skein secret set|delete` (the second caller of
+      `OsKeychain::store`/`delete`) and `skein ledger log|show|verify` — `specs/011-skein-cli/`
 - [ ] a config shape that actually *stores* `SecretRef`s, so `Redactor::resolve` is reached from
       a file rather than from a caller's literal `Vec<SecretRef>`
 - [ ] per-call JIT injection: a secret placed into a subprocess env or an auth header at the
