@@ -1,13 +1,13 @@
 //! One real ACP client and one real ACP agent, over a real byte-stream
 //! transport, driving the existing governed loop.
 
-use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
     ContentBlock, InitializeRequest, NewSessionRequest, PermissionOptionKind, PromptRequest,
     RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
     SelectedPermissionOutcome, SessionId, SessionNotification, SessionUpdate, StopReason,
     TextContent, ToolCallStatus,
 };
+use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo};
 use skein_acp::{project_updates, CancellableModel, SessionParts, SkeinAgent};
 use skein_core::{
@@ -567,9 +567,9 @@ async fn a7_session_cancel_ends_the_run_and_reports_cancelled() {
                 .await
                 .expect("join")
                 .expect("the first turn started");
-            cx.send_notification(
-                agent_client_protocol::schema::v1::CancelNotification::new(session_id.clone()),
-            )?;
+            cx.send_notification(agent_client_protocol::schema::v1::CancelNotification::new(
+                session_id.clone(),
+            ))?;
             for _ in 0..4 {
                 let _ = gate_tx.send(());
             }
@@ -654,13 +654,14 @@ async fn ask_permission(
                         cx,
                         SessionId::new("unit"),
                     );
-                    let _ = tx.send(
-                        transport.call(&ToolCall::new("read_file", serde_json::json!({}))),
-                    );
+                    let _ =
+                        tx.send(transport.call(&ToolCall::new("read_file", serde_json::json!({}))));
                 });
-                Ok(tokio::task::spawn_blocking(move || rx.recv().expect("answered"))
-                    .await
-                    .expect("join"))
+                Ok(
+                    tokio::task::spawn_blocking(move || rx.recv().expect("answered"))
+                        .await
+                        .expect("join"),
+                )
             },
         )
         .await
@@ -736,13 +737,20 @@ fn x1_cancellable_model_stops_delegating_once_the_flag_is_set() {
         messages: vec![Message::user_text("go")],
     };
 
-    assert_eq!(model.turn(&req).expect("delegates").message.text(), "all done");
+    assert_eq!(
+        model.turn(&req).expect("delegates").message.text(),
+        "all done"
+    );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 
     cancelled.store(true, Ordering::SeqCst);
     let error = model.turn(&req).expect_err("refuses once cancelled");
     assert!(matches!(error, skein_core::SkeinError::Model(_)));
-    assert_eq!(calls.load(Ordering::SeqCst), 1, "the inner client is not reached");
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "the inner client is not reached"
+    );
 }
 
 #[test]
