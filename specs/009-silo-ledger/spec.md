@@ -1,6 +1,6 @@
 # Feature Specification: a durable silo-backed Ledger (v0 slice)
 
-**Feature Branch:** `009-silo-ledger` · **Created:** 2026-09-03 · **Status:** Draft
+**Feature Branch:** `009-silo-ledger` · **Created:** 2026-09-03 · **Status:** Implemented (v0 slice)
 **Input:** `specs/003-skein-core-foundation/tasks.md` "Next slice" — *"silo-backed durable Ledger
 (SQLite)"*, carried unticked through slices 004–007 · Constitution II (**airtight silos**,
 NON-NEGOTIABLE), III (**a dedicated isolation test guards each silo invariant**), IV (**the core

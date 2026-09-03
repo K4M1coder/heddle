@@ -45,13 +45,13 @@ and the new `crates/skein-silo`, branch `009-silo-ledger` cut from `dev`.
 - [x] **T7** `skein-acp` wiring: `SessionParts.ledger`, the two test construction sites, and one
       new test (`a8`) — without it FR-011 would ship untested, because an unwired `Ledger::new()`
       and a wired-but-empty injected ledger are indistinguishable to the existing twelve
-- [ ] **T8** gates: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D
+- [x] **T8** gates: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D
       warnings`, `cargo test --workspace`; new total recorded below
-- [ ] **T9** control diff: `git diff dev` empty on `crates/skein-mcp/`, `spikes/`, `.github/`
+- [x] **T9** control diff: `git diff dev` empty on `crates/skein-mcp/`, `spikes/`, `.github/`
       and `rust-toolchain.toml`
-- [ ] **T10** dependency drift recorded below
-- [ ] **T11** close out: split the "silo-backed durable Ledger (SQLite) + `SecretProvider`"
-      bullet in `specs/003-skein-core-foundation/tasks.md` into two, ticked the 009 half, set
+- [x] **T10** dependency drift recorded below
+- [x] **T11** close out: split the "silo-backed durable Ledger (SQLite) + `SecretProvider`"
+      bullet in `specs/003-skein-core-foundation/tasks.md` into two and ticked the 009 half, set
       this spec's Status, and populated the "Next slice" list
 
 ## Control baseline (T2)
@@ -118,6 +118,58 @@ is used by `ledger_store.rs` exactly as spelled here.
   - Every name the suite needs comes through `Silo`, so again one diagnostic is the whole red.
     `rusqlite` itself resolves in the test binary from the crate's `[dependencies]`, which is how
     `s5`/`s6` reach the file with raw SQL without a second dependency spelling.
+
+## Gate run (T8)
+
+2026-09-03, Windows leg observed locally; macOS and Linux unobserved until the repository has a
+remote (SC-001).
+
+- `cargo fmt --all -- --check` — clean.
+- `cargo clippy --workspace --all-targets -- -D warnings` — clean, no objection raised.
+- `cargo test --workspace` — **63 passing**, 0 failed, 0 ignored: 52 pre-existing + 3 core seam
+  tests + 7 `skein-silo` tests + `a8`. Per binary: `acp_session` 13, `core` 9, `native_loop` 18,
+  `tool_gateway` 9, `rmcp_gateway` 7, `silo_ledger` 7.
+- `cargo test -p skein-core -p skein-mcp` in isolation — **43 passing** (the pre-slice 40 plus the
+  three new seam tests), so nothing in the two oldest crates moved. Slice 008's
+  `serde_json/preserve_order` feature-unification hazard has no analogue here: `rusqlite`'s
+  `serde_json` dependency is optional and stays off, and `default-features = false` drops its
+  `cache` and `ffi-sqlite-wasm-rs` defaults, so the only features it unifies are on crates
+  `skein-core` does not use.
+
+## Control diff (T9)
+
+`git diff dev --stat -- crates/skein-mcp/ spikes/ .github/ rust-toolchain.toml` is empty
+(SC-003, SC-004). `git diff dev -- Cargo.toml` is exactly two added `[workspace.dependencies]`
+lines (SC-005). The rest of the slice is additive-plus-`?`-churn under `crates/skein-core/` and
+`crates/skein-acp/`, new files under `crates/skein-silo/` and `specs/009-silo-ledger/`, and five
+lines in `docs/DEVELOPMENT.md`.
+
+## Drift (T10)
+
+Measured against a detached worktree at the branch point (`1d351df`), so both numbers come from a
+real resolution rather than from the previous slice's note.
+
+- **Dependency growth.** `cargo tree -e normal,build,dev` resolves **115** distinct
+  package-versions before the slice and **126** after: **11** added, and none removed. Six are
+  built into the product — `rusqlite`, `libsqlite3-sys`, `fallible-iterator`,
+  `fallible-streaming-iterator`, the new `skein-silo` itself, and dev-only `tempfile` — and five
+  are `libsqlite3-sys`'s build-time chain: `cc`, `find-msvc-tools`, `shlex`, `pkg-config`,
+  `vcpkg`. `bitflags` and `smallvec` were already in the graph via the ACP stack, so `rusqlite`
+  adds no second copy. **`skein-core` still has exactly four direct dependencies** (`serde`,
+  `serde_json`, `thiserror`, `sha2`) and names no database. (`Cargo.lock` is `.gitignore`d in
+  this repository, so the resolved graph is the measurable artefact rather than a lockfile diff;
+  the base worktree also resolved `serde`/`proc-macro2`/`quote` one patch ahead of the working
+  tree's cached lock, which is resolution noise and not this slice's doing.)
+- **New build prerequisite: a C compiler.** `libsqlite3-sys` with `bundled` compiles the SQLite
+  amalgamation through `cc`, so this workspace now needs a working C toolchain. That is the
+  deliberate trade: no per-OS *SQLite* prerequisite, at the cost of a per-OS *compiler* one. All
+  three GitHub runners ship one, and every platform row already in `docs/DEVELOPMENT.md`'s
+  "Machine prerequisites" supplies one — but it was implied rather than stated, so a bullet
+  naming it explicitly was added there.
+- **No toolchain change.** `rusqlite 0.40.2` is edition 2021 and builds under the pinned 1.97;
+  `rust-toolchain.toml` and `workspace.package.rust-version` are unchanged.
+  `.github/workflows/core.yml` already runs the three gates on `crates/**`, so the new crate is
+  picked up with no CI edit — confirmed by reading, not edited.
 
 ## Next slice (not this feature)
 - [ ] `SecretProvider` (OS keychain) + JIT `Redactor` — spec 010, extending `crates/skein-silo`

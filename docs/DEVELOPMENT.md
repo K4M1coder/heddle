@@ -49,4 +49,9 @@ The scripts are **idempotent** (safe to re-run; each step checks before installi
 
 - Windows 11 / macOS 13+ / recent Linux; ~10 GB free (toolchains + one local model)
 - Windows: `winget` available (the script uses it) · macOS: Homebrew recommended · Linux: curl + build-essential
+- **A C compiler**, on every platform: `skein-silo` takes `rusqlite` with the `bundled` feature,
+  which compiles the SQLite amalgamation from source rather than linking a system library — so
+  there is no per-OS SQLite prerequisite, at the cost of needing MSVC build tools (Windows),
+  Xcode command-line tools (macOS) or `build-essential` (Linux). The three rows above already
+  supply one.
 - For cowork later (v3): macOS Accessibility/Screen-Recording permissions; Linux X11/Wayland portals (design §4.9)
