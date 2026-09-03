@@ -8,6 +8,7 @@
 //! same bodies everywhere.
 
 use skein_connectors::FsRoot;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
@@ -43,14 +44,55 @@ fn fixture() -> Fixture {
     }
 }
 
-/// Windows needs `SeCreateSymbolicLinkPrivilege` (developer mode or elevation)
-/// and returns an OS error without it. That is a fact about the machine, not
-/// about the code, so the caller skips rather than fails.
-fn symlink_dir(target: &Path, link: &Path) -> std::io::Result<()> {
+/// A reparse point at `link` leading to the **directory** `target`.
+///
+/// A junction on Windows rather than a symlink, because a junction needs no
+/// privilege and `symlink_dir` needs `SeCreateSymbolicLinkPrivilege` — which
+/// this project's own developer machines do not have, so every symlink test
+/// written against it has silently skipped since slice 016.
+/// `std::os::windows::fs::junction_point` would be the direct route and is
+/// nightly-only, so `mklink /J` it is.
+fn reparse_dir(target: &Path, link: &Path) -> std::io::Result<()> {
     #[cfg(windows)]
-    return std::os::windows::fs::symlink_dir(target, link);
+    {
+        let ok = std::process::Command::new("cmd")
+            .arg("/C")
+            .arg("mklink")
+            .arg("/J")
+            .arg(link)
+            .arg(target)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()?
+            .success();
+        ok.then_some(())
+            .ok_or_else(|| std::io::Error::other("mklink /J refused"))
+    }
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(target, link)
+}
+
+/// A reparse point at `link` leading to the **file** `target`.
+///
+/// There is no privilege-free equivalent of [`reparse_dir`] for a file — a
+/// junction only names a directory — so on Windows this needs the privilege
+/// and the caller skips when it is refused. That is a fact about the machine,
+/// not about the code.
+fn reparse_file(target: &Path, link: &Path) -> std::io::Result<()> {
+    #[cfg(windows)]
+    return std::os::windows::fs::symlink_file(target, link);
     #[cfg(unix)]
     return std::os::unix::fs::symlink(target, link);
+}
+
+/// Read a file the way `fs_read` does — through the root's own handle rather
+/// than through `std::fs` on a path it handed back. A test that read by path
+/// would be testing the operating system, not the containment walk.
+fn read(root: &FsRoot, arg: &str) -> Result<String, String> {
+    let mut file = root.open_file(arg)?;
+    let mut contents = String::new();
+    Read::read_to_string(&mut file, &mut contents).map_err(|e| e.to_string())?;
+    Ok(contents)
 }
 
 // ---------------------------------------------------------------------------
@@ -95,8 +137,8 @@ fn an_absolute_argument_is_refused_on_the_write_path_too() {
 
     let refusal = f
         .root
-        .resolve_new(&absolute)
-        .expect_err("an absolute argument must be refused on every path that joins");
+        .create_file(&absolute)
+        .expect_err("an absolute argument must be refused on every path that opens");
     assert!(
         refusal.contains("absolute"),
         "the refusal must say why, got: {refusal}"
@@ -129,10 +171,7 @@ fn a_parent_traversal_out_of_the_root_is_refused() {
 fn a_symlink_pointing_outside_the_root_is_refused() {
     let f = fixture();
     let link = f.root.path().join("escape");
-    if symlink_dir(&f.outside_dir, &link).is_err() {
-        eprintln!("this machine does not permit creating symlinks; skipping");
-        return;
-    }
+    reparse_dir(&f.outside_dir, &link).expect("a junction needs no privilege");
 
     // The link is inside the root and its *lexical* path starts with the root.
     // Only canonicalization sees that it does not stay there — which is why the
@@ -171,17 +210,16 @@ fn an_in_root_relative_path_resolves() {
 }
 
 #[test]
-fn a_new_file_under_the_root_resolves_through_its_parent() {
+fn a_new_file_under_the_root_is_created_where_it_was_named() {
     let f = fixture();
 
-    let resolved = f
-        .root
-        .resolve_new("fresh.txt")
-        .expect("a not-yet-existing file under the root resolves");
-    assert_eq!(resolved, f.root.path().join("fresh.txt"));
+    f.root
+        .create_file("fresh.txt")
+        .expect("a not-yet-existing file under the root is created");
+
     assert!(
-        !resolved.exists(),
-        "resolving a path must not create anything"
+        f.root.path().join("fresh.txt").is_file(),
+        "the file must appear at the name the caller gave, under the root"
     );
 }
 
@@ -191,7 +229,7 @@ fn a_new_file_whose_parent_does_not_exist_is_refused() {
 
     let refusal = f
         .root
-        .resolve_new("no/such/dir/fresh.txt")
+        .create_file("no/such/dir/fresh.txt")
         .expect_err("a missing parent must be refused rather than created");
     assert!(
         !f.root.path().join("no").exists(),
@@ -258,4 +296,139 @@ fn a_run_dir_that_is_not_a_directory_is_a_loud_refusal() {
     let doubled = RunDirs::new(&[dir.path().to_path_buf(), dir.path().to_path_buf()])
         .expect("a real directory named twice");
     assert_eq!(doubled.paths().len(), 1, "{:?}", doubled.paths());
+}
+
+// ---------------------------------------------------------------------------
+// Spec 021 — the root is a *directory*, not a name that a directory currently
+// answers to.
+// ---------------------------------------------------------------------------
+
+/// The two outcomes are the two platforms' honest behaviour, asserted rather
+/// than `#[cfg]`-selected: holding a directory handle open makes the directory
+/// unrenameable on Windows and merely detaches the name from the inode on Unix.
+/// Both are containment; neither is "whatever is at that name now".
+#[test]
+fn an_impostor_at_the_roots_name_is_not_the_root() {
+    let dir = TempDir::new().expect("a temp dir");
+    let root_path = dir.path().join("root");
+    std::fs::create_dir(&root_path).expect("the root is created");
+    std::fs::write(root_path.join("notes.txt"), "in the root").expect("a file in the root");
+
+    let root = FsRoot::new(&root_path).expect("a canonicalizable root");
+
+    match std::fs::rename(&root_path, dir.path().join("moved")) {
+        Err(_) => {
+            // The held handle refused the swap outright, so there is no
+            // impostor to plant. The root is still the root.
+            assert_eq!(
+                read(&root, "notes.txt").expect("the real root still reads"),
+                "in the root"
+            );
+        }
+        Ok(()) => {
+            std::fs::create_dir(&root_path).expect("an impostor at the vacated name");
+            std::fs::write(root_path.join("impostor.txt"), "planted")
+                .expect("a file the operator never named");
+
+            read(&root, "impostor.txt")
+                .expect_err("a file planted at the root's vacated name must not be reachable");
+            assert_eq!(
+                read(&root, "notes.txt").expect("the handle followed the directory, not the name"),
+                "in the root"
+            );
+        }
+    }
+}
+
+/// `resolve_new` canonicalized the **parent** and re-appended the leaf name
+/// untouched, so a pre-existing symlink at the leaf was written straight
+/// through to its target. No timing was involved: this was a hole, not a race.
+#[test]
+fn a_symlink_leaf_on_the_write_path_does_not_reach_its_target() {
+    let f = fixture();
+    if reparse_file(&f.outside_file, &f.root.path().join("link.txt")).is_err() {
+        eprintln!("this machine does not permit creating file symlinks; skipping");
+        return;
+    }
+
+    f.root
+        .create_file("link.txt")
+        .expect_err("a leaf that leads outside the root must be refused, not followed");
+    assert_eq!(
+        std::fs::read_to_string(&f.outside_file).expect("the outside file is still there"),
+        "not yours",
+        "even opening the leaf for writing must not have truncated its target"
+    );
+}
+
+/// The mechanism itself: a directory swapped for a reparse point **after** the
+/// root was constructed is refused by the handle walk.
+///
+/// The unsandboxed read is the point of the test rather than decoration — it
+/// proves the swap is a real escape, so the three refusals below are a
+/// guarantee and not a tautology about a path that never worked.
+#[test]
+fn a_reparse_point_swapped_under_the_root_is_refused() {
+    let dir = TempDir::new().expect("a temp dir");
+    let root_path = dir.path().join("root");
+    let outside_dir = dir.path().join("outside");
+    std::fs::create_dir(&root_path).expect("the root is created");
+    std::fs::create_dir(root_path.join("sub")).expect("a real subdirectory");
+    std::fs::create_dir(&outside_dir).expect("the sibling is created");
+    std::fs::write(root_path.join("sub").join("deep.txt"), "deep").expect("a file one level down");
+    std::fs::write(outside_dir.join("secret.txt"), "not yours").expect("a file outside the root");
+
+    let root = FsRoot::new(&root_path).expect("a canonicalizable root");
+
+    let swapped = root_path.join("sub");
+    std::fs::remove_dir_all(&swapped).expect("the real subdirectory goes");
+    reparse_dir(&outside_dir, &swapped).expect("a junction needs no privilege");
+
+    assert_eq!(
+        std::fs::read_to_string(swapped.join("secret.txt")).expect("the swap really escapes"),
+        "not yours",
+        "positive control: without containment this path reads the outside file"
+    );
+
+    let refusal = read(&root, "sub/secret.txt").expect_err("a read through the swap is refused");
+    assert!(refusal.contains("outside the root"), "{refusal}");
+    let refusal = root
+        .read_dir("sub")
+        .expect_err("a listing through the swap is refused");
+    assert!(refusal.contains("outside the root"), "{refusal}");
+    let refusal = root
+        .create_file("sub/planted.txt")
+        .expect_err("a write through the swap is refused");
+    assert!(refusal.contains("outside the root"), "{refusal}");
+    assert!(
+        !outside_dir.join("planted.txt").exists(),
+        "a refused write must have planted nothing outside the root"
+    );
+}
+
+/// `explain`'s two arms, pinned.
+///
+/// The refusal a model is told depends on `cap-primitives` reporting an escape
+/// as a `PermissionDenied` carrying **no** raw OS error, where the operating
+/// system's own denial carries one. That is a dependency's internal detail, so
+/// a change to it must surface here as a failing assertion rather than as a
+/// silently wrong refusal message.
+#[test]
+fn an_escape_is_named_as_one_and_a_real_denial_is_not() {
+    let f = fixture();
+
+    let escape = read(&f.root, "../outside/outside.txt").expect_err("an escape is refused");
+    assert!(
+        escape.contains("outside the root"),
+        "an escape must be named as one, got: {escape}"
+    );
+
+    // Opening a directory as a file is `PermissionDenied` too, but with a raw
+    // OS error behind it. Reported as itself, never as an escape.
+    std::fs::create_dir(f.root.path().join("sub")).expect("a real subdirectory");
+    let denial = read(&f.root, "sub").expect_err("a directory does not read as a file");
+    assert!(
+        !denial.contains("outside the root"),
+        "a real access denial must not be dressed up as an escape, got: {denial}"
+    );
 }

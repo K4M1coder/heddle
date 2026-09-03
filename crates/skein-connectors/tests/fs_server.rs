@@ -10,6 +10,7 @@ use rmcp::handler::server::wrapper::Parameters;
 use skein_connectors::{
     EmbeddedServer, FsRoot, ListParams, ReadParams, WriteParams, READ_BYTE_CAP,
 };
+use std::path::Path;
 use tempfile::TempDir;
 
 struct Fixture {
@@ -161,4 +162,64 @@ fn fs_write_refuses_a_target_whose_directory_does_not_exist() {
 
     write(&f.server, "no/such/dir/fresh.txt", "planted")
         .expect_err("a missing parent directory must be refused rather than created");
+}
+
+/// `fs_root.rs`'s helper of the same name, and its reasons: a junction needs no
+/// privilege where `symlink_dir` needs one this project's machines lack. The
+/// copy is because each integration test is its own crate.
+fn reparse_dir(target: &Path, link: &Path) -> std::io::Result<()> {
+    #[cfg(windows)]
+    {
+        let ok = std::process::Command::new("cmd")
+            .arg("/C")
+            .arg("mklink")
+            .arg("/J")
+            .arg(link)
+            .arg(target)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()?
+            .success();
+        ok.then_some(())
+            .ok_or_else(|| std::io::Error::other("mklink /J refused"))
+    }
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(target, link)
+}
+
+/// The three tools against a directory swapped for a reparse point **after**
+/// the server was built — `fs_root.rs`'s mechanism test, one level up, where
+/// the answer is the string a model is actually told.
+#[test]
+fn the_three_tools_refuse_a_directory_swapped_for_a_reparse_point() {
+    let dir = TempDir::new().expect("a temp dir");
+    let root_path = dir.path().join("root");
+    let outside_dir = dir.path().join("outside");
+    std::fs::create_dir(&root_path).expect("the root is created");
+    std::fs::create_dir(root_path.join("sub")).expect("a real subdirectory");
+    std::fs::create_dir(&outside_dir).expect("the sibling is created");
+    std::fs::write(outside_dir.join("secret.txt"), "not yours").expect("a file outside the root");
+
+    let server = EmbeddedServer::new(FsRoot::new(&root_path).expect("a canonicalizable root"));
+
+    let swapped = root_path.join("sub");
+    std::fs::remove_dir_all(&swapped).expect("the real subdirectory goes");
+    reparse_dir(&outside_dir, &swapped).expect("a junction needs no privilege");
+
+    assert_eq!(
+        std::fs::read_to_string(swapped.join("secret.txt")).expect("the swap really escapes"),
+        "not yours",
+        "positive control: without containment this path reads the outside file"
+    );
+
+    let refusal = read(&server, "sub/secret.txt").expect_err("fs_read through the swap");
+    assert!(refusal.contains("outside the root"), "{refusal}");
+    let refusal = list(&server, "sub").expect_err("fs_list through the swap");
+    assert!(refusal.contains("outside the root"), "{refusal}");
+    let refusal = write(&server, "sub/planted.txt", "planted").expect_err("fs_write through it");
+    assert!(refusal.contains("outside the root"), "{refusal}");
+    assert!(
+        !outside_dir.join("planted.txt").exists(),
+        "a refused write must have planted nothing outside the root"
+    );
 }
