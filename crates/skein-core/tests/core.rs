@@ -2,7 +2,7 @@
 
 use skein_core::{
     Content, Exit, Ledger, LedgerStore, LoopBudget, LoopController, Message, Redactor, Result,
-    Role, SecretProvider, SecretRef, SecretValue, SkeinError, Step, StepKind, ToolSpec,
+    Role, SecretProvider, SecretRef, SecretValue, SkeinError, Step, StepKind, ToolSpec, TurnRequest,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -348,6 +348,27 @@ fn tool_spec_roundtrips_through_a_ledger_payload() {
     // `required` would still deserialize into a `ToolSpec`, so the assertion is
     // on the schema itself rather than on the wrapper.
     assert_eq!(back[0].parameters["required"], serde_json::json!(["path"]));
+}
+
+#[test]
+fn a_turn_request_advertising_nothing_serializes_no_tools_key() {
+    // The property that keeps this slice invisible to every existing chain and
+    // every existing wire assertion: a run with no tools puts the same bytes in
+    // the Ledger it put there before `tools` existed.
+    let bare = TurnRequest {
+        run_id: "run-bare".into(),
+        messages: vec![Message::user_text("hello")],
+        tools: Vec::new(),
+    };
+    assert_eq!(
+        serde_json::to_string(&bare).unwrap(),
+        r#"{"run_id":"run-bare","messages":[{"role":"user","parts":[{"type":"text","text":"hello"}]}]}"#
+    );
+
+    // And the other direction, so a chain written before the field existed still
+    // replays: a payload with no `tools` key deserializes to an empty list.
+    let back: TurnRequest = serde_json::from_str(&serde_json::to_string(&bare).unwrap()).unwrap();
+    assert_eq!(back, bare);
 }
 
 // ---- ledger run enumeration ----

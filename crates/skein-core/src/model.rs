@@ -3,16 +3,27 @@
 
 use crate::content::Message;
 use crate::error::Result;
-use crate::tool::ToolCall;
+use crate::tool::{ToolCall, ToolSpec};
 use serde::{Deserialize, Serialize};
 
-/// One request to a model provider. v0 carries only conversation history: tool
-/// *advertisement* needs tool discovery, which the Tool Gateway defers, and
-/// sampling params arrive with the HTTP client.
+/// One request to a model provider: the conversation so far, and what the model
+/// is allowed to ask for. Sampling params still arrive with the HTTP client.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TurnRequest {
     pub run_id: String,
     pub messages: Vec<Message>,
+    /// What the model is told it can do — [`ToolGateway::advertise`]'s output,
+    /// so already filtered to the run's policy.
+    ///
+    /// Defaulted **and** skipped when empty, so a run that advertises nothing
+    /// serializes no `tools` key at all: the bytes on the wire and the captured
+    /// `LlmRequest` payload are identical to the ones produced before this field
+    /// existed, in both directions across a revert. Same reasoning as
+    /// [`TurnResponse::tool_calls`], from the other end of the conversation.
+    ///
+    /// [`ToolGateway::advertise`]: crate::tool::ToolGateway::advertise
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<ToolSpec>,
 }
 
 /// One provider reply. `final_output` is the model's *claim* that it is done;

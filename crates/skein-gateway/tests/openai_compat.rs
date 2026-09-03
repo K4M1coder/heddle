@@ -193,6 +193,7 @@ fn ask(messages: Vec<Message>) -> TurnRequest {
     TurnRequest {
         run_id: "run-1".into(),
         messages,
+        tools: Vec::new(),
     }
 }
 

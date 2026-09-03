@@ -81,6 +81,7 @@ impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> NativeLoop<C, P, T> {
             let req = TurnRequest {
                 run_id: run_id.to_string(),
                 messages: messages.clone(),
+                tools: Vec::new(),
             };
             // Captured before the call, so a client that errors still leaves the
             // request in the chain. Scrubbed on the way in and nowhere else:

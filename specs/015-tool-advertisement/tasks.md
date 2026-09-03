@@ -43,7 +43,7 @@ branch `015-tool-advertisement` cut from `dev` after slice 014 merged.
 - [x] **T3** RED→GREEN — `ToolTransport::list` with its defaulted body and the docstring arguing why
       *this* silent default is the safe one
 - [x] **T4** RED→GREEN — `ToolGateway::advertise`: list, filter to the allowlist, in allowlist order
-- [ ] **T5** RED→GREEN — `TurnRequest.tools` and every literal construction site, one atomic commit
+- [x] **T5** RED→GREEN — `TurnRequest.tools` and every literal construction site, one atomic commit
 - [ ] **T6** RED→GREEN — `NativeLoop::run` advertises once per run and stamps the specs into every
       `TurnRequest`; a `list` failure is fatal
 - [ ] **T7** RED→GREEN — `AcpPermissionTransport::list` forwards to its inner transport (the slice's
@@ -88,3 +88,19 @@ All on 2026-09-03.
   - `error: could not compile skein-core (test "tool_gateway") due to 3 previous errors`
   - Green: **14 passed** where 11 had passed, with the eleven unchanged. `CountingTransport` gained
     an additive `catalogue` field and an `offering` constructor; no existing body moved.
+
+- **T5** `cargo test -p skein-core --test core` with the no-`tools`-key serialization test written
+  against a two-field `TurnRequest` — **1 compile error**:
+  - `error[E0560]: struct TurnRequest has no field named tools` at
+    `crates/skein-core/tests/core.rs:361:9`
+  - `error: could not compile skein-core (test "core") due to 1 previous error`
+  - Then a **second, behavioural red** once the field existed, because the test's byte-exact literal
+    guessed serde's default externally-tagged enum shape for `Content` rather than reading it:
+    `left: "…\"parts\":[{\"type\":\"text\",\"text\":\"hello\"}]…"` /
+    `right: "…\"parts\":[{\"Text\":{\"text\":\"hello\"}}]…"`. `Content` carries
+    `#[serde(tag = "type", rename_all = "snake_case")]`. The expectation was corrected to the tree's
+    actual wire shape; the claim under test — that **no `tools` key appears** — was never weakened.
+  - Green: **19 passed** in `core` where 18 had passed, and `cargo test --workspace` reached
+    **126 passed, 1 ignored**. The three literal construction sites gained `tools: Vec::new()` and
+    nothing else; `openai_compat.rs`'s byte-exact no-tools assertion is still green with an
+    **unchanged body**, which is what D5's skip-when-empty exists to achieve.

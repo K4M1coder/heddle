@@ -927,6 +927,7 @@ fn x1_cancellable_model_stops_delegating_once_the_flag_is_set() {
     let req = TurnRequest {
         run_id: "r#1".into(),
         messages: vec![Message::user_text("go")],
+        tools: Vec::new(),
     };
 
     assert_eq!(
