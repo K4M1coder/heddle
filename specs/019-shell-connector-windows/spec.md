@@ -55,11 +55,16 @@ touched. On Linux and macOS the flag is an exit code and a message, never a sile
    Executable resolution is `%SystemRoot%\System32`, then `%SystemRoot%`, then a path inside the
    configured root — **there is no `PATH` search**, because `%PATH%` is ambient and per-process and
    resolving through it would make the reachable executable set undecidable from the configuration.
-   `cargo`, `node` and `python` under the user profile are therefore **not reachable**, and would not
-   launch even if the search found them, for want of an `ALL APPLICATION PACKAGES` ACE on
-   `%USERPROFILE%\.cargo\bin`. An operator-configured `--run-dir` allowlist that both extends the
-   search list and grants the AppContainer SID read+execute on each named directory is the explicit
-   next slice.
+   `cargo`, `node` and `python` under the user profile are therefore **not reachable**, purely because
+   the search never looks there. An operator-configured `--run-dir` allowlist that extends the search
+   list is the explicit next slice, since built as slice 020 (`specs/020-run-dir-allowlist`).
+   **Correction, made during that slice and recorded here rather than only there:** the clause this
+   replaces claimed such a binary "would not launch even if the search found them, for want of an
+   `ALL APPLICATION PACKAGES` ACE." Measured false: `CreateProcessW` opens the executable image under
+   the *parent* process's (the operator's own) rights, before the AppContainer token exists, so the
+   grant was never what gated launchability — the search list alone was. The grant is not pointless
+   (slice 020 measured that it *is* what lets the running child read a file, or find and launch a
+   sibling, inside that directory), but it does not do the job this sentence said it did.
 6. **The argv discipline buys less than it looks like, and the boundary is elsewhere.** The tool
    never interprets shell syntax and Skein never builds a shell command line, so there is nothing in
    Skein's own code for an argument to be injected *into*. It does **not** follow that the model
