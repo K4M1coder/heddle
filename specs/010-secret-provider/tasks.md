@@ -43,7 +43,7 @@ slice 009 merged.
 - [x] **T6** GREEN — `crates/skein-silo/src/secret.rs` and the per-OS `keyring-core` dependencies
 - [x] **T7** gates: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D
       warnings`, `cargo test --workspace`; new total recorded below
-- [ ] **T8** control diff: `git diff dev` empty on `crates/skein-mcp/`, `crates/skein-acp/`,
+- [x] **T8** control diff: `git diff dev` empty on `crates/skein-mcp/`, `crates/skein-acp/`,
       `spikes/`, `.github/` and `rust-toolchain.toml`
 - [ ] **T9** dependency drift recorded below
 - [ ] **T10** close out: tick the `SecretProvider` bullet in spec 009's "Next slice" list and in
@@ -160,6 +160,19 @@ keychain, which GitHub's `macos-latest` runner unlocks for the session. If the h
 otherwise once this repository has a remote, the correction is `#[ignore]` on `k1` and `k4` with
 the runner's error recorded here — never an in-memory provider standing in for the acceptance,
 which says *a real `SecretProvider`*.
+
+## Control diff (T8)
+
+`git diff dev --stat -- crates/skein-mcp/ crates/skein-acp/ spikes/ .github/ rust-toolchain.toml`
+is empty (SC-003, SC-004), so specs 005 and 008's suites — 20 of the 63 baseline tests — are live
+controls run against this slice's `skein-core`. `git diff dev -- Cargo.toml` is exactly five added
+`[workspace.dependencies]` lines (SC-005).
+
+Everything else is additive: two new modules, one new test binary, one new `Redactor` constructor,
+one new `SkeinError` variant, and new files under `specs/010-secret-provider/`. The only deletion
+anywhere in `git diff dev` outside the two new modules is `crates/skein-core/tests/core.rs`'s
+two-line `use` list, replaced to import the new names — **no pre-existing test body changed**
+(SC-006).
 
 ## Next slice (not this feature)
 - [ ] `skein-cli` reference client: `skein secret set|delete` (the second caller of
