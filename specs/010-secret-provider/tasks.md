@@ -38,7 +38,7 @@ slice 009 merged.
       `crates/skein-core/tests/core.rs` against the not-yet-existing API; red recorded below
 - [x] **T4** GREEN — `secret.rs`, `zeroize`, `Redactor`'s field + `Redactor::resolve`,
       `SkeinError::Secret`, re-exports, and the now-stale `Redactor` doc comment corrected
-- [ ] **T5** RED — `crates/skein-silo/tests/silo_secret.rs` against the not-yet-existing
+- [x] **T5** RED — `crates/skein-silo/tests/silo_secret.rs` against the not-yet-existing
       `OsKeychain`; red recorded below
 - [ ] **T6** GREEN — `crates/skein-silo/src/secret.rs` and the per-OS `keyring-core` dependencies
 - [ ] **T7** gates: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D
@@ -117,6 +117,12 @@ supports. Every name below is used by `crates/skein-silo/src/secret.rs` exactly 
   - As in slices 007–009, rustc abandons the crate once import resolution fails, so this one
     diagnostic is the whole red: the `Redactor::resolve` and `SkeinError::Secret` errors
     underneath it are never reached.
+- **T5** `cargo test -p skein-silo --test silo_secret`, 2026-09-03:
+  - `error[E0432]: unresolved import skein_silo::OsKeychain` — *"no `OsKeychain` in the root"*
+    (`crates/skein-silo/tests/silo_secret.rs:16:5`)
+  - `error: could not compile skein-silo (test "silo_secret") due to 1 previous error`
+  - Every name the slice adds comes through `OsKeychain`, so again one diagnostic is the whole
+    red. `skein-core`'s `SecretRef`/`SecretProvider` already resolve, because T4 landed them.
 
 ## Next slice (not this feature)
 - [ ] `skein-cli` reference client: `skein secret set|delete` (the second caller of
