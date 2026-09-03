@@ -132,11 +132,16 @@ would preserve key order and touch no new API, and it is wrong twice over. A sec
 appear and the secret is **missed entirely**; and a replacement that does land can straddle an escape
 sequence and produce unparseable JSON. This is the failure mode the slice invariant names.
 
-**Known, verified consequence — object key order changes.** `serde_json::to_value` produces a
-`serde_json::Map` which is a `BTreeMap` (the workspace declares plain `serde_json = "1"`; the
-`preserve_order` feature is **not** enabled — confirmed in `Cargo.toml` and every crate manifest), so
-`LlmRequest`/`LlmResponse` payloads become alphabetically keyed: `{"messages":…,"run_id":…}` rather
-than `{"run_id":…,"messages":…}`. Every consumer in the tree was checked and is order-independent:
+**Known, verified consequence — object key order is build-graph-dependent, and it does not matter.**
+`serde_json::to_value` produces a `serde_json::Map`, whose backing type Cargo decides per build
+graph. **Correction (this text originally claimed the opposite):** this slice's own manifest
+declares plain `serde_json = "1"` with no `preserve_order` feature, but `agent-client-protocol`
+declares `serde_json = { features = ["preserve_order", …] }`, and Cargo unifies features across a
+build graph — so any binary depending on `skein-acp` (`skein-cli`, in the shipped tree) compiles an
+insertion-ordered `IndexMap`, not the alphabetical `BTreeMap` this paragraph assumed. First measured
+by slice 008 (`## Observed`, risk R1); this file's error was pointed out against it by name in
+slice 015 (`specs/015-tool-advertisement/tasks.md`) and left uncorrected until now. It was never a
+behavioural bug, because every consumer in the tree was checked and is order-independent:
 
 - `skein-acp`'s `project_updates` — `serde_json::from_str::<TurnResponse>`
 - `crates/skein-acp/tests/acp_session.rs` — `from_str::<TurnResponse>`

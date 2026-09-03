@@ -39,11 +39,19 @@ Three user-visible consequences, stated here rather than left to be discovered:
    `AgentMessageChunk` text from the `LlmResponse` **Ledger payload**, so an editor sees the redacted
    text. This is the same property `ToolResult` content already had, and it is intended: the two
    commands therefore differ, and that difference is deliberate.
-3. **`LlmRequest`/`LlmResponse` payloads are now alphabetically keyed.** `serde_json::to_value`
-   produces a `BTreeMap`-backed `Map` (the workspace declares plain `serde_json = "1"`;
-   `preserve_order` is not enabled), so a payload reads `{"messages":…,"run_id":…}` rather than
-   `{"run_id":…,"messages":…}`. Every consumer in the tree parses rather than pattern-matches; see
-   plan D2's audit. Steps written before this slice are untouched and still verify.
+3. **`LlmRequest`/`LlmResponse` payload key order depends on the build graph, and every consumer
+   parses rather than pattern-matches, so it does not matter.** This slice's own manifest declares
+   plain `serde_json = "1"` with no `preserve_order` feature, but Cargo unifies features per build
+   graph: `agent-client-protocol` declares `serde_json = { features = ["preserve_order", …] }`, so
+   any binary whose graph includes `skein-acp` — `skein-cli`, since it depends on `skein-acp` —
+   compiles `serde_json::Map` as an insertion-ordered `IndexMap`, not the `BTreeMap` this slice
+   assumed. **Correction:** the original text here claimed payloads are "alphabetically keyed"
+   because `preserve_order` "is not enabled" — false in the shipped binary, first measured by slice
+   008 (its `## Observed` risk R1) and pointed out against this file specifically by slice 015
+   (`specs/015-tool-advertisement/tasks.md`). No behaviour was ever wrong: every consumer in the
+   tree parses rather than pattern-matches (plan D2's audit), so the actual key order never
+   mattered, which is why this went unnoticed through two more slices. Recorded here rather than
+   left for a reader to trip over.
 
 An unresolvable `--redact` reference is **exit 1 with no chain opened** — the same rule both commands
 already document for a non-loopback `--base-url`, and for the same reason: a one-step run in a silo
