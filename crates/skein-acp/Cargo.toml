@@ -1,0 +1,15 @@
+[package]
+name = "skein-acp"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+skein-core = { path = "../skein-core" }
+agent-client-protocol.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "io-util", "macros", "time"] }
+tokio-util = { workspace = true, features = ["compat"] }

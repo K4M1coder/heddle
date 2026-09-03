@@ -56,6 +56,43 @@ branch `008-acp-facade` cut from `dev`.
 
 ## Pinned SDK surface (T1)
 
+Read from the vendored source of `agent-client-protocol 2.0.0` and
+`agent-client-protocol-schema 1.5.0` in the local cargo registry, not from a docs summary. Every
+name below is used by the product code exactly as spelled here.
+
+| Item | Pinned spelling |
+|---|---|
+| `ContentChunk` | `ContentChunk::new(content: ContentBlock)` — no `message_id` in the constructor |
+| `PromptResponse` | `PromptResponse::new(stop_reason: StopReason)` |
+| `NewSessionResponse` | `NewSessionResponse::new(session_id: impl Into<SessionId>)` |
+| `ToolCallUpdate` | `ToolCallUpdate::new(tool_call_id: impl Into<ToolCallId>, fields: ToolCallUpdateFields)`; status lives on the fields: `ToolCallUpdateFields::new().status(impl IntoOption<ToolCallStatus>)` |
+| `ToolCall` (session update) | `ToolCall::new(tool_call_id: impl Into<ToolCallId>, title: impl Into<String>)`, then `.kind(ToolKind)` |
+| `ToolCallStatus` | `Pending`, `InProgress`, `Completed`, `Failed` (`#[non_exhaustive]`) |
+| `PermissionOptionKind` | `AllowOnce`, `AllowAlways`, `RejectOnce`, `RejectAlways` (`#[non_exhaustive]`) |
+| `PermissionOptionId` | `PermissionOptionId::new(impl Into<Arc<str>>)`; also `From<&'static str>`, `From<String>`, `From<Arc<str>>` |
+| `PermissionOption` | `PermissionOption::new(option_id, name: impl Into<String>, kind)` |
+| `AgentCapabilities` | `AgentCapabilities::new()` |
+| `RequestPermissionOutcome` | `Selected(SelectedPermissionOutcome)` \| `Cancelled` (`#[non_exhaustive]`) |
+| `StopReason` | `EndTurn`, `MaxTokens`, `MaxTurnRequests`, `Refusal`, `Cancelled` (`#[non_exhaustive]`) |
+| `SessionUpdate` | `AgentMessageChunk(ContentChunk)`, `ToolCall(ToolCall)`, `ToolCallUpdate(ToolCallUpdate)`, … (`#[non_exhaustive]`) |
+| `CancelNotification` | `CancelNotification::new(session_id)`, field `session_id` |
+| `SentRequest::on_receiving_result` | `fn(self, task: impl FnOnce(Result<T, Error>) -> F + Send + 'static) -> Result<(), Error>` where `F: Future<Output = Result<(), Error>> + Send + 'static` |
+| Handler return type | `Result<T, Error>` where `T: IntoHandled<…>`; `impl<T> IntoHandled<T> for ()`, so a handler that answers later returns `Ok(())` |
+
+**The two structural assumptions were proved, not assumed.** `crates/skein-acp/tests/smoke.rs`
+(throwaway, T1 only) ran green on the first attempt, 2026-09-03:
+
+1. a `Responder<PromptResponse>` moved into a `std::thread` responds after the handler has
+   already returned, and the client's `block_task()` receives it;
+2. `SentRequest::on_receiving_result` plus `std::sync::mpsc::Receiver::recv` round-trips a
+   `session/request_permission` from that same non-dispatch thread without deadlocking.
+
+**The plan's `connection.spawn` fallback is therefore not adopted.** The reason the direct form
+is safe is the ordering documented on `on_receiving_result`: it registers a callback and returns
+immediately, so the dispatch loop stays free to deliver the response the OS thread is blocked on.
+Our callback does one `mpsc::Sender::send` and awaits nothing, which is the bounded work that
+method's ordering barrier requires.
+
 ## Observed red (Constitution III)
 
 ## Next slice (not this feature)
