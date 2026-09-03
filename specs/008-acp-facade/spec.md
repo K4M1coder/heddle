@@ -1,6 +1,6 @@
 # Feature Specification: an ACP facade over the native loop (v0 slice)
 
-**Feature Branch:** `008-acp-facade` · **Created:** 2026-09-03 · **Status:** Draft
+**Feature Branch:** `008-acp-facade` · **Created:** 2026-09-03 · **Status:** Implemented (v0 slice)
 **Input:** `specs/007-tool-allowlist/tasks.md` "Next slice" item 1 — *"ACP client facade over the
 native loop + gateway"* · Constitution I (**headless core, CLI as the reference client**) ·
 ADR-0003 decision 2 and ADR-0004 D3 (**adopt ACP as Skein's client↔core boundary**) ·
@@ -89,7 +89,8 @@ As a user, `session/cancel` stops the run and the agent says so.
 
 ## Success Criteria
 - **SC-001**: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`
-  and `cargo test --workspace` all clean; the suite is 40 pre-existing + N new tests.
+  and `cargo test --workspace` all clean; the suite is 40 pre-existing + 12 new = **52**
+  tests (2026-09-03).
 - **SC-002**: The end-to-end acceptance runs against a **real** ACP client and a **real** ACP
   agent from `agent-client-protocol`, over a real byte-stream transport. No hand-rolled stand-in
   for the protocol.
@@ -118,6 +119,9 @@ As a user, `session/cancel` stops the run and the agent says so.
   variant, `Text` (design §4.2 defers image/audio/doc/video to v2).
 - **`Exit::NoProgress` and `Exit::HumanReject` both map to `StopReason::Refusal`.** An
   engine-forced stall stop is not a success; `EndTurn` would falsely claim one.
+- **A run that fails for any reason other than cancellation answers `session/prompt` with a
+  JSON-RPC internal error, not a stop reason.** None of `StopReason`'s five variants means "the
+  turn did not complete"; claiming `Refusal` for a transport failure would misreport it.
 - **The ACP tool-call id is the Ledger step id of the `ToolCall` step.** The correlation an ACP
   client uses to join a tool call to its updates is therefore the chain's own identity, not a
   parallel counter.

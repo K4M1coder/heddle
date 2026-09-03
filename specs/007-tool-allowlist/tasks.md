@@ -73,7 +73,7 @@
     diagnostic per crate instead of two.
 
 ## Next slice (not this feature)
-- [ ] ACP client facade over the native loop + gateway
+- [x] ACP client facade over the native loop + gateway — spec 008, `crates/skein-acp`
 - [ ] a typed `Content::ToolResult` variant and real prompt-injection defense; redacting the
       tool *name* on its way into the Ledger
 - [ ] tool advertisement on `TurnRequest`, which needs tool discovery (`tools/list`)

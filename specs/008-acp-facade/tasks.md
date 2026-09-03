@@ -28,25 +28,31 @@ branch `008-acp-facade` cut from `dev`.
   confirmed, not edited).
 
 ## Tasks
-- [ ] **T0** `specs/008-acp-facade/{spec.md,plan.md,tasks.md}`; branch `008-acp-facade` cut from
+- [x] **T0** `specs/008-acp-facade/{spec.md,plan.md,tasks.md}`; branch `008-acp-facade` cut from
       `dev`
-- [ ] **T1** pin the SDK's API surface against the vendored 2.0.0 source *before* writing product
-      code, and prove the two structural assumptions with a throwaway smoke test
-- [ ] **T2** control baseline: `cargo test --workspace` on `dev` before any edit
-- [ ] **T3** RED — the whole of `crates/skein-acp/tests/acp_session.rs` against the
+- [x] **T1** pinned the SDK's API surface against the vendored 2.0.0 source *before* writing
+      product code, and proved the two structural assumptions with a throwaway smoke test —
+      both hold, so the `connection.spawn` fallback is **not** adopted (see below). The smoke
+      test was deleted at T5: `a1` and `a3` now exercise both patterns against product code.
+- [x] **T2** control baseline: `cargo test --workspace` on `dev` before any edit — **40**
+- [x] **T3** RED — the whole of `crates/skein-acp/tests/acp_session.rs` against the
       not-yet-existing `skein_acp` API; compiler errors recorded below
-- [ ] **T4** GREEN part 1 — `AcpPermissionTransport` and `CancellableModel`
-- [ ] **T5** GREEN part 2 — `SkeinAgent`/`SkeinSession`, the `Agent.builder()` wiring, and
-      `project_updates`
-- [ ] **T6** gates: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D
-      warnings`, `cargo test --workspace`
-- [ ] **T7** control diff: `git diff dev` empty on `crates/skein-core/`, `crates/skein-mcp/`,
-      `spikes/`, `.github/` and `rust-toolchain.toml`; the root `Cargo.toml` diff confined to
-      `[workspace.dependencies]`
-- [ ] **T8** drift check: dependency count added to `Cargo.lock`, MSRV confirmation, and the
-      `serde_json/preserve_order` feature-unification investigation
-- [ ] **T9** close out: tick the ACP bullet in `specs/007-tool-allowlist/tasks.md`, set this
-      spec's Status, and populate the "Next slice" list
+- [x] **T4** GREEN part 1 — `AcpPermissionTransport` (FR-003/004/005) and `CancellableModel`
+      (FR-008)
+- [x] **T5** GREEN part 2 — `SkeinAgent`/`SkeinSession`, the `Agent.builder()` wiring
+      (FR-007/009) and `project_updates` (FR-006)
+- [x] **T6** gates: `cargo fmt --all --check` clean; `cargo clippy --workspace --all-targets
+      -- -D warnings` clean (one `type_complexity` objection to the session map, resolved with a
+      `Sessions<C, P, T>` alias); `cargo test --workspace` **52/52** — 40 pre-existing + 12 new,
+      2026-09-03. Windows leg observed; macOS and Linux unobserved until the repository has a
+      remote (SC-001)
+- [x] **T7** control diff: `git diff dev` empty on `crates/skein-core/`, `crates/skein-mcp/`,
+      `spikes/`, `.github/` and `rust-toolchain.toml`. The whole slice is
+      `M Cargo.toml` plus added files under `crates/skein-acp/` and `specs/008-acp-facade/`
+      (SC-003, SC-004, SC-005, FR-002)
+- [x] **T8** drift check recorded below
+- [x] **T9** close out: ticked the ACP bullet in `specs/007-tool-allowlist/tasks.md`, set this
+      spec's Status, and populated the "Next slice" list
 
 ## Control baseline (T2)
 
@@ -108,4 +114,44 @@ method's ordering barrier requires.
     diagnostics are the whole red: every name the suite needs is unresolved, and no
     type-level error is reached.
 
+## Drift (T8)
+
+- **Dependency growth.** `cargo tree -e normal,build,dev` resolves **66** distinct
+  package-versions for `skein-core` + `skein-mcp` and **115** for the whole workspace: the ACP
+  crate adds **49**, dominated by the `futures` / `async-io` / `async-process` / `blocking` stack
+  the SDK needs to stay runtime-agnostic, plus `schemars`, `serde_with`, `jiff` and
+  `windows-sys`/`rustix`. All of it is confined to `skein-acp`; `skein-core` still has exactly
+  four dependencies. (`Cargo.lock` is `.gitignore`d in this repository, so the graph is the
+  measurable artefact rather than a lockfile diff.)
+- **No toolchain change.** `agent-client-protocol` 2.0.0 declares MSRV **1.88.0**;
+  `rust-toolchain.toml` already pins **1.97**, and `workspace.package.rust-version` is unchanged.
+  `.github/workflows/core.yml` already runs the three gates on `crates/**` at 1.97, so a new
+  crate under `crates/` is picked up with no CI edit — confirmed by reading, not edited.
+- **`serde_json/preserve_order` (risk R1): real, and inert. Nothing was edited.**
+  Both `agent-client-protocol` and `agent-client-protocol-schema` declare
+  `serde_json = { features = ["preserve_order", "raw_value"] }`, so under one feature-unified
+  build graph `skein-core` also compiles against an order-preserving `serde_json::Map`. That the
+  unification really happens is visible in the build: the isolated `cargo test -p skein-core -p
+  skein-mcp` run reuses the pre-slice test binaries (`skein_core-aa3d4cd03cb6a11c`), while
+  `cargo test --workspace` rebuilds them under a different hash. **Both runs are 40/40 green.**
+  No pre-existing assertion flipped, because none depends on JSON object ordering: every
+  `ToolCall.args` literal in `tests/native_loop.rs`, `tests/tool_gateway.rs` and
+  `tests/rmcp_gateway.rs` is a single-key object, and the payload assertions are substring
+  (`contains("denied")`, `contains("***")`) or single scalars (`"60"`, `"prompt exact"`). The
+  risk stands for any *future* multi-key payload assertion in `skein-core`, and is recorded here
+  rather than defended against — no pre-existing test body was touched.
+
 ## Next slice (not this feature)
+- [ ] `Ledger` append-observer + **streaming** ACP session updates during a turn (today's
+      projection is emitted after the run returns)
+- [ ] session-scoped **conversation history** across prompts, which needs a `NativeLoop::run`
+      signature that accepts prior messages
+- [ ] the full permission-option surface (`allow_always` / `reject_always`) and persistent
+      approval — where `Exit::HumanReject` finally becomes reachable (Constitution VIII(d))
+- [ ] mid-turn cancellation, which needs cancel points inside `NativeLoop` (Spike 1 C3)
+- [ ] the `_meta` / `ExtNotification` full-fidelity evidence channel Spike 1 identified for
+      publishing byte-exact model I/O over ACP
+- [ ] session persistence / `session/load` / resume, behind the durable silo-backed Ledger
+- [ ] multi-modal `ContentBlock`s, once `Content` grows past `Text`
+- [ ] `schema::v2`, the `AcpAgent`/`Stdio` subprocess transports, and ACP MCP-server passthrough
+- [ ] `skein-cli`, Principle I's reference client — the next consumer of this facade
