@@ -49,7 +49,7 @@ branch `014-ledger-redaction` cut from `dev` after slice 013 merged.
       chain is redacted and pinning the `project_updates` consequence
 - [x] **T8** RED→GREEN — `wiring::RedactArgs`, flattened into `ChatArgs` and `AcpAgent`, resolved in
       `chat.rs` and `acp.rs` after the endpoint guard and before `Silo::open`
-- [ ] **T9** gates, control diff, dependency drift, close-out
+- [x] **T9** gates, control diff, dependency drift, close-out
 
 ## Control baseline (T1)
 
@@ -123,4 +123,96 @@ All on 2026-09-03.
 
 ## Gate run (T9)
 
-_Recorded at T9._
+2026-09-03, Windows leg observed locally; macOS and Linux legs unobserved until the repository has a
+remote (the standing caveat of specs 004–013).
+
+- `cargo fmt --all -- --check` — clean.
+- `cargo clippy --workspace --all-targets -- -D warnings` — clean, no warning on any of the six
+  crates.
+- `cargo test --workspace` — **120 passed, 0 failed, 1 ignored**: the 110 baseline plus ten, and
+  every one of the 110 with an unchanged body. `core` 15→**17**, `native_loop` 18→**21**,
+  `tool_gateway` 9→**10**, `acp_session` 14→**15**, `cli_chat` 6→**8**, `cli_acp_agent` 3→**4**.
+  Unchanged: `cli_ledger` 8, `cli_secret` 2, `governed_run` 2, `openai_compat` 14 (+1 ignored),
+  `rmcp_gateway` 7, `silo_ledger` 7, `silo_secret` 5.
+  - **Ten new tests, not the eight the plan predicted.** The plan's Validation section numbers eight
+    and its T2 describes a single `core.rs` test carrying two unrelated claims — that `redact_json`
+    keeps a payload's shape, and that a cloned `Redactor` scrubs what the original does. Those are
+    two claims with two failure modes, so they are two tests. 110 + 8 + 2 = 120.
+- `cargo build --workspace` — clean.
+- `skein chat --help` and `skein acp-agent --help` both list `--redact <REFERENCE>` with the help
+  text `keychain://<service>/<account>. Repeatable`.
+
+## Control diff (T9)
+
+`git diff dev --stat -- crates/skein-silo/ spikes/ .github/ rust-toolchain.toml` is **one line**:
+`crates/skein-silo/tests/silo_ledger.rs | 1 +`, the mechanical fourth `NativeLoop::new` argument the
+plan named in advance. Stated as the exception rather than claimed as an empty diff. `spikes/` is
+untouched (ADR-0004 D2), and so are `.github/` and `rust-toolchain.toml`.
+
+`git diff dev --stat -- crates/skein-gateway/src crates/skein-mcp/src` is **empty**: neither crate's
+product code moved, only their test binaries' constructor calls.
+
+Over the whole branch, **1395 insertions and 32 deletions** across 19 files. The 32 deletions are
+accounted for in four places and nowhere else:
+
+- `crates/skein-core/tests/native_loop.rs` — nine single-line `NativeLoop::new(model, probe,
+  no_tools());` calls that rustfmt rewrapped once they grew a fourth argument. No assertion moved.
+- `crates/skein-mcp/tests/rmcp_gateway.rs` — the same, once.
+- `crates/skein-core/src/{native_loop.rs,tool.rs}` — the two `ledger.append` arguments and the three
+  `call.tool.clone()` copies this slice exists to change, plus their comments.
+- `crates/skein-cli/src/{chat.rs,acp.rs,main.rs,wiring.rs}` — the two `Redactor::new(vec![])`
+  wiring sites, the `serve` signature, and one import line per file.
+
+## Drift (T9)
+
+**Zero new packages and zero new edges — by construction, not by measurement.**
+`git diff dev -- Cargo.toml crates/*/Cargo.toml` is **empty**: no manifest in the workspace changed,
+so the graph `cargo` resolves is the same graph it resolved on `dev`. `skein-cli` already declared
+`skein-silo` (for `Silo` and `OsKeychain`) and `skein-core`; `RedactArgs` needed nothing new. `Arc`
+was rejected in the plan's D3 and `std` needs no declaration.
+
+No toolchain change and no new build prerequisite: no crate entered the graph, so nothing can have
+raised the MSRV, and `rust-toolchain.toml`, `workspace.package.rust-version` and
+`.github/workflows/core.yml` are untouched.
+
+## Deviations from the plan
+
+Two, both recorded rather than absorbed:
+
+1. **T7 was implemented before T6**, inverting the plan's numbering — see `## Observed red`. The
+   plan makes T6 a green whose only cover is T7's test, which would have meant a green with no
+   observed red. The behaviour of the tree between T3 and T6 is the behaviour it had on `dev`, so
+   nothing was faked to produce the red.
+2. **Ten new tests rather than eight**, for the reason recorded in the gate run above.
+
+## Out of scope
+
+Deliberately not done, so no one helpfully does it:
+
+- **Raw wire-byte capture** — the HTTP request and response bodies `skein-gateway` exchanges. A
+  separate, already-named next-slice item, and the thing design §4.5's "exact model I/O" actually
+  asks for.
+- **Provider authentication**, a provider token as a `SecretRef`, sampling parameters, a config file.
+- **Automatic secret detection.** `Redactor` is an exact-value scrubber and stays one: a credential
+  the operator never registered and never named with `--redact` still lands in cleartext.
+- **Redacting `SkeinError`, stderr, or `skein chat`'s stdout.** The invariant is about Ledger
+  payloads; `chat`'s stdout carrying the raw answer is the contract test 6 pins.
+- **Changing `ToolGateway::new`'s signature**, adding `Arc` anywhere, making `SecretValue: Clone`,
+  or putting the `Redactor` on `Ledger` (plan D1 says why the last one loses).
+- **`skein-silo`'s and `skein-gateway`'s product code**, `spikes/`, `.github/`,
+  `rust-toolchain.toml`.
+
+## Next slice (not this feature)
+- [ ] **raw-wire-byte capture** — a `StepKind` for the provider's literal request and response
+      bytes. Redaction on that path is the same `redact_json`/`redact` pair, but the payload is not
+      a `TurnRequest`, so the capture has to exist first.
+- [ ] **tool advertisement** — a `tools` field on `TurnRequest`, which needs tool discovery from the
+      Tool Gateway. Still the largest untested-in-production path in the tree.
+- [ ] **streaming (SSE)** with incremental ACP `AgentMessageChunk` notifications. Today a client
+      still sees one chunk per turn, after the turn — and now a redacted one.
+- [ ] **provider authentication**: an `Authorization: Bearer` whose value arrives as a `SecretRef`
+      resolved through `SecretProvider`, which is the first thing that would want `--redact`'s
+      reference list to be shared with the model client.
+- [ ] a config file holding the base URL, the model, a default silo root **and the run's redaction
+      references**, so `--redact` is not the only way to name them.
+- [ ] the egress-policy layer and ADR-0002 D4's process-level socket-deny boundary.
