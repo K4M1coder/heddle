@@ -17,5 +17,10 @@ schemars.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
+# The headline acceptance test needs the model client, the loop and the
+# connector visible at once, and this is the only crate that can see all three.
+# Product code must not depend on `skein-gateway`: a connector has no business
+# knowing a model provider exists.
+skein-gateway = { path = "../skein-gateway" }
 serde_json.workspace = true
 tempfile.workspace = true
