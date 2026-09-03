@@ -19,7 +19,7 @@ use skein_core::{
 use skein_gateway::{LocalEndpoint, OpenAiCompatClient};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::Duration;
 use tempfile::TempDir;
@@ -457,6 +457,81 @@ fn an_out_of_root_read_is_refused_by_the_server_and_the_run_survives() {
         "`ok` is right and load-bearing: the *transport* succeeded, and the \
          refusal is inside the result where the model can read it — a transport \
          failure would have ended the run. Got: {told}"
+    );
+    assert!(
+        told.contains("\"isError\":true") && told.contains("outside the root"),
+        "the server's own refusal must reach the model: {told}"
+    );
+    assert!(
+        !told.contains("not yours"),
+        "the out-of-root file's contents must not appear anywhere: {told}"
+    );
+    ledger
+        .verify_chain("run-fs")
+        .expect("a run holding a tool-level refusal verifies");
+}
+
+/// `fs_root.rs`'s helper of the same name, and its reasons: a junction needs no
+/// privilege where `symlink_dir` needs one this project's machines lack. The
+/// copy is because each integration test is its own crate.
+fn reparse_dir(target: &Path, link: &Path) -> std::io::Result<()> {
+    #[cfg(windows)]
+    {
+        let ok = std::process::Command::new("cmd")
+            .arg("/C")
+            .arg("mklink")
+            .arg("/J")
+            .arg(link)
+            .arg(target)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()?
+            .success();
+        ok.then_some(())
+            .ok_or_else(|| std::io::Error::other("mklink /J refused"))
+    }
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(target, link)
+}
+
+/// The governed counterpart of `fs_server.rs`'s reparse-point test, and the one
+/// that matters for spec 021: the escape is planted **after** the server — and
+/// so its root handle — already exists, which is precisely the window the old
+/// canonicalize-then-open mechanism left open.
+#[test]
+fn a_read_through_a_reparse_point_planted_after_the_server_is_refused() {
+    let stub = Stub::serving(vec![
+        tool_call_reply("fs_read", serde_json::json!({"path": "sub/secrets.txt"})),
+        final_reply("That path leads outside my root."),
+    ]);
+    let Harness {
+        root,
+        connector,
+        _dir,
+    } = harness(&[("notes.txt", FILE_CONTENTS)]);
+
+    let outside = root
+        .parent()
+        .expect("the fixture root has a parent")
+        .join("outside");
+    let swapped = root.join("sub");
+    if reparse_dir(&outside, &swapped).is_err() {
+        eprintln!("this machine does not permit creating reparse points; skipping");
+        return;
+    }
+    assert_eq!(
+        std::fs::read_to_string(swapped.join("secrets.txt")).expect("the swap really escapes"),
+        "not yours",
+        "positive control: without containment this path reads the outside file"
+    );
+
+    let ledger = governed_run(&stub, connector, chat_policy(), Vec::new());
+
+    let told = tool_feedback(&ledger);
+    assert!(
+        told.starts_with("[tool_result tool=fs_read status=ok]"),
+        "the transport succeeded and the refusal is inside the result, where the \
+         model can read it and the run can continue. Got: {told}"
     );
     assert!(
         told.contains("\"isError\":true") && told.contains("outside the root"),
