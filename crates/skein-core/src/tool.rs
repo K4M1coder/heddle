@@ -125,6 +125,24 @@ impl ToolPolicy {
             },
         }
     }
+
+    /// The advertisable subset of a transport's catalogue: allowlisted names
+    /// only, in **allowlist** order rather than catalogue order, because the
+    /// operator's list is the authority and a server does not get to influence
+    /// the order a model reads its tools in.
+    ///
+    /// An allowlisted name the catalogue does not offer is simply absent. It is
+    /// never synthesized from the policy — a spec built here would carry no
+    /// schema, and hand-written schemas are the drift this whole path exists to
+    /// avoid.
+    ///
+    /// Approval is deliberately not consulted: see [`ToolGateway::advertise`].
+    fn advertisable(&self, catalogue: &[ToolSpec]) -> Vec<ToolSpec> {
+        self.allowed
+            .iter()
+            .filter_map(|(name, _)| catalogue.iter().find(|spec| &spec.name == name).cloned())
+            .collect()
+    }
 }
 
 /// Scrubs known secret values out of anything on its way into the Ledger
@@ -255,6 +273,25 @@ impl<T: ToolTransport> ToolGateway<T> {
             policy,
             redactor,
         }
+    }
+
+    /// What a model may be told it can do: the transport's own catalogue,
+    /// filtered to the policy's allowlist. The filter lives here, in the one
+    /// place that owns both collaborators, so "you cannot advertise what the
+    /// policy forbids" is structural rather than reviewed — the same move
+    /// [`ToolGateway::call_captured`] makes for calls.
+    ///
+    /// Discovered, never hand-written: the schema a model is shown is the one
+    /// the server will validate against, so the two cannot drift.
+    ///
+    /// An allowlisted `Mutating` tool with no approval **is** advertised. It is
+    /// visible, and refused at call time with a reason the model is told.
+    /// Withholding it here would make `skein-acp`'s permission decorator
+    /// unreachable: `call_captured` consults the policy before the transport, so
+    /// a tool the policy never allows never becomes a question for a human.
+    pub fn advertise(&mut self) -> Result<Vec<ToolSpec>> {
+        let catalogue = self.transport.list()?;
+        Ok(self.policy.advertisable(&catalogue))
     }
 
     /// The governed path, returning only what the trusted caller needs.

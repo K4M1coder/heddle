@@ -5,7 +5,7 @@
 use serde_json::json;
 use skein_core::{
     replay_tool_calls, Ledger, Redactor, Result, SkeinError, StepKind, ToolAccess, ToolCall,
-    ToolGateway, ToolOutcome, ToolPolicy, ToolTransport,
+    ToolGateway, ToolOutcome, ToolPolicy, ToolSpec, ToolTransport,
 };
 
 const SECRET: &str = "sk-SECRET-abc123";
@@ -17,6 +17,7 @@ struct CountingTransport {
     seen: Vec<ToolCall>,
     reply: String,
     fail: bool,
+    catalogue: Vec<ToolSpec>,
 }
 
 impl CountingTransport {
@@ -26,12 +27,20 @@ impl CountingTransport {
             seen: Vec::new(),
             reply: reply.to_string(),
             fail: false,
+            catalogue: Vec::new(),
         }
     }
 
     fn failing() -> Self {
         CountingTransport {
             fail: true,
+            ..CountingTransport::new("")
+        }
+    }
+
+    fn offering(names: &[&str]) -> Self {
+        CountingTransport {
+            catalogue: names.iter().map(|name| spec(name)).collect(),
             ..CountingTransport::new("")
         }
     }
@@ -48,6 +57,25 @@ impl ToolTransport for CountingTransport {
             content: self.reply.clone(),
         })
     }
+
+    fn list(&mut self) -> Result<Vec<ToolSpec>> {
+        if self.fail {
+            return Err(SkeinError::Tool("downstream exploded".into()));
+        }
+        Ok(self.catalogue.clone())
+    }
+}
+
+/// A catalogue entry as a server would derive it: a distinct schema per tool, so
+/// an assertion on the advertised specs proves the server's own document
+/// travelled rather than a name the gateway could have reconstructed from the
+/// policy.
+fn spec(name: &str) -> ToolSpec {
+    ToolSpec::new(
+        name,
+        format!("what {name} does"),
+        json!({"type": "object", "properties": {name: {"type": "string"}}}),
+    )
 }
 
 /// The nine `impl ToolTransport` sites in the tree that predate advertisement
@@ -85,6 +113,64 @@ fn gateway(transport: CountingTransport, approved: &[&str]) -> ToolGateway<Count
         ),
         Redactor::new(vec![SECRET.into()]),
     )
+}
+
+#[test]
+fn advertisement_is_the_allowlist_intersected_with_the_catalogue_in_allowlist_order() {
+    // Wider than the policy, in a different order, and missing one allowlisted
+    // name — the three ways a catalogue and an allowlist can disagree.
+    let mut gw = gateway(
+        CountingTransport::offering(&["read_other", "banned_tool", "read_secret"]),
+        &[],
+    );
+
+    let advertised = gw.advertise().expect("the catalogue is readable");
+
+    assert_eq!(
+        advertised,
+        vec![spec("read_secret"), spec("read_other")],
+        "allowlist order, not catalogue order: the operator's list is the authority"
+    );
+    assert!(
+        !advertised.iter().any(|s| s.name == "fs_write"),
+        "an allowlisted tool the server does not offer is absent, never fabricated \
+         from the policy: {advertised:?}"
+    );
+}
+
+#[test]
+fn an_unapproved_mutating_tool_is_still_advertised() {
+    // Deliberate, and pinned so nobody "tightens" it later. `call_captured`
+    // consults the policy *before* the transport, so a mutating tool withheld at
+    // advertisement would never reach the ACP permission prompt — which is the
+    // only path to a human. It is advertised, and refused at call time with a
+    // reason the model is told.
+    let mut led = Ledger::new();
+    let mut gw = gateway(CountingTransport::offering(&["fs_write"]), &[]);
+
+    assert_eq!(
+        gw.advertise().expect("the catalogue is readable"),
+        vec![spec("fs_write")]
+    );
+
+    let err = gw
+        .call("run-t11", &ToolCall::new("fs_write", json!({})), &mut led)
+        .expect_err("advertised is not approved");
+    assert!(
+        matches!(err, SkeinError::ToolDenied { ref reason, .. } if reason.contains("approval")),
+        "the refusal names its reason, and the model is told it: {err:?}"
+    );
+    assert_eq!(gw.transport.calls, 0);
+}
+
+#[test]
+fn a_catalogue_that_cannot_be_read_is_an_error_not_an_empty_advertisement() {
+    let mut gw = gateway(CountingTransport::failing(), &[]);
+
+    let err = gw
+        .advertise()
+        .expect_err("an unreadable inventory leaves the run's capabilities unknown");
+    assert!(matches!(err, SkeinError::Tool(_)), "{err:?}");
 }
 
 fn kinds(led: &Ledger, run_id: &str) -> Vec<StepKind> {

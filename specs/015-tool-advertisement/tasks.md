@@ -42,7 +42,7 @@ branch `015-tool-advertisement` cut from `dev` after slice 014 merged.
       with its round-trip test in `crates/skein-core/tests/core.rs`
 - [x] **T3** RED→GREEN — `ToolTransport::list` with its defaulted body and the docstring arguing why
       *this* silent default is the safe one
-- [ ] **T4** RED→GREEN — `ToolGateway::advertise`: list, filter to the allowlist, in allowlist order
+- [x] **T4** RED→GREEN — `ToolGateway::advertise`: list, filter to the allowlist, in allowlist order
 - [ ] **T5** RED→GREEN — `TurnRequest.tools` and every literal construction site, one atomic commit
 - [ ] **T6** RED→GREEN — `NativeLoop::run` advertises once per run and stamps the specs into every
       `TurnRequest`; a `list` failure is fatal
@@ -80,3 +80,11 @@ All on 2026-09-03.
   - `error: could not compile skein-core (test "tool_gateway") due to 1 previous error`
   - Green: **11 passed** where 10 had passed, with the ten unchanged — the proof that a defaulted
     method left all nine pre-existing `impl ToolTransport` sites compiling untouched.
+
+- **T4** `cargo test -p skein-core --test tool_gateway` with the three advertisement tests written
+  against a gateway that had no such method — **3 compile errors**, one per new test:
+  - `error[E0599]: no method named advertise found for struct ToolGateway<T> in the current scope`,
+    at `crates/skein-core/tests/tool_gateway.rs:127`, `:152` and `:171`
+  - `error: could not compile skein-core (test "tool_gateway") due to 3 previous errors`
+  - Green: **14 passed** where 11 had passed, with the eleven unchanged. `CountingTransport` gained
+    an additive `catalogue` field and an `offering` constructor; no existing body moved.
