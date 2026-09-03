@@ -287,3 +287,21 @@ fn ledger_runs_lists_run_ids_in_first_append_order() {
         "a run is listed once, at the position of its first append"
     );
 }
+
+// ---- an engine-stopped run has its own name ----
+
+#[test]
+fn an_unfinished_run_names_the_run_and_the_exit_that_stopped_it() {
+    // A budget exit is not a provider failure: `SkeinError::Model` would print
+    // `model provider:` for a decision no provider made, and `Storage` is a
+    // lie. A client needs to say which run the engine stopped, and why.
+    let err = SkeinError::Unfinished {
+        run_id: "chat-1756000000000-4242".into(),
+        exit: format!("{:?}", Exit::MaxIters),
+    };
+
+    assert_eq!(
+        err.to_string(),
+        "run chat-1756000000000-4242 ended without a final answer: MaxIters"
+    );
+}

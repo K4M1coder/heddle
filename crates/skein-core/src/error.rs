@@ -19,6 +19,12 @@ pub enum SkeinError {
     Secret(String),
     #[error("model provider: {0}")]
     Model(String),
+    /// A run ended on a budget rather than with an answer. Not a provider
+    /// failure: the engine stopped the model, which is Constitution VIII
+    /// working. A client needs its own name for this, because
+    /// [`SkeinError::Model`] would blame a provider that made no decision.
+    #[error("run {run_id} ended without a final answer: {exit}")]
+    Unfinished { run_id: String, exit: String },
     /// The governor refused: the transport was never reached.
     #[error("tool denied: {tool}: {reason}")]
     ToolDenied { tool: String, reason: String },
