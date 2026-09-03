@@ -521,3 +521,86 @@ fn a_secret_in_a_files_contents_is_scrubbed_from_the_chain() {
         "only the configured value is scrubbed, not the file: {payloads:?}"
     );
 }
+
+/// The one thing a stub cannot prove: that a **real** local model, told about
+/// these tools in this wire format, actually asks for one — and that what comes
+/// back is the file.
+///
+/// `#[ignore]`d, so `cargo test --workspace` stays green on a machine with no
+/// Ollama; `.github/workflows/core.yml` runs it without `--include-ignored`, so
+/// it never runs there. This is `openai_compat.rs`'s
+/// `a_live_local_provider_answers` pattern, which exists so a hand-verification
+/// is repeatable rather than a one-off. Run it by hand:
+///
+/// ```text
+/// $env:SKEIN_LIVE_MODEL = "qwen3:8b"
+/// cargo test -p skein-connectors --test governed_fs_run -- --ignored --nocapture
+/// ```
+///
+/// Not every Ollama model supports tool calling. If a model ignores the
+/// `tools` array this fails, and that is a model-selection finding rather than
+/// a code defect.
+#[test]
+#[ignore = "needs a real tool-capable local provider; set SKEIN_LIVE_MODEL to run"]
+fn a_live_model_calls_a_real_fs_tool() {
+    let Some(model_name) = std::env::var_os("SKEIN_LIVE_MODEL") else {
+        eprintln!("SKEIN_LIVE_MODEL is unset; skipping the live model tool-call test");
+        return;
+    };
+    let model_name = model_name.to_string_lossy().to_string();
+    let base_url = std::env::var("SKEIN_MODEL_BASE_URL")
+        .unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
+    let Harness {
+        _dir,
+        root: _root,
+        connector,
+    } = harness(&[("notes.txt", FILE_CONTENTS)]);
+
+    let redactor = Redactor::new(Vec::new());
+    let mut loops = NativeLoop::new(
+        OpenAiCompatClient::new(
+            LocalEndpoint::parse(&base_url).expect("a loopback base URL"),
+            &model_name,
+            Duration::from_secs(120),
+        ),
+        NoGroundTruth,
+        ToolGateway::new(connector, chat_policy(), redactor.clone()),
+        redactor,
+    );
+    let mut ledger = Ledger::new();
+    let mut controller = LoopController::new(LoopBudget::new(4, 1_000_000, 4));
+
+    let run = loops
+        .run(
+            "run-live",
+            Message::user_text("Read the file notes.txt and tell me its first line."),
+            &mut ledger,
+            &mut controller,
+        )
+        .unwrap_or_else(|e| panic!("{base_url} did not complete a run for {model_name:?}: {e}"));
+
+    for step in ledger.log("run-live") {
+        eprintln!("{:>20}  {}", format!("{:?}", step.kind), step.payload);
+    }
+    eprintln!("exit = {:?}\nanswer = {:?}", run.exit, run.final_message);
+
+    let results: Vec<String> = ledger
+        .log("run-live")
+        .iter()
+        .filter(|s| s.kind == StepKind::ToolResult)
+        .map(|s| s.payload.clone())
+        .collect();
+    assert!(
+        results.iter().any(|p| p.contains("fs_read")),
+        "the model was told it can read files and did not ask; if it cannot call tools that is a \
+         model-selection finding, not a defect: {:?}",
+        ledger.log("run-live")
+    );
+    assert!(
+        results.iter().any(|p| p.contains(&escaped(FILE_CONTENTS))),
+        "the real file's contents must have reached the chain: {results:?}"
+    );
+    ledger
+        .verify_chain("run-live")
+        .expect("a live run's chain verifies");
+}
