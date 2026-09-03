@@ -156,3 +156,40 @@ redirected input, and every stream here is a pipe.
 
 Verified separately that the kill is real and not merely fast: `tasklist /FI "IMAGENAME eq cmd.exe"`
 counts **16 before the suite and 16 after**, so no descendant outlives the job.
+
+**T6** — folded into T4's commit rather than run as a separate step, because the argv builder is what
+`Sandbox::run` calls first: `launch.rs` could not compile without it. The four tests are
+`#[cfg(test)] mod tests` inside `src/argv.rs` rather than the `tests/argv.rs` the plan names — see
+**Deviations** below — and all four passed on their first run, against the real
+`CommandLineToArgvW` as the oracle.
+
+**T7** — `cargo test -p skein-connectors --test run_server`:
+
+```
+error[E0432]: unresolved imports `skein_connectors::RunAccess`, `skein_connectors::RunParams`,
+              `skein_connectors::RUN_OUTPUT_BYTE_CAP`
+error[E0432]: unresolved import `skein_sandbox`
+error[E0599]: no associated function or constant named `with_run` found for struct `EmbeddedServer`
+error[E0599]: no method named `proc_run` found for reference `&EmbeddedServer`
+```
+
+A compile red naming all five things the step adds. One assertion then failed for a **fixture**
+reason worth keeping: `..\escape.exe` was refused with *"the specified file cannot be found"*, not
+*"resolves outside the root"* — the containment check never ran, because `FsRoot::resolve`
+canonicalizes first and a nonexistent path fails there. The fixture now puts the root in a
+**subdirectory** with a real `outside.exe` beside it, which is `fs_server.rs`'s own shape for its own
+reason. A test that had accepted either message would not have noticed containment breaking.
+
+**T8** — no red, and the reason is structural rather than an omission: the plan orders T8 after T7,
+and T8's Windows tests name `local_connector_with_run`, so they cannot compile — let alone fail an
+assertion — before T7's green exists. What matters here was measured instead, and it is FR-016's
+stop condition: **`cargo test -p skein-connectors` immediately after T7's green, before T8 was
+written, passed 6/6 in `connector` and 7/7 in `fs_server` with every assertion byte-identical to
+`dev`** — including `the_connector_lists_the_three_tools_with_their_derived_schemas` and
+`the_connector_lists_the_git_tools_only_when_the_root_is_a_repository`. The gate holds; no
+pre-existing expectation had to move.
+
+Writing T8's `#[cfg(not(windows))]` test did surface one real defect by review, since it cannot be
+compiled on this machine (see **Deviations**): `Result::expect_err` requires `T: Debug`, and neither
+the off-Windows `Sandbox` — an uninhabited type — nor `EmbeddedServer` derives it. The test matches
+on the result through a local helper instead of asking the product for a trait only a test wants.

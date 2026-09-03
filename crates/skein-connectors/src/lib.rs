@@ -8,12 +8,14 @@
 mod connector;
 mod fs;
 mod git;
+#[cfg(windows)]
+mod run;
 mod server;
 
-pub use connector::{local_connector, LocalConnector};
+pub use connector::{local_connector, local_connector_with_run, LocalConnector};
 pub use fs::FsRoot;
 pub use git::is_git_repository;
 pub use server::{
-    EmbeddedServer, ListParams, LogParams, ReadParams, WriteParams, LOG_COUNT_CAP, READ_BYTE_CAP,
-    STATUS_ENTRY_CAP,
+    EmbeddedServer, ListParams, LogParams, ReadParams, RunAccess, RunParams, WriteParams,
+    LOG_COUNT_CAP, READ_BYTE_CAP, RUN_OUTPUT_BYTE_CAP, RUN_TIMEOUT, STATUS_ENTRY_CAP,
 };

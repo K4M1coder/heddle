@@ -20,6 +20,14 @@ serde.workspace = true
 # quality, and if that footprint ever stops mattering the swap touches one file.
 git2.workspace = true
 chrono.workspace = true
+# `src/run.rs` is the only module that names this, and it is the only crate in
+# the workspace containing `unsafe` — the same boundary discipline `git2` above
+# gets, for a much stronger reason. Declared unconditionally because the crate
+# compiles on all three OSes: off Windows its `Sandbox` is uninhabited and
+# `Sandbox::create` is a loud refusal, which is exactly what
+# `EmbeddedServer::with_run` needs in order to fail there rather than serve a
+# silently missing tool.
+skein-sandbox = { path = "../skein-sandbox" }
 
 [dev-dependencies]
 # The headline acceptance test needs the model client, the loop and the
@@ -35,3 +43,6 @@ tempfile.workspace = true
 # rather than shelling out to a `git` binary: no `PATH` assumption, and
 # deterministic on all three OSes.
 git2.workspace = true
+# Declared again for the reason directly above: `tests/run_server.rs` names
+# `ARG_COUNT_CAP`, which is the launcher's cap and not this crate's.
+skein-sandbox = { path = "../skein-sandbox" }

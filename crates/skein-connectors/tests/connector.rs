@@ -214,3 +214,125 @@ fn a_git_tool_whose_route_is_disabled_is_not_callable_by_name() {
         "the error must say what was not found: {error}"
     );
 }
+
+// ---- the shell connector (spec 019) ----
+
+/// The Windows-side gate: run access is **off** unless it is asked for, so the
+/// catalogue is byte-identical to the one `dev` advertises (SC-007).
+///
+/// This is what keeps every pre-existing advertisement assertion in the
+/// workspace green on the Windows leg — none of their fixtures asks for run
+/// access. If one of them ever needs an assertion changed, the gate is wrong.
+#[cfg(windows)]
+#[test]
+fn the_connector_does_not_list_proc_run_unless_run_access_is_asked_for() {
+    use skein_connectors::{local_connector_with_run, RunAccess};
+
+    let dir = TempDir::new().expect("a temp dir");
+    let root = FsRoot::new(dir.path()).expect("a canonicalizable root");
+    let mut denied = local_connector_with_run(root, RunAccess::Denied)
+        .expect("a denied launcher still serves the other tools");
+
+    assert_eq!(names(&mut denied), vec!["fs_list", "fs_read", "fs_write"]);
+}
+
+/// And with run access asked for, the tool is there, describing the two numbers
+/// a model has to plan around.
+#[cfg(windows)]
+#[test]
+fn the_connector_lists_proc_run_with_its_caps_stated_when_run_access_is_allowed() {
+    use skein_connectors::{local_connector_with_run, RunAccess, RUN_OUTPUT_BYTE_CAP, RUN_TIMEOUT};
+
+    let dir = TempDir::new().expect("a temp dir");
+    let root = FsRoot::new(dir.path()).expect("a canonicalizable root");
+    let mut allowed = local_connector_with_run(root, RunAccess::Allowed)
+        .expect("the sandbox builds and the server serves");
+
+    assert_eq!(
+        names(&mut allowed),
+        vec!["fs_list", "fs_read", "fs_write", "proc_run"]
+    );
+
+    let catalogue = allowed.list().expect("tools/list reaches the server");
+    let spec = catalogue
+        .iter()
+        .find(|s| s.name == "proc_run")
+        .expect("proc_run is advertised");
+    // The description **is** the contract the model reads, so the caps it has
+    // to work within have to be in it rather than only in a Rust constant.
+    assert!(
+        spec.description
+            .contains(&RUN_TIMEOUT.as_secs().to_string())
+            && spec.description.contains(&RUN_OUTPUT_BYTE_CAP.to_string()),
+        "the wall clock and the output cap must be stated: {}",
+        spec.description
+    );
+    assert!(
+        spec.description.contains("PATH is not searched"),
+        "and so must the resolution rule, or a model will keep naming `cargo`: {}",
+        spec.description
+    );
+    // Derived by `schemars` from `RunParams`, not written here.
+    let properties = spec.parameters["properties"]
+        .as_object()
+        .unwrap_or_else(|| panic!("{}", spec.parameters));
+    assert!(properties.contains_key("command"), "{}", spec.parameters);
+    assert!(properties.contains_key("args"), "{}", spec.parameters);
+}
+
+/// The platform gate, on the two legs that are not Windows (SC-007).
+///
+/// **Fails loudly, never silently degrades.** An operator who asks for a
+/// launcher on Linux or macOS gets a message naming the platform, not a server
+/// that quietly serves one tool fewer than they asked for. This test is the
+/// only one in the slice that runs on two of the three CI legs.
+#[cfg(not(windows))]
+#[test]
+fn there_is_no_launcher_and_no_proc_tool_off_windows() {
+    use skein_connectors::{local_connector_with_run, EmbeddedServer, RunAccess};
+    use skein_sandbox::Sandbox;
+
+    // `expect_err` is unavailable here and that is not an accident: it needs
+    // `T: Debug`, and off Windows `Sandbox` is an uninhabited type with no
+    // business deriving anything. Matching says the same thing without asking
+    // the product for a trait only a test wants.
+    fn refusal<T, E>(outcome: Result<T, E>, expectation: &str) -> E {
+        match outcome {
+            Ok(_) => panic!("{expectation}"),
+            Err(e) => e,
+        }
+    }
+
+    let dir = TempDir::new().expect("a temp dir");
+
+    let refused = refusal(
+        Sandbox::create(dir.path()),
+        "there is no launcher backend on this platform",
+    );
+    assert!(
+        refused.contains("Windows-only"),
+        "the refusal must name the platform rule: {refused}"
+    );
+
+    let root = FsRoot::new(dir.path()).expect("a canonicalizable root");
+    let carried = refusal(
+        EmbeddedServer::with_run(root, RunAccess::Allowed),
+        "asking for a launcher here must fail rather than serve a missing tool",
+    );
+    assert!(
+        carried.to_string().contains("Windows-only"),
+        "and it must carry the same reason up: {carried}"
+    );
+
+    // Denied is still a perfectly ordinary configuration here, and it must
+    // advertise the three tools this platform really does have.
+    let root = FsRoot::new(dir.path()).expect("a canonicalizable root");
+    let mut denied =
+        local_connector_with_run(root, RunAccess::Denied).expect("a denied launcher still serves");
+    let advertised = names(&mut denied);
+    assert!(
+        !advertised.iter().any(|name| name.starts_with("proc_")),
+        "no `proc_` tool may be advertised off Windows: {advertised:?}"
+    );
+    assert_eq!(advertised, vec!["fs_list", "fs_read", "fs_write"]);
+}

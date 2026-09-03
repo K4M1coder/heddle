@@ -20,7 +20,10 @@ use rmcp::model::{ServerCapabilities, ServerInfo};
 use rmcp::{tool, tool_handler, tool_router, ServerHandler};
 use schemars::JsonSchema;
 use serde::Deserialize;
+use skein_core::SkeinError;
+use skein_sandbox::Sandbox;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// The most a single `fs_read` may return.
 ///
@@ -48,6 +51,40 @@ pub const LOG_COUNT_CAP: u32 = 50;
 /// permanently unreadable. A labelled truncation is a smaller answer; a silent
 /// one would be a wrong answer in a right answer's shape.
 pub const STATUS_ENTRY_CAP: usize = 200;
+
+/// The most a single `proc_run` may return **per stream**.
+///
+/// This one **truncates and labels the drop**, following [`STATUS_ENTRY_CAP`]'s
+/// reasoning rather than [`READ_BYTE_CAP`]'s, and the difference is decidable:
+/// the process has already run and cannot be un-run, and there is no smaller
+/// call to suggest — a model cannot ask for fewer bytes of output. A refusal
+/// would throw away a side effect a human approved.
+///
+/// Half of `READ_BYTE_CAP`, because a run carries **two** streams into the same
+/// prompt and the same Ledger row, so 16 KiB × 2 is the same worst case as one
+/// 32 KiB read.
+pub const RUN_OUTPUT_BYTE_CAP: usize = 16 * 1024;
+
+/// The wall clock one `proc_run` gets.
+///
+/// Justified against `ModelArgs::timeout_secs`, which defaults to 120 s for a
+/// **whole turn**: a single tool that can eat the entire turn budget makes
+/// `LoopBudget` meaningless. Thirty seconds covers a linter or a focused test
+/// run; the tool's description states the number so a model can plan around it,
+/// and exceeding it is an `Err` — a tool error `NativeLoop::mediate` survives.
+pub const RUN_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Whether this run may launch a process at all.
+///
+/// A second opt-in on top of `--fs-root`, and unconditional on every OS so no
+/// caller needs a `#[cfg]` around a call site. Running a process is a larger
+/// capability than writing a file, so deny-by-default is structural here rather
+/// than merely policy (Constitution VI).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunAccess {
+    Denied,
+    Allowed,
+}
 
 /// `fs_read`'s arguments. Public because the schema `schemars` derives from
 /// this type **is** the contract the model is shown: [`crate::LocalConnector`]
@@ -90,12 +127,38 @@ pub struct LogParams {
     pub count: u32,
 }
 
+/// `proc_run`'s arguments. Public for the reason [`ReadParams`] documents.
+///
+/// **A vector and never a command line.** There is no `cwd` — it is the
+/// configured root — no `env`, no `stdin`, and no per-call timeout, because
+/// each of those would be a second answer to a question this tool already
+/// answers once.
+///
+/// The typed boundary is what makes a malformed call a refusal the model is
+/// told about: `args` that is not an array of strings fails deserialization,
+/// which rmcp reports as `isError: true`.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct RunParams {
+    /// Executable: a bare name found in `System32`, or a path relative to the
+    /// configured root. Never a shell command line.
+    pub command: String,
+    /// Arguments, each a separate value. No shell syntax is interpreted.
+    pub args: Vec<String>,
+}
+
 /// The tool holder. `Clone` because rmcp's router hands each request a clone of
 /// the handler; the root is behind an [`Arc`] so every clone enforces the same
 /// containment rule rather than a copy of it.
 #[derive(Clone)]
 pub struct EmbeddedServer {
     root: Arc<FsRoot>,
+    /// `Some` exactly when the `proc_run` route is enabled, and behind an
+    /// [`Arc`] for the reason the root is.
+    ///
+    /// Off Windows [`Sandbox`] is uninhabited, so this can only ever be `None`
+    /// there — the platform gate needs no `#[cfg]` at this level because the
+    /// type already carries it.
+    sandbox: Option<Arc<Sandbox>>,
     tool_router: ToolRouter<Self>,
 }
 
@@ -125,13 +188,53 @@ impl EmbeddedServer {
     /// turning a model's invented `git_status` into a survivable `denied`
     /// instead of the end of the run.
     pub fn new(root: FsRoot) -> Self {
+        Self::build(root, None)
+    }
+
+    /// [`EmbeddedServer::new`] plus the process launcher, and **fallible**
+    /// where `new` is infallible.
+    ///
+    /// The asymmetry is the decision. A root that is not a git repository is an
+    /// ordinary configuration, so `new` gates those routes and carries on; a
+    /// [`RunAccess::Allowed`] whose sandbox cannot be built is an operator
+    /// error — an unsupported platform, or a directory whose ACL cannot be
+    /// written — and it must be an exit code before a model is shown a tool,
+    /// not a refusal per call.
+    ///
+    /// The route gate here is **necessary and not sufficient**, exactly as
+    /// `new`'s git gate is: a disabled route is *not found*, which rmcp reports
+    /// as a protocol error, `RmcpToolTransport` maps to `SkeinError::Tool`, and
+    /// `NativeLoop::mediate` treats as fatal. So `skein-cli`'s allowlist must
+    /// omit `proc_run` in exactly the cases this disables it, turning a model's
+    /// invented `proc_run` into a survivable `denied` instead of the end of the
+    /// run.
+    pub fn with_run(root: FsRoot, run: RunAccess) -> skein_core::Result<Self> {
+        let sandbox = match run {
+            RunAccess::Denied => None,
+            RunAccess::Allowed => Some(Arc::new(
+                Sandbox::create(root.path()).map_err(SkeinError::Tool)?,
+            )),
+        };
+        Ok(Self::build(root, sandbox))
+    }
+
+    /// The one place a route is gated, so the two constructors cannot disagree
+    /// about what this server can actually do.
+    fn build(root: FsRoot, sandbox: Option<Arc<Sandbox>>) -> Self {
         let mut tool_router = Self::tool_router();
         if !git::is_git_repository(&root) {
             tool_router.disable_route("git_status");
             tool_router.disable_route("git_log");
         }
+        // Only registered on Windows, so only disablable there. Everywhere
+        // else there is no such route to advertise in the first place.
+        #[cfg(windows)]
+        if sandbox.is_none() {
+            tool_router.disable_route("proc_run");
+        }
         EmbeddedServer {
             root: Arc::new(root),
+            sandbox,
             tool_router,
         }
     }
@@ -218,6 +321,34 @@ impl EmbeddedServer {
             ));
         }
         git::log(&self.root, count)
+    }
+
+    /// Windows-only in v0 (ADR-0006). On the other two platforms this route
+    /// does not exist, so nothing advertises it and nothing can call it.
+    #[cfg(windows)]
+    #[tool(
+        description = "Run one program inside a Windows sandbox over the configured root, and \
+                       return its exit code and both output streams. `command` is either a bare \
+                       name found in %SystemRoot%\\System32 (PATH is not searched) or a path \
+                       relative to the configured root; `args` is a list of separate values. No \
+                       shell is involved: pipes, redirection, `&&`, globbing and variable \
+                       expansion are not interpreted. The process cannot reach the network and \
+                       cannot write outside the configured root, it starts in that root, it gets \
+                       no stdin, and it is killed after 30 seconds. Each output stream is \
+                       truncated at 16384 bytes with a note saying how much was dropped."
+    )]
+    pub fn proc_run(&self, params: Parameters<RunParams>) -> Result<String, String> {
+        let RunParams { command, args } = params.0;
+        // Unreachable while `build` is the only constructor of this field: it
+        // disables the route in exactly the `None` case. It is an `Err` rather
+        // than an `expect` because a panic inside an rmcp handler would take
+        // the session with it, where a tool error is something the model is
+        // told and the run survives.
+        let sandbox = self
+            .sandbox
+            .as_ref()
+            .ok_or_else(|| "this run was not started with process launching enabled".to_string())?;
+        crate::run::execute(sandbox, &self.root, &command, &args)
     }
 }
 
