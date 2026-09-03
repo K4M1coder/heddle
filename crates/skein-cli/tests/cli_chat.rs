@@ -764,3 +764,73 @@ fn chat_with_an_fs_root_advertises_the_read_tools_and_reads_a_real_file() {
     ]);
     assert_eq!(stdout(&verify), format!("{run_id}\tok\t12 steps\n"));
 }
+
+#[test]
+fn chat_without_an_fs_root_sends_no_tools_key_at_all() {
+    let provider = StubProvider::serving(vec![reply("no tools needed", "stop", 5)]);
+    let (_dir, root) = temp_root();
+
+    let out = skein(&[
+        "chat",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "mu",
+        "--model",
+        "llama3.1",
+        "--base-url",
+        &provider.base_url,
+        "--prompt",
+        "just answer",
+    ]);
+
+    assert_eq!(out.status.code(), Some(0), "stderr:\n{}", stderr(&out));
+    assert_eq!(stdout(&out), "no tools needed\n");
+    // Not "an empty tools array": no key. The connector is opt-in, so a run
+    // without `--fs-root` puts exactly the bytes on the wire it put there
+    // before the connector existed.
+    let body = provider.request_body();
+    assert!(
+        body.get("tools").is_none(),
+        "a run with no fs root must advertise nothing at all: {body}"
+    );
+}
+
+#[test]
+fn chat_refuses_an_fs_root_that_does_not_exist_before_opening_a_chain() {
+    let (_dir, root) = temp_root();
+    let missing = root.join("no-such-directory");
+
+    let out = skein(&[
+        "chat",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "nu",
+        "--model",
+        "llama3.1",
+        "--base-url",
+        &dead_loopback_url(),
+        "--fs-root",
+        missing.to_str().expect("a utf-8 temp path"),
+        "--prompt",
+        "should never be sent",
+    ]);
+
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(stdout(&out), "");
+    assert!(
+        stderr(&out).contains("no-such-directory"),
+        "stderr must name the directory the operator gave, got:\n{}",
+        stderr(&out)
+    );
+    // The same ordering the endpoint guard and the redactor are held to: a
+    // refused root must leave no chain behind to hold a run that never ran.
+    assert!(
+        !Silo::open(&root, "nu")
+            .expect("a silo path")
+            .ledger_path()
+            .exists(),
+        "a refused fs root must not open a chain"
+    );
+}

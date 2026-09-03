@@ -22,6 +22,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
 
@@ -32,21 +33,31 @@ use tempfile::TempDir;
 // slice's controls.
 // ---------------------------------------------------------------------------
 
-/// A local provider answering a fixed script, one connection per turn.
+/// Long enough that a slow runner never trips it, short enough that a child
+/// which silently sends nothing fails as a failure rather than as a hang.
+const OBSERVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// A local provider answering a fixed script, one connection per turn, and
+/// reporting the request bodies the child sent it.
 struct StubProvider {
     base_url: String,
+    requests: Receiver<String>,
 }
 
 impl StubProvider {
     fn serving(bodies: Vec<String>) -> StubProvider {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
         let addr = listener.local_addr().expect("the bound address");
+        let (tx, requests) = mpsc::channel();
         std::thread::spawn(move || {
             for body in bodies {
                 let Ok((mut socket, _)) = listener.accept() else {
                     return;
                 };
-                if read_request(&mut socket).is_none() {
+                let Some(seen) = read_request(&mut socket) else {
+                    return;
+                };
+                if tx.send(seen).is_err() {
                     return;
                 }
                 let _ = socket.write_all(
@@ -61,11 +72,25 @@ impl StubProvider {
         });
         StubProvider {
             base_url: format!("http://{addr}/v1"),
+            requests,
+        }
+    }
+
+    /// The next request's body, parsed: what the real binary put on the wire.
+    fn request_body(&self) -> serde_json::Value {
+        match self.requests.recv_timeout(OBSERVE_TIMEOUT) {
+            Ok(body) => serde_json::from_str(&body).expect("a JSON request body"),
+            Err(RecvTimeoutError::Timeout) => {
+                panic!("the child sent no request within {OBSERVE_TIMEOUT:?}")
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                panic!("the stub provider stopped before a request arrived")
+            }
         }
     }
 }
 
-fn read_request(socket: &mut TcpStream) -> Option<()> {
+fn read_request(socket: &mut TcpStream) -> Option<String> {
     let mut reader = BufReader::new(socket.try_clone().ok()?);
     let mut len = 0usize;
     loop {
@@ -82,7 +107,7 @@ fn read_request(socket: &mut TcpStream) -> Option<()> {
     }
     let mut body = vec![0u8; len];
     reader.read_exact(&mut body).ok()?;
-    Some(())
+    Some(String::from_utf8_lossy(&body).to_string())
 }
 
 fn reply(content: &str, finish_reason: &str, total_tokens: u64) -> String {
@@ -390,4 +415,160 @@ fn acp_agent_exits_zero_when_its_client_disconnects() {
     // stdout is the protocol: one stray byte would corrupt the JSON-RPC stream,
     // and with no client there is no frame to write either.
     assert_eq!(stdout(&out), "");
+}
+
+// ---- the fs connector (spec 016) ----
+
+#[test]
+fn acp_agent_accepts_an_fs_root_and_still_serves_a_session() {
+    let provider = StubProvider::serving(vec![reply("read and answered", "stop", 14)]);
+    let (_dir, root) = temp_root();
+    let files = TempDir::new().expect("a temp fs root");
+    std::fs::write(files.path().join("notes.txt"), "hello from disk")
+        .expect("a file under the fs root");
+
+    let updates: Arc<Mutex<Vec<SessionUpdate>>> = Arc::default();
+    let collected = updates.clone();
+    let root_flag = root_arg(&root);
+    let fs_root_flag = root_arg(files.path());
+
+    // The risk this test exists for is not the flag. It is that a session
+    // builds its connector inside `SkeinAgent::open`, which runs under
+    // `futures::executor::block_on` -- and `Runtime::block_on` panics inside an
+    // entered *tokio* runtime. Only a real handshake against the real binary
+    // shows that the distinction holds.
+    let transport = AcpAgent::new(AcpAgentConfig::new(env!("CARGO_BIN_EXE_skein")).args([
+        "acp-agent",
+        "--root",
+        &root_flag,
+        "--silo",
+        "sigma",
+        "--model",
+        "llama3.1",
+        "--base-url",
+        &provider.base_url,
+        "--fs-root",
+        &fs_root_flag,
+        "--timeout-secs",
+        "10",
+    ]));
+
+    let stop = run_with_timeout(move || {
+        futures::executor::block_on(
+            Client
+                .builder()
+                .name("test-client")
+                .on_receive_notification(
+                    async move |notification: SessionNotification, _cx| {
+                        collected
+                            .lock()
+                            .expect("the update log")
+                            .push(notification.update);
+                        Ok(())
+                    },
+                    agent_client_protocol::on_receive_notification!(),
+                )
+                .connect_with(transport, async move |cx: ConnectionTo<Agent>| {
+                    cx.send_request(InitializeRequest::new(ProtocolVersion::V1))
+                        .block_task()
+                        .await?;
+                    let session = cx
+                        .send_request(NewSessionRequest::new(PathBuf::from(".")))
+                        .block_task()
+                        .await?;
+                    let response = cx
+                        .send_request(PromptRequest::new(
+                            session.session_id,
+                            vec![ContentBlock::Text(TextContent::new(
+                                "what is in notes.txt?",
+                            ))],
+                        ))
+                        .block_task()
+                        .await?;
+                    Ok(response.stop_reason)
+                }),
+        )
+        .expect("the ACP client ran to completion")
+    });
+
+    assert_eq!(stop, StopReason::EndTurn);
+    assert!(
+        chunks(&updates).iter().any(|c| c == "read and answered"),
+        "the answer must reach the client, got: {:?}",
+        chunks(&updates)
+    );
+
+    // The session really had tools, and it had the *agent's* list: `fs_write`
+    // is allowlisted and approved here, unlike in `skein chat`, because there
+    // is a human behind the editor for `AcpPermissionTransport` to ask.
+    let body = provider.request_body();
+    let advertised: Vec<&str> = body["tools"]
+        .as_array()
+        .unwrap_or_else(|| panic!("the request must carry a tools array: {body}"))
+        .iter()
+        .map(|t| t["function"]["name"].as_str().expect("a tool name"))
+        .collect();
+    assert_eq!(advertised, vec!["fs_read", "fs_list", "fs_write"]);
+
+    assert_eq!(
+        logged_kinds(&root, "sigma", "skein-1#1"),
+        vec![
+            "iteration_boundary",
+            "llm_request",
+            "llm_response",
+            "budget_spent",
+            "exit"
+        ]
+    );
+}
+
+#[test]
+fn acp_agent_refuses_an_fs_root_that_does_not_exist_before_serving() {
+    let (_dir, root) = temp_root();
+    let missing = root.join("no-such-directory");
+
+    // No ACP client: a root that does not exist must stop the command before
+    // the handshake, exactly as a non-loopback base URL does.
+    let out = skein(&[
+        "acp-agent",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "tau",
+        "--model",
+        "llama3.1",
+        "--fs-root",
+        missing.to_str().expect("a utf-8 temp path"),
+    ]);
+
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        stdout(&out),
+        "",
+        "stdout is the protocol; nothing may go there"
+    );
+    assert!(
+        stderr(&out).contains("no-such-directory"),
+        "stderr:\n{}",
+        stderr(&out)
+    );
+    assert!(
+        !Silo::open(&root, "tau")
+            .expect("a silo path")
+            .ledger_path()
+            .exists(),
+        "a refused fs root must not open a chain"
+    );
+}
+
+#[test]
+fn acp_agent_documents_the_fs_root_flag() {
+    let help = skein(&["acp-agent", "--help"]);
+
+    assert_eq!(help.status.code(), Some(0), "stderr:\n{}", stderr(&help));
+    assert!(
+        stdout(&help).contains("--fs-root"),
+        "an opt-in capability an operator cannot discover is not opt-in, got:\n{}",
+        stdout(&help)
+    );
 }
