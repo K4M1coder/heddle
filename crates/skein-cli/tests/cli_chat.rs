@@ -216,7 +216,12 @@ fn chat_answers_from_a_local_provider_and_records_the_run() {
         "--run",
         &run_id,
     ]);
-    assert_eq!(verify.status.code(), Some(0), "stderr:\n{}", stderr(&verify));
+    assert_eq!(
+        verify.status.code(),
+        Some(0),
+        "stderr:\n{}",
+        stderr(&verify)
+    );
     assert_eq!(stdout(&verify), format!("{run_id}\tok\t5 steps\n"));
 }
 
@@ -367,7 +372,12 @@ fn chat_fails_when_the_engine_stops_the_run_without_an_answer() {
         "--run",
         &run_id,
     ]);
-    assert_eq!(verify.status.code(), Some(0), "stderr:\n{}", stderr(&verify));
+    assert_eq!(
+        verify.status.code(),
+        Some(0),
+        "stderr:\n{}",
+        stderr(&verify)
+    );
     assert_eq!(stdout(&verify), format!("{run_id}\tok\t9 steps\n"));
 }
 
