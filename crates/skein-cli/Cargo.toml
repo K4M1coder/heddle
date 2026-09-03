@@ -19,5 +19,10 @@ clap.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+# The acceptance criterion is a real ACP client driving the real binary as a
+# subprocess, so the test binary names the protocol crate deliberately. Product
+# code must not (FR-007).
+agent-client-protocol.workspace = true
+futures.workspace = true
 tempfile.workspace = true
 rusqlite.workspace = true
