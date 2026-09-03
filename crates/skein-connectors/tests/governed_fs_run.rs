@@ -19,6 +19,7 @@ use skein_core::{
 use skein_gateway::{LocalEndpoint, OpenAiCompatClient};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::Duration;
 use tempfile::TempDir;
@@ -178,6 +179,7 @@ fn chat_policy() -> ToolPolicy {
 
 struct Harness {
     _dir: TempDir,
+    root: PathBuf,
     connector: LocalConnector,
 }
 
@@ -199,13 +201,20 @@ fn harness(files: &[(&str, &str)]) -> Harness {
     Harness {
         connector: fs_connector(FsRoot::new(&root).expect("a canonicalizable root"))
             .expect("the embedded server starts"),
+        root,
         _dir: dir,
     }
 }
 
 /// One governed run against `stub`, under `policy`, with `secrets` configured
-/// for redaction. Returns the run's chain.
-fn governed_run(stub: &Stub, harness: Harness, policy: ToolPolicy, secrets: Vec<String>) -> Ledger {
+/// for redaction. Returns the run's chain. The caller keeps the harness's temp
+/// directory alive, because it holds the files the run is about.
+fn governed_run(
+    stub: &Stub,
+    connector: LocalConnector,
+    policy: ToolPolicy,
+    secrets: Vec<String>,
+) -> Ledger {
     let redactor = Redactor::new(secrets);
     let client = OpenAiCompatClient::new(
         LocalEndpoint::parse(&stub.base_url).expect("a loopback base URL"),
@@ -215,7 +224,7 @@ fn governed_run(stub: &Stub, harness: Harness, policy: ToolPolicy, secrets: Vec<
     let mut loops = NativeLoop::new(
         client,
         NoGroundTruth,
-        ToolGateway::new(harness.connector, policy, redactor.clone()),
+        ToolGateway::new(connector, policy, redactor.clone()),
         redactor,
     );
     let mut ledger = Ledger::new();
@@ -254,12 +263,12 @@ fn a_model_asks_for_a_file_and_gets_its_real_contents_through_the_governed_gatew
         tool_call_reply("fs_read", serde_json::json!({"path": "notes.txt"})),
         final_reply("the first line is: the first line of notes"),
     ]);
-    let ledger = governed_run(
-        &stub,
-        harness(&[("notes.txt", FILE_CONTENTS)]),
-        chat_policy(),
-        Vec::new(),
-    );
+    let Harness {
+        _dir,
+        root: _root,
+        connector,
+    } = harness(&[("notes.txt", FILE_CONTENTS)]);
+    let ledger = governed_run(&stub, connector, chat_policy(), Vec::new());
 
     // 1. The first request tells the model what it can do, with the schemas the
     //    server derived — and only what the policy allows, in allowlist order.
@@ -354,4 +363,107 @@ fn a_model_asks_for_a_file_and_gets_its_real_contents_through_the_governed_gatew
     ledger
         .verify_chain("run-fs")
         .expect("a run that called a real tool still verifies");
+}
+
+/// The last message of the run's final captured request: what the model was
+/// told about the tool it asked for.
+fn tool_feedback(ledger: &Ledger) -> String {
+    captured_requests(ledger)
+        .last()
+        .expect("a second request")
+        .messages
+        .last()
+        .expect("a fed-back tool result")
+        .text()
+}
+
+#[test]
+fn an_unlisted_write_never_reaches_the_server() {
+    let stub = Stub::serving(vec![
+        tool_call_reply(
+            "fs_write",
+            serde_json::json!({"path": "planted.txt", "content": "planted"}),
+        ),
+        final_reply("I was not allowed to write."),
+    ]);
+    let Harness {
+        _dir,
+        root,
+        connector,
+    } = harness(&[("notes.txt", FILE_CONTENTS)]);
+
+    // `chat_policy` does not allowlist `fs_write` at all. The server implements
+    // it, and would have written the file — so its **absence on disk** is the
+    // ground truth that nothing downstream of the policy ran. Not a counter in
+    // the server: an effect the server would have had.
+    let ledger = governed_run(&stub, connector, chat_policy(), Vec::new());
+
+    assert!(
+        !root.join("planted.txt").exists(),
+        "an unlisted mutating tool must have had no effect whatsoever"
+    );
+    let told = tool_feedback(&ledger);
+    assert!(
+        told.starts_with("[tool_result tool=fs_write status=denied]")
+            && told.contains("not in the allowlist"),
+        "the model must be told plainly why, got: {told}"
+    );
+    // The refusal is history, not an error: the attempt and the verdict are on
+    // the chain, there is no `ToolResult` because nothing was executed, and the
+    // run went on to answer.
+    assert_eq!(
+        ledger
+            .log("run-fs")
+            .iter()
+            .filter(|s| matches!(
+                s.kind,
+                StepKind::ToolCall | StepKind::Approval | StepKind::ToolResult
+            ))
+            .map(|s| s.kind.clone())
+            .collect::<Vec<_>>(),
+        vec![StepKind::ToolCall, StepKind::Approval]
+    );
+    ledger
+        .verify_chain("run-fs")
+        .expect("a run holding a denial verifies");
+}
+
+#[test]
+fn an_out_of_root_read_is_refused_by_the_server_and_the_run_survives() {
+    let stub = Stub::serving(vec![
+        tool_call_reply(
+            "fs_read",
+            serde_json::json!({"path": "../outside/secrets.txt"}),
+        ),
+        final_reply("That file is outside my root."),
+    ]);
+    let Harness {
+        _dir,
+        root: _root,
+        connector,
+    } = harness(&[("notes.txt", FILE_CONTENTS)]);
+
+    // `fs_read` *is* allowlisted, so the policy allows this and the server is
+    // genuinely reached. Containment is the server's decision, not the
+    // governor's, and this is the test that says which layer refused.
+    let ledger = governed_run(&stub, connector, chat_policy(), Vec::new());
+
+    let told = tool_feedback(&ledger);
+    assert!(
+        told.starts_with("[tool_result tool=fs_read status=ok]"),
+        "`ok` is right and load-bearing: the *transport* succeeded, and the \
+         refusal is inside the result where the model can read it — a transport \
+         failure would have ended the run. Got: {told}"
+    );
+    assert!(
+        told.contains("\"isError\":true") && told.contains("outside the root"),
+        "the server's own refusal must reach the model: {told}"
+    );
+    assert!(
+        !told.contains("not yours"),
+        "the out-of-root file's contents must not appear anywhere: {told}"
+    );
+    ledger
+        .verify_chain("run-fs")
+        .expect("a run holding a tool-level refusal verifies");
 }
