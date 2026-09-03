@@ -18,5 +18,5 @@
 - [x] `rmcp` Tool Gateway (promote Spike 4) — `specs/005-tool-gateway/`
 - [ ] ACP client facade over the native loop + gateway
 - [x] silo-backed durable Ledger (SQLite) — `specs/009-silo-ledger/`, `crates/skein-silo`
-- [ ] `SecretProvider` (OS keychain)
+- [x] `SecretProvider` (OS keychain) + JIT `Redactor` — `specs/010-secret-provider/`
 - [ ] `skein-cli` reference client

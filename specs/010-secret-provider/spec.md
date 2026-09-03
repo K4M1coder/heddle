@@ -1,6 +1,6 @@
 # Feature Specification: `SecretProvider` (OS keychain) + just-in-time `Redactor` (v0 slice)
 
-**Feature Branch:** `010-secret-provider` · **Created:** 2026-09-03 · **Status:** Draft
+**Feature Branch:** `010-secret-provider` · **Created:** 2026-09-03 · **Status:** Implemented (v0 slice)
 **Input:** `specs/009-silo-ledger/tasks.md` "Next slice" — *"`SecretProvider` (OS keychain) + JIT
 `Redactor` — spec 010, extending `crates/skein-silo`"* · Constitution VI (**secrets by reference,
 never by value**, resolved just-in-time, redacted from logs), IV (**the core discovers secrets

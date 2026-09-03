@@ -46,7 +46,7 @@ slice 009 merged.
 - [x] **T8** control diff: `git diff dev` empty on `crates/skein-mcp/`, `crates/skein-acp/`,
       `spikes/`, `.github/` and `rust-toolchain.toml`
 - [x] **T9** dependency drift recorded below
-- [ ] **T10** close out: tick the `SecretProvider` bullet in spec 009's "Next slice" list and in
+- [x] **T10** close out: tick the `SecretProvider` bullet in spec 009's "Next slice" list and in
       `specs/003-skein-core-foundation/tasks.md`, and set this spec's Status
 
 ## Control baseline (T2)

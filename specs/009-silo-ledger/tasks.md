@@ -172,7 +172,7 @@ real resolution rather than from the previous slice's note.
   picked up with no CI edit — confirmed by reading, not edited.
 
 ## Next slice (not this feature)
-- [ ] `SecretProvider` (OS keychain) + JIT `Redactor` — spec 010, extending `crates/skein-silo`
+- [x] `SecretProvider` (OS keychain) + JIT `Redactor` — spec 010, extending `crates/skein-silo`
 - [ ] `skein-cli` reference client and `skein ledger log|show|verify` — the first consumer that
       opens a silo by name rather than by path
 - [ ] bounded / paged `Ledger` reads: today `Ledger::open` mirrors a silo's whole history in RAM.
