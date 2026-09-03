@@ -10,7 +10,7 @@
 //!
 //! No test here needs a running Ollama. The one that does is `#[ignore]`d.
 
-use skein_core::{Content, Message, ModelClient, Role, SkeinError, TurnRequest};
+use skein_core::{Content, Message, ModelClient, Role, SkeinError, ToolSpec, TurnRequest};
 use skein_gateway::{LocalEndpoint, OpenAiCompatClient};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -223,6 +223,39 @@ fn turn_sends_an_openai_chat_completions_request() {
     assert_eq!(
         body,
         r#"{"model":"llama3.1","messages":[{"role":"user","content":"hello"}],"stream":false}"#
+    );
+}
+
+#[test]
+fn advertised_tools_are_sent_in_openais_function_shape() {
+    let stub = Stub::serving(vec![Reply::ok(provider_reply("ok", "stop", 4))]);
+    let mut model = client(stub.base_url(), "llama3.1");
+
+    model
+        .turn(&TurnRequest {
+            run_id: "run-1".into(),
+            messages: vec![Message::user_text("hello")],
+            tools: vec![ToolSpec::new(
+                "fs_read",
+                "Read a UTF-8 text file.",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {"path": {"type": "string"}},
+                    "required": ["path"],
+                }),
+            )],
+        })
+        .expect("the stub answers");
+
+    let seen = stub.request();
+    let (_, body) = seen.split_once("\n\n").expect("a blank-line separator");
+    // Byte-exact for the same reason the no-tools request is: these bytes are a
+    // provider contract, and `strict` is *absent* on purpose — it is an OpenAI
+    // structured-outputs extension, and sending an unrecognised key to a local
+    // provider buys nothing. An assertion on fields could not catch its return.
+    assert_eq!(
+        body,
+        r#"{"model":"llama3.1","messages":[{"role":"user","content":"hello"}],"stream":false,"tools":[{"type":"function","function":{"name":"fs_read","description":"Read a UTF-8 text file.","parameters":{"properties":{"path":{"type":"string"}},"required":["path"],"type":"object"}}}]}"#
     );
 }
 
@@ -456,7 +489,7 @@ fn finish_reason_length_is_not_a_final_answer() {
 
 #[test]
 fn tool_calls_are_translated_and_are_not_a_final_answer() {
-    // This client advertises no tools, so a provider should not send these. It
+    // This *request* advertises no tools, so a provider should not send these. It
     // translates them anyway: the chain records the TurnResponse and not the
     // raw body, so silently dropping a model intent would weaken Constitution
     // V. `content` is null on a tool-calling turn, which must not be a parse

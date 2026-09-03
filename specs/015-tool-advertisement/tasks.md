@@ -48,7 +48,7 @@ branch `015-tool-advertisement` cut from `dev` after slice 014 merged.
       `TurnRequest`; a `list` failure is fatal
 - [x] **T7** RED→GREEN — `AcpPermissionTransport::list` forwards to its inner transport (the slice's
       highest-risk line, its own test)
-- [ ] **T8** RED→GREEN — `ChatRequest.tools` in `crates/skein-gateway/src/lib.rs`, byte-exact
+- [x] **T8** RED→GREEN — `ChatRequest.tools` in `crates/skein-gateway/src/lib.rs`, byte-exact
 - [ ] **T9** gates, control diff, dependency drift, close-out
 
 ## Control baseline (T1)
@@ -131,3 +131,16 @@ All on 2026-09-03.
   - Green: **16 passed** where 15 had passed, with the fifteen unchanged. `CataloguedTransport` is a
     new double rather than a field on `CountingTransport`, so the three pre-existing permission
     tests stay controls.
+
+- **T8** `cargo test -p skein-gateway --test openai_compat advertised` before `ChatRequest` had the
+  field — **1 failed**, the client having silently dropped the whole array:
+  - `left: "{\"model\":\"llama3.1\",\"messages\":[…],\"stream\":false}"` /
+    `right: "…,\"stream\":false,\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"fs_read\",…}}]}"`,
+    at `crates/skein-gateway/tests/openai_compat.rs:256`
+  - Green: **15 passed, 1 ignored** where 14 had passed, and
+    `turn_sends_an_openai_chat_completions_request`'s byte-exact literal is **unchanged** — the
+    control D5 exists to keep.
+  - One comment corrected while in the file: `tool_calls_are_translated_and_are_not_a_final_answer`
+    said *"This client advertises no tools"*, which stopped being true of the client the moment
+    `ChatRequest` grew the field. It now says *"This **request** advertises no tools"*, which is what
+    the test actually arranges. No assertion moved.

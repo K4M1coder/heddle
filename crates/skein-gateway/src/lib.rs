@@ -20,7 +20,9 @@
 //! `block_on`-based client would panic; a blocking one cannot.
 
 use serde::{Deserialize, Serialize};
-use skein_core::{Message, ModelClient, Result, SkeinError, ToolCall, TurnRequest, TurnResponse};
+use skein_core::{
+    Message, ModelClient, Result, SkeinError, ToolCall, ToolSpec, TurnRequest, TurnResponse,
+};
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 
@@ -231,6 +233,7 @@ impl ModelClient for OpenAiCompatClient {
             model: &self.model,
             messages: req.messages.iter().map(ChatMessage::from).collect(),
             stream: false,
+            tools: req.tools.iter().map(ChatTool::from).collect(),
         })?;
 
         let (status, text) = self.post(&body)?;
@@ -300,12 +303,50 @@ struct ChatRequest<'a> {
     /// Explicit, not implied: a provider that defaulted to SSE would break the
     /// parse silently, and streaming is out of scope for this slice.
     stream: bool,
+    /// Skipped when empty, so a run that advertises nothing puts exactly the
+    /// bytes on the wire it put there before this field existed.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    tools: Vec<ChatTool<'a>>,
 }
 
 #[derive(Serialize)]
 struct ChatMessage<'a> {
     role: &'a str,
     content: String,
+}
+
+/// OpenAI's function-tool envelope. `type` is the wire's discriminator and
+/// `"function"` is the only kind v0 sends.
+#[derive(Serialize)]
+struct ChatTool<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    function: ChatFunction<'a>,
+}
+
+/// `strict` is deliberately absent. It is an OpenAI structured-outputs
+/// extension; Ollama documents its own compatibility layer as experimental
+/// while listing `tools` as supported, so an unrecognised key buys a local
+/// provider nothing. `parameters` is borrowed straight from the [`ToolSpec`] —
+/// the schema on the wire is the one the server derived, never a copy.
+#[derive(Serialize)]
+struct ChatFunction<'a> {
+    name: &'a str,
+    description: &'a str,
+    parameters: &'a serde_json::Value,
+}
+
+impl<'a> From<&'a ToolSpec> for ChatTool<'a> {
+    fn from(spec: &'a ToolSpec) -> ChatTool<'a> {
+        ChatTool {
+            kind: "function",
+            function: ChatFunction {
+                name: &spec.name,
+                description: &spec.description,
+                parameters: &spec.parameters,
+            },
+        }
+    }
 }
 
 impl<'a> From<&'a Message> for ChatMessage<'a> {
