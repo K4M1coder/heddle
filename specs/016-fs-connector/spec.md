@@ -151,7 +151,9 @@ the only way to reach the human.
 - **SC-011** `skein chat --fs-root <nonexistent>` exits 1 with **no ledger file created**.
 - **SC-012** `skein acp-agent --fs-root <dir>` starts, drives a session, and lists the flag in
   `--help`.
-- **SC-013** All 132 pre-existing tests pass, unedited.
+- **SC-013** All 132 pre-existing tests pass with **no assertion changed or removed**. The only edits
+  to pre-existing test files are the two `StubProvider` helpers becoming observable, which SC-009 and
+  SC-010 cannot be written without.
 - **SC-014** `git diff dev -- crates/skein-silo/ spikes/ .github/ rust-toolchain.toml` is **empty**.
 
 ## Assumptions and residuals
