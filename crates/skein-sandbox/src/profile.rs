@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use std::ffi::c_void;
 use std::path::Path;
 use windows::core::{HRESULT, PCWSTR, PWSTR};
-use windows::Win32::Foundation::{LocalFree, HLOCAL};
+use windows::Win32::Foundation::{LocalFree, GENERIC_ALL, HLOCAL};
 use windows::Win32::Security::Authorization::{
     ConvertSidToStringSidW, GetNamedSecurityInfoW, SetEntriesInAclW, SetNamedSecurityInfoW,
     EXPLICIT_ACCESS_W, GRANT_ACCESS, NO_MULTIPLE_TRUSTEE, SE_FILE_OBJECT, TRUSTEE_IS_SID,
@@ -30,7 +30,7 @@ use windows::Win32::Security::{
 /// collision margin than a per-machine set of workspace directories needs.
 const NAME_HASH_BYTES: usize = 8;
 
-pub(crate) fn create(root: &Path) -> Result<Sandbox, String> {
+pub(crate) fn create(root: &Path, run_dirs: &[std::path::PathBuf]) -> Result<Sandbox, String> {
     let name = profile_name(root);
     let wide_name = wide(&name);
 
@@ -70,11 +70,13 @@ pub(crate) fn create(root: &Path) -> Result<Sandbox, String> {
     // Both fallible steps happen while the `PSID` is live, and the `FreeSid`
     // below runs on every path out — including the error ones, which is why
     // neither uses `?` directly.
-    let identity = unsafe { string_sid(sid).and_then(|text| grant(root, sid).map(|()| text)) };
+    let identity =
+        unsafe { string_sid(sid).and_then(|text| grant(root, sid, GENERIC_ALL.0).map(|()| text)) };
     unsafe { FreeSid(sid) };
 
     Ok(Sandbox {
         root: root.to_path_buf(),
+        run_dirs: run_dirs.to_vec(),
         sid: identity?,
     })
 }
@@ -110,7 +112,7 @@ unsafe fn string_sid(sid: PSID) -> Result<String, String> {
     rendered.map_err(|e| format!("the app container identity is not valid UTF-16: {e}"))
 }
 
-/// Merges one inheritable full-access ACE for `sid` into `root`'s DACL.
+/// Merges one inheritable ACE for `sid`, carrying `access`, into `dir`'s DACL.
 ///
 /// **This is the containment mechanism.** A spawned process never passes
 /// through `FsRoot::resolve`; what stops it writing outside the root is that no
@@ -125,8 +127,8 @@ unsafe fn string_sid(sid: PSID) -> Result<String, String> {
 ///
 /// # Safety
 /// `sid` must be a valid `PSID` for the duration of the call.
-unsafe fn grant(root: &Path, sid: PSID) -> Result<(), String> {
-    let name = wide(&win32_path(root));
+unsafe fn grant(dir: &Path, sid: PSID, access: u32) -> Result<(), String> {
+    let name = wide(&win32_path(dir));
     let mut existing: *mut ACL = std::ptr::null_mut();
     let mut descriptor = PSECURITY_DESCRIPTOR::default();
     GetNamedSecurityInfoW(
@@ -140,10 +142,10 @@ unsafe fn grant(root: &Path, sid: PSID) -> Result<(), String> {
         &mut descriptor,
     )
     .ok()
-    .map_err(|e| format!("{}: its permissions are unreadable: {e}", root.display()))?;
+    .map_err(|e| format!("{}: its permissions are unreadable: {e}", dir.display()))?;
 
     let entry = EXPLICIT_ACCESS_W {
-        grfAccessPermissions: windows::Win32::Foundation::GENERIC_ALL.0,
+        grfAccessPermissions: access,
         grfAccessMode: GRANT_ACCESS,
         // Inheritable, so files and directories created inside the root after
         // this call are reachable too — otherwise the child could read the
@@ -164,7 +166,7 @@ unsafe fn grant(root: &Path, sid: PSID) -> Result<(), String> {
     let mut merged: *mut ACL = std::ptr::null_mut();
     let entries = SetEntriesInAclW(Some(&[entry]), Some(existing), &mut merged)
         .ok()
-        .map_err(|e| format!("{}: the new permissions do not build: {e}", root.display()));
+        .map_err(|e| format!("{}: the new permissions do not build: {e}", dir.display()));
     let written = entries.and_then(|()| {
         SetNamedSecurityInfoW(
             PCWSTR(name.as_ptr()),
@@ -176,7 +178,7 @@ unsafe fn grant(root: &Path, sid: PSID) -> Result<(), String> {
             None,
         )
         .ok()
-        .map_err(|e| format!("{}: its permissions are not writable: {e}", root.display()))
+        .map_err(|e| format!("{}: its permissions are not writable: {e}", dir.display()))
     });
 
     if !merged.is_null() {

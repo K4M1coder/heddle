@@ -241,11 +241,13 @@ fn the_connector_does_not_list_proc_run_unless_run_access_is_asked_for() {
 #[cfg(windows)]
 #[test]
 fn the_connector_lists_proc_run_with_its_caps_stated_when_run_access_is_allowed() {
-    use skein_connectors::{local_connector_with_run, RunAccess, RUN_OUTPUT_BYTE_CAP, RUN_TIMEOUT};
+    use skein_connectors::{
+        local_connector_with_run, RunAccess, RunDirs, RUN_OUTPUT_BYTE_CAP, RUN_TIMEOUT,
+    };
 
     let dir = TempDir::new().expect("a temp dir");
     let root = FsRoot::new(dir.path()).expect("a canonicalizable root");
-    let mut allowed = local_connector_with_run(root, RunAccess::Allowed)
+    let mut allowed = local_connector_with_run(root, RunAccess::Allowed(RunDirs::none()))
         .expect("the sandbox builds and the server serves");
 
     assert_eq!(
@@ -289,7 +291,7 @@ fn the_connector_lists_proc_run_with_its_caps_stated_when_run_access_is_allowed(
 #[cfg(not(windows))]
 #[test]
 fn there_is_no_launcher_and_no_proc_tool_off_windows() {
-    use skein_connectors::{local_connector_with_run, EmbeddedServer, RunAccess};
+    use skein_connectors::{local_connector_with_run, EmbeddedServer, RunAccess, RunDirs};
     use skein_sandbox::Sandbox;
 
     // `expect_err` is unavailable here and that is not an accident: it needs
@@ -306,7 +308,7 @@ fn there_is_no_launcher_and_no_proc_tool_off_windows() {
     let dir = TempDir::new().expect("a temp dir");
 
     let refused = refusal(
-        Sandbox::create(dir.path()),
+        Sandbox::create(dir.path(), &[]),
         "there is no launcher backend on this platform",
     );
     assert!(
@@ -316,7 +318,7 @@ fn there_is_no_launcher_and_no_proc_tool_off_windows() {
 
     let root = FsRoot::new(dir.path()).expect("a canonicalizable root");
     let carried = refusal(
-        EmbeddedServer::with_run(root, RunAccess::Allowed),
+        EmbeddedServer::with_run(root, RunAccess::Allowed(RunDirs::none())),
         "asking for a launcher here must fail rather than serve a missing tool",
     );
     assert!(

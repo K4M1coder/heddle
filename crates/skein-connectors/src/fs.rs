@@ -120,3 +120,54 @@ fn rooted_relative(arg: &str) -> std::result::Result<PathBuf, String> {
     }
     Ok(path.to_path_buf())
 }
+
+/// The directories an operator named with `--run-dir`, canonicalized and
+/// deduplicated.
+///
+/// [`FsRoot::new`]'s shape and its recorded reason, applied to a list: an
+/// operator who mistyped a directory wants to hear about it before a model
+/// does. Canonicalizing here means every later comparison and every Win32 call
+/// sees one spelling, exactly as [`FsRoot`] does.
+///
+/// It lives here rather than beside the rule that *uses* it because that rule
+/// is `#[cfg(windows)]` and this type must exist on all three platforms —
+/// [`crate::RunAccess`], which carries one, already does for the reason its own
+/// docstring gives.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunDirs(Vec<PathBuf>);
+
+impl RunDirs {
+    /// The empty allowlist: `--allow-run` with no `--run-dir`, which is
+    /// everything slice 019 shipped.
+    pub fn none() -> RunDirs {
+        RunDirs(Vec::new())
+    }
+
+    /// Canonicalized once, here, for [`FsRoot::new`]'s reason.
+    ///
+    /// Duplicates are dropped **after** canonicalization, so two spellings of
+    /// one directory neither write its ACL twice nor put it on the child's
+    /// `PATH` twice. Order is otherwise the operator's, and that is observable:
+    /// a tie between two run directories goes to the first named.
+    pub fn new(paths: &[PathBuf]) -> Result<RunDirs> {
+        let mut dirs: Vec<PathBuf> = Vec::with_capacity(paths.len());
+        for path in paths {
+            let dir = std::fs::canonicalize(path)
+                .map_err(|e| SkeinError::Tool(format!("run dir {}: {e}", path.display())))?;
+            if !dir.is_dir() {
+                return Err(SkeinError::Tool(format!(
+                    "run dir {} is not a directory",
+                    path.display()
+                )));
+            }
+            if !dirs.contains(&dir) {
+                dirs.push(dir);
+            }
+        }
+        Ok(RunDirs(dirs))
+    }
+
+    pub fn paths(&self) -> &[PathBuf] {
+        &self.0
+    }
+}

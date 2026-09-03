@@ -59,14 +59,14 @@ pub fn serve(
             // One embedded server per session, matching the one client per
             // session above. Built here, under `futures::executor::block_on`
             // rather than a tokio runtime, which is what makes it legal at all.
-            transport: tools.transport(run)?,
+            transport: tools.transport(run.clone())?,
             // Without `--fs-root` this is an empty allowlist and nothing is
             // advertised. With one, `fs_write` is allowed **and** approved —
             // not a weakening but the only way to reach a human, because
             // `call_captured` consults the policy before the transport, so a
             // mutating tool the policy stops never becomes a permission request
             // for `AcpPermissionTransport` to ask.
-            policy: tools.agent_policy(run),
+            policy: tools.agent_policy(&run),
             redactor: redactor.clone(),
             budget: budget.clone(),
             // One chain per session, opened here rather than shared, because

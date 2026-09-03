@@ -8,7 +8,7 @@
 
 use clap::Args;
 use skein_connectors::{
-    is_git_repository, local_connector_with_run, FsRoot, LocalConnector, RunAccess,
+    is_git_repository, local_connector_with_run, FsRoot, LocalConnector, RunAccess, RunDirs,
 };
 use skein_core::{
     LoopBudget, ProgressProbe, Redactor, Result, SecretRef, SkeinError, ToolAccess, ToolCall,
@@ -217,12 +217,12 @@ impl ToolArgs {
     /// [`EmbeddedServer::with_run`] disables the route, because an allowlisted
     /// name with a disabled route is **fatal** where an unlisted name is a
     /// survivable `denied`.
-    pub fn agent_policy(&self, run: RunAccess) -> ToolPolicy {
+    pub fn agent_policy(&self, run: &RunAccess) -> ToolPolicy {
         let mut allowed = read_only();
         allowed.push(("fs_write".to_string(), ToolAccess::Mutating));
         allowed.extend(self.git_tools());
         let mut approved = vec!["fs_write".to_string()];
-        if run == RunAccess::Allowed {
+        if matches!(run, RunAccess::Allowed(_)) {
             allowed.push(("proc_run".to_string(), ToolAccess::Mutating));
             approved.push("proc_run".to_string());
         }
@@ -316,7 +316,7 @@ impl RunArgs {
         }
         #[cfg(windows)]
         {
-            Ok(RunAccess::Allowed)
+            Ok(RunAccess::Allowed(RunDirs::none()))
         }
         #[cfg(not(windows))]
         {

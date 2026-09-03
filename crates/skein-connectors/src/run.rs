@@ -27,7 +27,11 @@ use std::path::PathBuf;
 /// rather than guessing: `cargo`, `node`, `python` and everything else under
 /// the user profile is **not reachable**, and would not launch even if this
 /// found it — no directory there carries an `ALL APPLICATION PACKAGES` ACE.
-pub(crate) fn resolve_exe(root: &FsRoot, command: &str) -> Result<PathBuf, String> {
+pub(crate) fn resolve_exe(
+    root: &FsRoot,
+    _run_dirs: &[PathBuf],
+    command: &str,
+) -> Result<PathBuf, String> {
     // A separator means the model is naming a path, and a path is only ever
     // resolved against the root — which is what refuses an absolute one,
     // however real the file behind it is.
@@ -67,7 +71,7 @@ pub(crate) fn execute(
     command: &str,
     args: &[String],
 ) -> Result<String, String> {
-    let exe = resolve_exe(root, command)?;
+    let exe = resolve_exe(root, sandbox.run_dirs(), command)?;
     let run = sandbox.run(&exe, args, RUN_OUTPUT_BYTE_CAP, RUN_TIMEOUT)?;
     Ok(report(&run))
 }

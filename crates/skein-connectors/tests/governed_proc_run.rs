@@ -20,7 +20,7 @@
 //! defect.
 #![cfg(windows)]
 
-use skein_connectors::{local_connector_with_run, FsRoot, RunAccess};
+use skein_connectors::{local_connector_with_run, FsRoot, RunAccess, RunDirs};
 use skein_core::{
     Ledger, LoopBudget, LoopController, Message, NativeLoop, ProgressProbe, Redactor, StepKind,
     ToolAccess, ToolGateway, ToolPolicy,
@@ -42,7 +42,7 @@ impl ProgressProbe for NoGroundTruth {
     }
 }
 
-/// `ToolArgs::agent_policy(RunAccess::Allowed)`'s shape: allowed **and**
+/// `ToolArgs::agent_policy`'s shape under `RunAccess::Allowed`: allowed **and**
 /// approved, because `call_captured` consults the policy before the transport,
 /// so a `Mutating` tool absent from `approved` never reaches one.
 fn agent_policy() -> ToolPolicy {
@@ -71,7 +71,7 @@ fn a_live_model_calls_a_real_proc_run() {
     std::fs::write(dir.path().join("notes.txt"), FILE_CONTENTS).expect("a file in the root");
     let connector = local_connector_with_run(
         FsRoot::new(dir.path()).expect("a canonicalizable root"),
-        RunAccess::Allowed,
+        RunAccess::Allowed(RunDirs::none()),
     )
     .expect("the sandbox builds and the embedded server starts");
 

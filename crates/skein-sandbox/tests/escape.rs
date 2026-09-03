@@ -65,7 +65,7 @@ fn a_sandboxed_process_cannot_write_outside_its_root() {
     );
     std::fs::remove_file(&escaped).expect("the control's file is removed before the real run");
 
-    let sandbox = Sandbox::create(root.path()).expect("the profile and the grant");
+    let sandbox = Sandbox::create(root.path(), &[]).expect("the profile and the grant");
     let run = sandbox
         .run(
             &system32("cmd.exe"),
@@ -130,7 +130,7 @@ fn a_sandboxed_process_cannot_reach_the_network() {
         "the control must connect, or the assertion below is vacuous"
     );
 
-    let sandbox = Sandbox::create(root.path()).expect("the profile and the grant");
+    let sandbox = Sandbox::create(root.path(), &[]).expect("the profile and the grant");
     let run = sandbox
         .run(&curl, &argv, 16 * 1024, Duration::from_secs(30))
         .expect("the launch itself succeeds; it is the connection that must fail");
@@ -154,7 +154,7 @@ fn a_sandboxed_process_cannot_reach_the_network() {
 #[test]
 fn the_job_object_kills_the_tree_when_the_clock_runs_out() {
     let root = TempDir::new().expect("a temp root");
-    let sandbox = Sandbox::create(root.path()).expect("the profile and the grant");
+    let sandbox = Sandbox::create(root.path(), &[]).expect("the profile and the grant");
 
     let started = Instant::now();
     // A **grandchild** — one `cmd.exe` launching another — because the bound

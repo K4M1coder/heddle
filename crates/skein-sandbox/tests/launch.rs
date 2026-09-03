@@ -33,7 +33,8 @@ fn a_sandboxed_process_reads_a_file_in_its_granted_root() {
         "read from inside the container",
     )
     .expect("a file in the root");
-    let sandbox = Sandbox::create(dir.path()).expect("the profile is created and the root granted");
+    let sandbox =
+        Sandbox::create(dir.path(), &[]).expect("the profile is created and the root granted");
 
     let run = sandbox
         .run(
@@ -66,7 +67,7 @@ fn a_sandboxed_process_reads_a_file_in_its_granted_root() {
 #[test]
 fn a_sandboxed_process_starts_in_its_root() {
     let dir = TempDir::new().expect("a temp dir");
-    let sandbox = Sandbox::create(dir.path()).expect("the profile and the grant");
+    let sandbox = Sandbox::create(dir.path(), &[]).expect("the profile and the grant");
 
     let run = sandbox
         .run(
@@ -96,7 +97,7 @@ fn a_file_that_is_not_a_program_is_refused_rather_than_launched() {
     let dir = TempDir::new().expect("a temp dir");
     let not_a_program = dir.path().join("notes.txt");
     std::fs::write(&not_a_program, "plain text, not a PE image").expect("a file in the root");
-    let sandbox = Sandbox::create(dir.path()).expect("the profile and the grant");
+    let sandbox = Sandbox::create(dir.path(), &[]).expect("the profile and the grant");
 
     let refusal = sandbox
         .run(

@@ -12,7 +12,7 @@
 //! behind a fan-out transport: that would double the tokio runtimes per ACP
 //! session to add a multiplexer with one caller.
 
-use crate::fs::FsRoot;
+use crate::fs::{FsRoot, RunDirs};
 use crate::git;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
@@ -74,16 +74,22 @@ pub const RUN_OUTPUT_BYTE_CAP: usize = 16 * 1024;
 /// and exceeding it is an `Err` — a tool error `NativeLoop::mediate` survives.
 pub const RUN_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Whether this run may launch a process at all.
+/// Whether this run may launch a process at all, and — when it may — which
+/// directories its executables may come from.
 ///
 /// A second opt-in on top of `--fs-root`, and unconditional on every OS so no
 /// caller needs a `#[cfg]` around a call site. Running a process is a larger
 /// capability than writing a file, so deny-by-default is structural here rather
 /// than merely policy (Constitution VI).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// The allowlist rides **inside** the `Allowed` arm rather than travelling
+/// beside it, which makes run directories without run access unrepresentable.
+/// The cost, stated: this is not `Copy`, so a caller that needs it twice clones
+/// it.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunAccess {
     Denied,
-    Allowed,
+    Allowed(RunDirs),
 }
 
 /// `fs_read`'s arguments. Public because the schema `schemars` derives from
@@ -211,8 +217,8 @@ impl EmbeddedServer {
     pub fn with_run(root: FsRoot, run: RunAccess) -> skein_core::Result<Self> {
         let sandbox = match run {
             RunAccess::Denied => None,
-            RunAccess::Allowed => Some(Arc::new(
-                Sandbox::create(root.path()).map_err(SkeinError::Tool)?,
+            RunAccess::Allowed(dirs) => Some(Arc::new(
+                Sandbox::create(root.path(), dirs.paths()).map_err(SkeinError::Tool)?,
             )),
         };
         Ok(Self::build(root, sandbox))

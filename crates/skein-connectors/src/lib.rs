@@ -13,7 +13,7 @@ mod run;
 mod server;
 
 pub use connector::{local_connector, local_connector_with_run, LocalConnector};
-pub use fs::FsRoot;
+pub use fs::{FsRoot, RunDirs};
 pub use git::is_git_repository;
 pub use server::{
     EmbeddedServer, ListParams, LogParams, ReadParams, RunAccess, RunParams, WriteParams,

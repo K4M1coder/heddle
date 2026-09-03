@@ -73,6 +73,11 @@ pub struct Run {
 #[cfg(windows)]
 pub struct Sandbox {
     root: std::path::PathBuf,
+    /// The **only** store of the operator's allowlist: executable resolution
+    /// and the child's `PATH` both read it back out of here, so the
+    /// directories that are searched and the directories that were granted an
+    /// ACE cannot drift apart.
+    run_dirs: Vec<std::path::PathBuf>,
     sid: String,
 }
 
@@ -110,26 +115,38 @@ const NO_BACKEND: &str = "a sandboxed process launcher has no backend on this pl
                           tools are Windows-only in v0";
 
 impl Sandbox {
-    /// Creates — or reuses — the AppContainer profile for `root`, and grants
-    /// its SID an inheritable full-access ACE on `root`.
+    /// Creates — or reuses — the AppContainer profile for `root`, grants its
+    /// SID an inheritable full-access ACE on `root`, and grants it an
+    /// inheritable **read-and-execute** ACE on each of `run_dirs`.
     ///
-    /// **This modifies the ACL of a directory the operator named.** It is the
-    /// only way an AppContainer process can see that workspace at all, it is
-    /// scoped to the one directory `--fs-root` already designates, and it is
-    /// stated in the flag's doc comment, in the tool's description and in
-    /// `spec.md`. The rejected alternative — telling the operator to run
-    /// `icacls` by hand — trades a stated, scoped side effect for a silent
-    /// `ERROR_ACCESS_DENIED` at first use.
+    /// **This modifies the ACL of every directory the operator named.** It is
+    /// the only way an AppContainer process can see that workspace or launch
+    /// those executables at all, each directory is one `--fs-root` or
+    /// `--run-dir` already designates, and it is stated in each flag's doc
+    /// comment, in the tool's description and in `spec.md`. The rejected
+    /// alternative — telling the operator to run `icacls` by hand — trades a
+    /// stated, scoped side effect for a silent `ERROR_ACCESS_DENIED` at first
+    /// use.
+    ///
+    /// The two masks differ because the two capabilities do: a workspace has
+    /// to be writable and a toolchain directory does not, and a child that
+    /// could overwrite `cargo.exe` would leave a side effect outliving the run.
     ///
     /// Fails loudly, never silently: a sandbox that cannot be built must be an
     /// exit code before a model sees a tool, not a per-call refusal.
     #[cfg(windows)]
-    pub fn create(root: &Path) -> std::result::Result<Sandbox, String> {
-        profile::create(root)
+    pub fn create(
+        root: &Path,
+        run_dirs: &[std::path::PathBuf],
+    ) -> std::result::Result<Sandbox, String> {
+        profile::create(root, run_dirs)
     }
 
     #[cfg(not(windows))]
-    pub fn create(_root: &Path) -> std::result::Result<Sandbox, String> {
+    pub fn create(
+        _root: &Path,
+        _run_dirs: &[std::path::PathBuf],
+    ) -> std::result::Result<Sandbox, String> {
         Err(NO_BACKEND.to_string())
     }
 
@@ -142,6 +159,18 @@ impl Sandbox {
     #[cfg(windows)]
     pub fn string_sid(&self) -> &str {
         &self.sid
+    }
+
+    /// The directories this sandbox actually granted, canonical and in the
+    /// operator's order.
+    ///
+    /// Public for the reason [`Sandbox::string_sid`] is, and load-bearing for a
+    /// second one: this is where executable resolution and the child's `PATH`
+    /// read the allowlist from, so the only searchable directories are the ones
+    /// that were really granted.
+    #[cfg(windows)]
+    pub fn run_dirs(&self) -> &[std::path::PathBuf] {
+        &self.run_dirs
     }
 
     /// One process, bounded by the Job Object and the AppContainer.

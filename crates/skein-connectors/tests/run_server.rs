@@ -8,7 +8,9 @@
 #![cfg(windows)]
 
 use rmcp::handler::server::wrapper::Parameters;
-use skein_connectors::{EmbeddedServer, FsRoot, RunAccess, RunParams, RUN_OUTPUT_BYTE_CAP};
+use skein_connectors::{
+    EmbeddedServer, FsRoot, RunAccess, RunDirs, RunParams, RUN_OUTPUT_BYTE_CAP,
+};
 use skein_sandbox::ARG_COUNT_CAP;
 use tempfile::TempDir;
 
@@ -30,7 +32,7 @@ fn fixture() -> Fixture {
     std::fs::write(dir.path().join("outside.exe"), "not yours").expect("a file outside the root");
     let root = FsRoot::new(&root_path).expect("a canonicalizable root");
     Fixture {
-        server: EmbeddedServer::with_run(root, RunAccess::Allowed)
+        server: EmbeddedServer::with_run(root, RunAccess::Allowed(RunDirs::none()))
             .expect("the sandbox is built once, here"),
         _dir: dir,
     }

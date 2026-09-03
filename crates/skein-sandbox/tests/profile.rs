@@ -70,7 +70,8 @@ fn granted_sids(dir: &std::path::Path) -> Vec<String> {
 fn a_sandbox_derives_an_appcontainer_sid_and_grants_it_the_root() {
     let dir = TempDir::new().expect("a temp dir");
 
-    let sandbox = Sandbox::create(dir.path()).expect("the profile is created and the root granted");
+    let sandbox =
+        Sandbox::create(dir.path(), &[]).expect("the profile is created and the root granted");
 
     // S-1-15-2-* is the AppContainer SID authority, and nothing else has it.
     // Asserting the prefix rather than the whole string is the point: the hash
@@ -96,13 +97,14 @@ fn the_same_root_reuses_one_profile_and_two_roots_do_not() {
     let one = TempDir::new().expect("a temp dir");
     let other = TempDir::new().expect("a second temp dir");
 
-    let first = Sandbox::create(one.path()).expect("the first profile");
+    let first = Sandbox::create(one.path(), &[]).expect("the first profile");
     // The second call over the same root meets
     // `HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS)` and must fall through to
     // deriving the SID from the name rather than failing. Without that, a
     // second ACP session over one workspace could not start.
-    let again = Sandbox::create(one.path()).expect("the same profile is reused, not refused");
-    let elsewhere = Sandbox::create(other.path()).expect("a different root gets its own profile");
+    let again = Sandbox::create(one.path(), &[]).expect("the same profile is reused, not refused");
+    let elsewhere =
+        Sandbox::create(other.path(), &[]).expect("a different root gets its own profile");
 
     assert_eq!(
         first.string_sid(),
