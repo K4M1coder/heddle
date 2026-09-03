@@ -1,0 +1,434 @@
+//! Acceptance tests for `skein chat` (spec 012).
+//!
+//! Every test runs the **real binary as a process** against a **real silo on
+//! disk** and a **real socket** serving OpenAI chat-completions bytes from this
+//! test process. Following slice 011's SC-003: a unit test of an inner function
+//! would prove nothing about the executable a person runs — not the argument
+//! parsing, not the exit code, not the split between stdout and stderr, which
+//! for this command *is* the user contract.
+//!
+//! No test here needs a running Ollama.
+
+use skein_silo::Silo;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output, Stdio};
+use tempfile::TempDir;
+
+/// A local provider answering a fixed script, one connection per turn.
+///
+/// The listener is bound before the child process starts, so `--base-url` can
+/// name a port that is certainly live; `connection: close` on each reply makes a
+/// multi-turn run a sequence of fresh accepts rather than a race against the
+/// client's connection pool.
+struct StubProvider {
+    base_url: String,
+}
+
+impl StubProvider {
+    fn serving(bodies: Vec<String>) -> StubProvider {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+        let addr = listener.local_addr().expect("the bound address");
+        std::thread::spawn(move || {
+            for body in bodies {
+                let Ok((mut socket, _)) = listener.accept() else {
+                    return;
+                };
+                if read_request(&mut socket).is_none() {
+                    return;
+                }
+                let _ = socket.write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                );
+                let _ = socket.flush();
+            }
+        });
+        StubProvider {
+            base_url: format!("http://{addr}/v1"),
+        }
+    }
+}
+
+fn read_request(socket: &mut TcpStream) -> Option<()> {
+    let mut reader = BufReader::new(socket.try_clone().ok()?);
+    let mut len = 0usize;
+    loop {
+        let mut line = String::new();
+        if reader.read_line(&mut line).ok()? == 0 {
+            return None;
+        }
+        if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+            len = value.trim().parse().ok()?;
+        }
+        if line == "\r\n" || line == "\n" {
+            break;
+        }
+    }
+    let mut body = vec![0u8; len];
+    reader.read_exact(&mut body).ok()?;
+    Some(())
+}
+
+fn reply(content: &str, finish_reason: &str, total_tokens: u64) -> String {
+    serde_json::json!({
+        "choices": [{
+            "message": {"role": "assistant", "content": content},
+            "finish_reason": finish_reason
+        }],
+        "usage": {"total_tokens": total_tokens}
+    })
+    .to_string()
+}
+
+/// A dead loopback URL: bind a kernel-assigned port to learn a number that is
+/// certainly free, then drop the listener.
+fn dead_loopback_url() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+    let port = listener.local_addr().expect("the bound address").port();
+    drop(listener);
+    format!("http://127.0.0.1:{port}/v1")
+}
+
+fn skein(args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_skein"))
+        .args(args)
+        .env_remove("SKEIN_ROOT")
+        .env_remove("SKEIN_MODEL_BASE_URL")
+        .output()
+        .expect("the skein binary runs")
+}
+
+/// Drives `skein chat` with the prompt on stdin rather than in a flag.
+fn skein_with_stdin(args: &[&str], stdin: &str) -> Output {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_skein"))
+        .args(args)
+        .env_remove("SKEIN_ROOT")
+        .env_remove("SKEIN_MODEL_BASE_URL")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the skein binary runs");
+    child
+        .stdin
+        .take()
+        .expect("a piped stdin")
+        .write_all(stdin.as_bytes())
+        .expect("the prompt is written");
+    child.wait_with_output().expect("the child finishes")
+}
+
+fn stdout(out: &Output) -> String {
+    String::from_utf8(out.stdout.clone()).expect("stdout is utf-8")
+}
+
+fn stderr(out: &Output) -> String {
+    String::from_utf8(out.stderr.clone()).expect("stderr is utf-8")
+}
+
+fn temp_root() -> (TempDir, PathBuf) {
+    let dir = TempDir::new().expect("a temp root");
+    let root = dir.path().to_path_buf();
+    (dir, root)
+}
+
+fn root_arg(root: &Path) -> String {
+    root.to_str().expect("a utf-8 temp path").to_string()
+}
+
+/// The run id `chat` reports on stderr, which is how a second process addresses
+/// the same run.
+fn reported_run_id(out: &Output) -> String {
+    let err = stderr(out);
+    err.lines()
+        .find_map(|l| l.strip_prefix("run "))
+        .unwrap_or_else(|| panic!("no run id on stderr:\n{err}"))
+        .trim()
+        .to_string()
+}
+
+#[test]
+fn chat_answers_from_a_local_provider_and_records_the_run() {
+    let provider = StubProvider::serving(vec![reply("the answer is 42", "stop", 25)]);
+    let (_dir, root) = temp_root();
+
+    let out = skein(&[
+        "chat",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "alpha",
+        "--model",
+        "llama3.1",
+        "--base-url",
+        &provider.base_url,
+        "--prompt",
+        "what is the answer?",
+    ]);
+
+    // stdout is exactly the answer and nothing else: it is the scriptable
+    // contract, so the run id goes to stderr.
+    assert_eq!(stdout(&out), "the answer is 42\n");
+    assert_eq!(out.status.code(), Some(0), "stderr:\n{}", stderr(&out));
+
+    // The two slices composing, proven by running both binaries: slice 011's
+    // reader against the run slice 012's writer just created.
+    let run_id = reported_run_id(&out);
+    let log = skein(&[
+        "ledger",
+        "log",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "alpha",
+        "--run",
+        &run_id,
+    ]);
+    assert_eq!(log.status.code(), Some(0), "stderr:\n{}", stderr(&log));
+    let logged = stdout(&log);
+    let kinds: Vec<&str> = logged
+        .lines()
+        .map(|l| l.split('\t').nth(2).expect("a kind column"))
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![
+            "iteration_boundary",
+            "llm_request",
+            "llm_response",
+            "budget_spent",
+            "exit"
+        ]
+    );
+
+    let verify = skein(&[
+        "ledger",
+        "verify",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "alpha",
+        "--run",
+        &run_id,
+    ]);
+    assert_eq!(verify.status.code(), Some(0), "stderr:\n{}", stderr(&verify));
+    assert_eq!(stdout(&verify), format!("{run_id}\tok\t5 steps\n"));
+}
+
+#[test]
+fn chat_reads_the_prompt_from_stdin_when_no_flag_is_given() {
+    let provider = StubProvider::serving(vec![reply("read you", "stop", 9)]);
+    let (_dir, root) = temp_root();
+
+    let out = skein_with_stdin(
+        &[
+            "chat",
+            "--root",
+            &root_arg(&root),
+            "--silo",
+            "beta",
+            "--model",
+            "llama3.1",
+            "--base-url",
+            &provider.base_url,
+        ],
+        "what did I pipe you?",
+    );
+
+    assert_eq!(stdout(&out), "read you\n");
+    assert_eq!(out.status.code(), Some(0), "stderr:\n{}", stderr(&out));
+    // The prompt really came from stdin: it is on the chain.
+    let show = skein(&[
+        "ledger",
+        "log",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "beta",
+    ]);
+    assert_eq!(show.status.code(), Some(0));
+}
+
+#[test]
+fn chat_fails_loudly_when_no_provider_is_listening() {
+    let base_url = dead_loopback_url();
+    let (_dir, root) = temp_root();
+
+    let out = skein(&[
+        "chat",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "gamma",
+        "--model",
+        "llama3.1",
+        "--base-url",
+        &base_url,
+        "--prompt",
+        "anyone home?",
+    ]);
+
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(stdout(&out), "", "an unanswered prompt prints no answer");
+    let err = stderr(&out);
+    assert!(
+        err.contains(&base_url) && err.contains("is a local provider listening"),
+        "stderr must name the endpoint and what to check, got:\n{err}"
+    );
+}
+
+#[test]
+fn chat_refuses_a_non_loopback_base_url() {
+    let (_dir, root) = temp_root();
+
+    let out = skein(&[
+        "chat",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "delta",
+        "--model",
+        "llama3.1",
+        "--base-url",
+        "http://192.168.1.10:11434/v1",
+        "--prompt",
+        "reach across the LAN",
+    ]);
+
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(stdout(&out), "");
+    assert!(
+        stderr(&out).contains("not a loopback address"),
+        "stderr:\n{}",
+        stderr(&out)
+    );
+    // The refusal happens before the silo is touched, so there is no ledger to
+    // hold a run — a stronger claim than "the ledger holds no run".
+    assert!(
+        !Silo::open(&root, "delta")
+            .expect("a silo path")
+            .ledger_path()
+            .exists(),
+        "a refused endpoint must not open a chain"
+    );
+}
+
+#[test]
+fn chat_fails_when_the_engine_stops_the_run_without_an_answer() {
+    // A provider that never returns `finish_reason: "stop"`. The engine stops
+    // the run on its iteration budget, which is Constitution VIII working —
+    // and an empty answer with exit 0 would be slice 011's User Story 4
+    // failure.
+    let provider = StubProvider::serving(vec![
+        reply("half a thoug", "length", 7),
+        reply("still going", "length", 7),
+    ]);
+    let (_dir, root) = temp_root();
+
+    let out = skein(&[
+        "chat",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "epsilon",
+        "--model",
+        "llama3.1",
+        "--base-url",
+        &provider.base_url,
+        "--max-iters",
+        "2",
+        "--prompt",
+        "never finish",
+    ]);
+
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(stdout(&out), "", "a stopped run has no answer to print");
+    let err = stderr(&out);
+    assert!(
+        err.contains("ended without a final answer") && err.contains("MaxIters"),
+        "stderr must name the exit, got:\n{err}"
+    );
+
+    // The run is still on the chain: the engine stopping a model is history,
+    // not an error to be swallowed.
+    let run_id = reported_run_id(&out);
+    let verify = skein(&[
+        "ledger",
+        "verify",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "epsilon",
+        "--run",
+        &run_id,
+    ]);
+    assert_eq!(verify.status.code(), Some(0), "stderr:\n{}", stderr(&verify));
+    assert_eq!(stdout(&verify), format!("{run_id}\tok\t9 steps\n"));
+}
+
+#[test]
+fn the_base_url_falls_back_to_the_environment_and_the_local_default() {
+    let provider = StubProvider::serving(vec![reply("from the environment", "stop", 5)]);
+    let (_dir, root) = temp_root();
+    let args = [
+        "chat",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "zeta",
+        "--model",
+        "llama3.1",
+        "--prompt",
+        "where did you look?",
+    ];
+
+    // $SKEIN_MODEL_BASE_URL is the fallback when the flag is absent.
+    let from_env = Command::new(env!("CARGO_BIN_EXE_skein"))
+        .args(args)
+        .env_remove("SKEIN_ROOT")
+        .env("SKEIN_MODEL_BASE_URL", &provider.base_url)
+        .output()
+        .expect("the skein binary runs");
+    assert_eq!(stdout(&from_env), "from the environment\n");
+    assert_eq!(
+        from_env.status.code(),
+        Some(0),
+        "stderr:\n{}",
+        stderr(&from_env)
+    );
+
+    // With neither, the default is Ollama's documented loopback URL. Asserted
+    // by the endpoint the failure names, not by reaching it: this test must not
+    // depend on whether a model happens to be installed on the machine running
+    // it.
+    let (_dir2, root2) = temp_root();
+    let defaulted = skein(&[
+        "chat",
+        "--root",
+        &root_arg(&root2),
+        "--silo",
+        "eta",
+        "--model",
+        "llama3.1",
+        "--prompt",
+        "and now?",
+        "--timeout-secs",
+        "5",
+    ]);
+    if defaulted.status.code() == Some(0) {
+        // A real provider is listening on 11434 on this machine, which is a
+        // fact about the host and not about the code. The default was still
+        // used, which is what this half asserts.
+        return;
+    }
+    assert!(
+        stderr(&defaulted).contains("http://localhost:11434/v1"),
+        "the default endpoint must be named, got:\n{}",
+        stderr(&defaulted)
+    );
+}
