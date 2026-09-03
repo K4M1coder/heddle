@@ -225,7 +225,8 @@ fn s5_the_store_refuses_update_and_delete() {
     let (_dir, root) = root();
     let silo = Silo::open(&root, "alpha").unwrap();
     let mut led = silo.ledger().unwrap();
-    led.append("run-1", StepKind::LlmRequest, "original").unwrap();
+    led.append("run-1", StepKind::LlmRequest, "original")
+        .unwrap();
     drop(led);
 
     let raw = Connection::open(silo.ledger_path()).unwrap();
@@ -253,7 +254,8 @@ fn s6_row_level_tampering_is_detected_on_reopen() {
     let (_dir, root) = root();
     let silo = Silo::open(&root, "alpha").unwrap();
     let mut led = silo.ledger().unwrap();
-    led.append("run-1", StepKind::LlmRequest, "original").unwrap();
+    led.append("run-1", StepKind::LlmRequest, "original")
+        .unwrap();
     led.append("run-1", StepKind::LlmResponse, "reply").unwrap();
     drop(led);
 
@@ -262,8 +264,11 @@ fn s6_row_level_tampering_is_detected_on_reopen() {
     let raw = Connection::open(silo.ledger_path()).unwrap();
     raw.execute_batch("DROP TRIGGER ledger_step_no_update")
         .unwrap();
-    raw.execute("UPDATE ledger_step SET payload = 'forged' WHERE seq = 0", [])
-        .unwrap();
+    raw.execute(
+        "UPDATE ledger_step SET payload = 'forged' WHERE seq = 0",
+        [],
+    )
+    .unwrap();
     drop(raw);
 
     let reopened = silo.ledger().unwrap();

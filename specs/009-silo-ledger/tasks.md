@@ -41,7 +41,7 @@ and the new `crates/skein-silo`, branch `009-silo-ledger` cut from `dev`.
       `skein-core` test binaries
 - [x] **T5** RED — `crates/skein-silo` with an empty `src/lib.rs` and the whole of
       `tests/silo_ledger.rs` against the not-yet-existing `Silo`; red recorded below
-- [ ] **T6** GREEN — `SqliteLedgerStore` + `Silo`
+- [x] **T6** GREEN — `SqliteLedgerStore` + `Silo`
 - [ ] **T7** `skein-acp` wiring: `SessionParts.ledger`, two test construction sites
 - [ ] **T8** gates: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D
       warnings`, `cargo test --workspace`; new total recorded below
