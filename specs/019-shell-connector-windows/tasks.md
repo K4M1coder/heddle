@@ -56,10 +56,8 @@ cut from `dev` at `b82f37a`.
 - [x] **T11** one `#[ignore]`d live-model test gated on `SKEIN_LIVE_MODEL`
       (`tests/governed_proc_run.rs`)
 - [x] **T12** gates, dependency drift, control diff, close-out
-- [ ] **T13** hand-verification against live Ollama — **not part of the implementation run**, and
-      not performed. `tests/governed_proc_run.rs::a_live_model_calls_a_real_proc_run` is the
-      repeatable form of it; run it with `$env:SKEIN_LIVE_MODEL` set and record the result under a
-      `## Live verification` heading here.
+- [x] **T13** hand-verification against live Ollama — performed after merge; see
+      `## Live verification` below.
 
 ## Control baseline (T1)
 
@@ -330,7 +328,33 @@ code.
   the off-Windows `Sandbox` nor `EmbeddedServer` has. Anything else in those two arms is unproven
   until this repository has a remote and CI runs the other two legs — the standing caveat of slices
   004–018, now carrying more weight.
-- **T13 was not performed**, per the run's own scope.
+- **T13 was not performed during the implementation run**, per its own scope; performed
+  separately afterward — see `## Live verification` below.
+
+## Live verification (T13)
+
+Performed after merge to `dev` at `30477f7`, on the same Windows machine the implementation ran on.
+
+```
+$env:SKEIN_LIVE_MODEL = "gemma4:latest"
+cargo test -p skein-connectors --test governed_proc_run -- --ignored --nocapture
+```
+
+Result: `test a_live_model_calls_a_real_proc_run ... ok` in 52.75s. The real local Ollama model
+(`gemma4:latest`, reached over the real OpenAI-compatible gateway, no stub) was given `fs_read`,
+`fs_list` and `proc_run`'s real advertised schemas, chose `proc_run` with
+`{"command":"cmd.exe","args":["/c","type","notes.txt"]}`, and the call went through the real
+governed `ToolGateway`: `ToolCall` → `Approval {decision: allowed}` → a real `CreateProcessW` inside
+a real AppContainer + Job Object over a real temp-directory root → `ToolResult` carrying
+`exit 0 / --- stdout --- / the line a real process has to print`. The model then answered the
+prompt by quoting that exact real output back. Two provider round trips, no stub anywhere in the
+tool-call path — this is the same governed chain V3's tests exercise with a scripted provider, now
+run against a live one.
+
+Not re-verified separately by this pass: the deny path (V3's `RejectOnce` test already proves it
+deterministically and a live model cannot reliably be made to decline calling a tool) and the
+network/escape properties (V1/V2/V5 already prove those hermetically in `escape.rs`; a live model
+adds nothing to a property that does not depend on what the model chooses to send).
 
 ## Next slice
 
