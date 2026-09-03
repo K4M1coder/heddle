@@ -12,11 +12,19 @@ use skein_connectors::{
     EmbeddedServer, FsRoot, RunAccess, RunDirs, RunParams, RUN_OUTPUT_BYTE_CAP,
 };
 use skein_sandbox::ARG_COUNT_CAP;
+use std::path::PathBuf;
 use tempfile::TempDir;
 
 struct Fixture {
     _dir: TempDir,
+    _toolbin: TempDir,
     server: EmbeddedServer,
+}
+
+fn system32(name: &str) -> PathBuf {
+    PathBuf::from(std::env::var_os("SystemRoot").expect("Windows names its own root"))
+        .join("System32")
+        .join(name)
 }
 
 /// The root is a **subdirectory**, so there is somewhere real for a containment
@@ -25,15 +33,37 @@ struct Fixture {
 /// grounds — "not found" rather than "outside the root" — and a test that
 /// accepted either would not notice if containment stopped working.
 fn fixture() -> Fixture {
+    built(false)
+}
+
+/// [`fixture`] with the toolchain directory actually **named**. The two differ
+/// in nothing else, which is what makes the pair of resolution tests below a
+/// comparison rather than two unrelated runs.
+fn fixture_with_a_named_run_dir() -> Fixture {
+    built(true)
+}
+
+fn built(name_the_run_dir: bool) -> Fixture {
     let dir = TempDir::new().expect("a temp dir");
     let root_path = dir.path().join("root");
     std::fs::create_dir(&root_path).expect("the root is created");
     std::fs::write(root_path.join("seed.txt"), "seeded bytes").expect("a file in the root");
     std::fs::write(dir.path().join("outside.exe"), "not yours").expect("a file outside the root");
     let root = FsRoot::new(&root_path).expect("a canonicalizable root");
+    let toolbin = TempDir::new().expect("a temp run directory");
+    // A copy of `cmd.exe` under a name System32 does not have, so a resolution
+    // test cannot pass for the wrong reason.
+    std::fs::copy(system32("cmd.exe"), toolbin.path().join("toolchain.exe"))
+        .expect("a real PE image in the run directory");
+    let run_dirs = if name_the_run_dir {
+        RunDirs::new(&[toolbin.path().to_path_buf()]).expect("a real directory")
+    } else {
+        RunDirs::none()
+    };
     Fixture {
-        server: EmbeddedServer::with_run(root, RunAccess::Allowed(RunDirs::none()))
+        server: EmbeddedServer::with_run(root, RunAccess::Allowed(run_dirs))
             .expect("the sandbox is built once, here"),
+        _toolbin: toolbin,
         _dir: dir,
     }
 }
@@ -165,4 +195,94 @@ fn a_command_that_resolves_nowhere_names_both_places_it_looked() {
         refusal.contains("PATH"),
         "and it must say `PATH` is deliberately not searched: {refusal}"
     );
+}
+
+/// The rule at the tool's own level (spec 020 SC-004): a bare name, no
+/// extension, resolved inside a directory the operator named.
+#[test]
+fn a_bare_name_in_an_allowlisted_run_dir_resolves_and_runs() {
+    let fixture = fixture_with_a_named_run_dir();
+
+    let report = run(&fixture.server, "toolchain", &["/c", "type", "seed.txt"])
+        .expect("a bare name in a named run directory is not a refusal");
+
+    assert!(
+        report.starts_with(
+            "exit 0
+"
+        ),
+        "{report}"
+    );
+    // The root's file, read by a binary reached through the run directory: the
+    // two halves of the configuration have to work at once or this says
+    // nothing.
+    assert!(report.contains("seeded bytes"), "{report}");
+}
+
+/// The same bare name with that directory **not** named (spec 020 SC-005).
+///
+/// The allowlist has not become a de facto `%PATH%`: a directory that exists,
+/// holds the binary, and was simply not named is not searched. And the refusal
+/// enumerates every place it really looked, because a model cannot otherwise
+/// tell "not installed" from "not named at launch".
+#[test]
+fn a_bare_name_in_a_directory_that_was_not_named_names_every_place_it_looked() {
+    let unnamed = fixture();
+    let named = fixture_with_a_named_run_dir();
+
+    let refusal = run(&unnamed.server, "toolchain", &["/c", "exit", "0"])
+        .expect_err("a directory that was not named must not be searched");
+    assert!(
+        refusal.contains("toolchain.exe") && refusal.contains("System32"),
+        "the refusal must name what it looked for and where: {refusal}"
+    );
+    assert!(
+        refusal.contains("PATH"),
+        "and it must still say `PATH` is deliberately not searched: {refusal}"
+    );
+
+    // The control, and the reason this test builds two fixtures: the same call
+    // against the same directory succeeds once it is named, so the refusal
+    // above is about the allowlist and not about the binary being unusable.
+    run(&named.server, "toolchain", &["/c", "exit", "0"])
+        .expect("naming the directory is the only difference");
+
+    // And a refusal from a configuration that *has* run directories has to name
+    // them, or an operator cannot tell a mistyped `--run-dir` from a missing
+    // binary.
+    let enumerated = run(&named.server, "definitely-not-a-real-binary", &[])
+        .expect_err("an unresolvable command is still refused");
+    let toolbin = named._toolbin.path().to_string_lossy().replace(r"\?\\", "");
+    assert!(
+        enumerated.contains(&toolbin),
+        "the refusal must name every directory that was searched, including {toolbin}: {enumerated}"
+    );
+}
+
+/// D5's append-not-prepend order, proven by a run that can only succeed if
+/// System32 was searched first (spec 020 SC-006).
+///
+/// The shadowing file is deliberately **not** a program: if resolution reached
+/// it, `CreateProcessW` would refuse the launch and this would fail loudly
+/// rather than quietly running the right thing for the wrong reason.
+#[test]
+fn system32_still_wins_over_a_run_dir_that_shadows_it() {
+    let fixture = fixture_with_a_named_run_dir();
+    std::fs::write(
+        fixture._toolbin.path().join("cmd.exe"),
+        "plain text, not a PE image",
+    )
+    .expect("a shadowing file in the run directory");
+
+    let report = run(&fixture.server, "cmd.exe", &["/c", "type", "seed.txt"])
+        .expect("System32 is searched before any run directory");
+
+    assert!(
+        report.starts_with(
+            "exit 0
+"
+        ),
+        "{report}"
+    );
+    assert!(report.contains("seeded bytes"), "{report}");
 }

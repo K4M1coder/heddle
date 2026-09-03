@@ -128,10 +128,15 @@ fn a_file_that_is_not_a_program_is_refused_rather_than_launched() {
 /// is asserted here as a smoke test of the tool's own path and nothing more.
 ///
 /// What the grant does buy is everything the **child** does for itself, and the
-/// ungranted control in this test is what proves it: without an ACE naming the
-/// AppContainer SID, a child reading a file out of the run directory is refused
-/// with *access denied*. That is what a toolchain needs — a linter reading its
-/// configuration, a compiler reading a library file next to the binary.
+/// ungranted controls in this test are what prove it. Without an ACE naming the
+/// AppContainer SID a child reading a file out of the run directory is refused
+/// with *access denied*, and — the one that matters most — a child cannot even
+/// **find** a binary there through its own `PATH`: it reports the name as not
+/// recognised, because it cannot enumerate the directory. Granted, both work.
+/// That pair is the whole justification for writing an ACE at all, and it is
+/// the case a real toolchain lives in: the rustup shim re-executing the real
+/// cargo, a linter invoking a helper, a compiler reading a library beside its
+/// own binary.
 ///
 /// The binary is a copy of `cmd.exe` renamed to `toolchain.exe` deliberately:
 /// no such name exists in System32, so the resolution tests built on this later
@@ -145,14 +150,15 @@ fn a_binary_in_an_allowlisted_run_dir_executes_and_its_stdout_comes_back() {
     let tool = toolbin.path().join("toolchain.exe");
     std::fs::copy(system32("cmd.exe"), &tool).expect("a real PE image in the run directory");
     std::fs::write(toolbin.path().join("data.txt"), DATA).expect("a file beside it");
-    // The `\?\` prefix `TempDir` can carry is not a form `cmd.exe` accepts.
+    // The verbatim prefix `TempDir` can carry is not a form `cmd.exe` accepts.
     let data = toolbin
         .path()
         .join("data.txt")
         .to_string_lossy()
-        .replace(r"\?\", "");
+        .replace(r"\\?\", "");
 
-    // The control first: ungranted, the child cannot read out of that directory.
+    // The controls first, ungranted: the child can neither read out of that
+    // directory nor find a binary in it through its own `PATH`.
     let ungranted = Sandbox::create(root.path(), &[]).expect("the profile and the root's grant");
     let refused = ungranted
         .run(
@@ -166,6 +172,18 @@ fn a_binary_in_an_allowlisted_run_dir_executes_and_its_stdout_comes_back() {
         !refused.stdout.text.contains(DATA),
         "without the grant the child must not read the run directory, or the assertion below \
          proves nothing: {refused:?}"
+    );
+    let unfound = ungranted
+        .run(
+            &system32("cmd.exe"),
+            &args(&["/c", "toolchain.exe", "/c", "echo", MARKER]),
+            16 * 1024,
+            Duration::from_secs(30),
+        )
+        .expect("the outer launch succeeds; it is the inner one that must fail");
+    assert!(
+        !unfound.stdout.text.contains(MARKER),
+        "and an ungranted directory is not even on the child's PATH to be found: {unfound:?}"
     );
 
     let sandbox = Sandbox::create(root.path(), &[toolbin.path().to_path_buf()])
@@ -184,6 +202,23 @@ fn a_binary_in_an_allowlisted_run_dir_executes_and_its_stdout_comes_back() {
         "the grant must let the child read beside its toolchain, got {:?} / stderr {:?}",
         read.stdout.text,
         read.stderr.text
+    );
+
+    // The one that justifies writing an ACE at all: a child finding and
+    // launching a sibling through the `PATH` the run directory put it on.
+    let sibling = sandbox
+        .run(
+            &system32("cmd.exe"),
+            &args(&["/c", "toolchain.exe", "/c", "echo", MARKER]),
+            16 * 1024,
+            Duration::from_secs(30),
+        )
+        .expect("the outer launch succeeds");
+    assert!(
+        sibling.stdout.text.contains(MARKER),
+        "the child must find its toolchain on its own PATH and run it, got {:?} / stderr {:?}",
+        sibling.stdout.text,
+        sibling.stderr.text
     );
 
     let run = sandbox

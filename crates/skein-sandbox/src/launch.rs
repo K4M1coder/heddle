@@ -53,7 +53,7 @@ pub(crate) fn run(
     let mut command_line = argv::command_line(&exe_path, args)?;
     let exe_wide = wide(&exe_path);
     let cwd_wide = wide(&win32_path(&sandbox.root));
-    let mut environment = environment_block();
+    let mut environment = environment_block(&sandbox.run_dirs);
 
     // Kill-on-close is what the timeout rests on: dropping this `Job` kills the
     // whole tree, grandchildren included. `win32job` 2.0.3 exposes no
@@ -173,12 +173,17 @@ fn wait(process: HANDLE, timeout: Duration) -> Result<u32, String> {
     Ok(code)
 }
 
-/// A fixed, minimal environment: four variables, and each one earns its place.
+/// A fixed, minimal environment: five variables, and each one earns its place.
 ///
-/// `PATH` is the same two directories the caller's own executable resolution
-/// searches and **not** the operator's ambient `PATH`, for the same reason — an
+/// `PATH` is the same directories the caller's own executable resolution
+/// searches — System32, `%SystemRoot%`, then each `--run-dir` in the operator's
+/// order — and **not** the operator's ambient `PATH`, for the same reason: an
 /// ambient value would make what the child can reach undecidable from the
-/// configuration. There is deliberately no `TEMP`: the root is the only
+/// configuration. Keeping the two lists identical is what lets a child find a
+/// sibling its own toolchain expects to be able to launch, and it widens
+/// nothing — every directory on it was named by the operator and granted.
+///
+/// There is deliberately no `TEMP`: the root is the only
 /// writable place, and a tool that needs scratch space should fail loudly
 /// rather than quietly litter the workspace.
 ///
@@ -192,12 +197,19 @@ fn wait(process: HANDLE, timeout: Duration) -> Result<u32, String> {
 ///
 /// **Sorted, case-insensitively.** An environment block is searched rather than
 /// scanned, so leaving it unsorted is its own way to produce the same error.
-fn environment_block() -> Vec<u16> {
+fn environment_block(run_dirs: &[std::path::PathBuf]) -> Vec<u16> {
     let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
     let local_app_data = std::env::var("LOCALAPPDATA").unwrap_or_default();
+    let mut path = format!(r"{system_root}\System32;{system_root}");
+    for dir in run_dirs {
+        path.push(';');
+        // Through `win32_path`, so no verbatim prefix reaches the child: it is
+        // not a form the loader's own `PATH` search accepts.
+        path.push_str(&win32_path(dir));
+    }
     let mut variables = [
         format!("LOCALAPPDATA={local_app_data}"),
-        format!(r"PATH={system_root}\System32;{system_root}"),
+        format!("PATH={path}"),
         "PATHEXT=.COM;.EXE;.BAT;.CMD".to_string(),
         format!("SystemRoot={system_root}"),
         format!("windir={system_root}"),

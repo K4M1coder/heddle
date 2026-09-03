@@ -12,24 +12,32 @@
 use crate::fs::FsRoot;
 use crate::server::{RUN_OUTPUT_BYTE_CAP, RUN_TIMEOUT};
 use skein_sandbox::{Captured, Run, Sandbox};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-/// The executable a `command` names: System32, then `%SystemRoot%`, then a path
-/// inside the configured root.
+/// The executable a `command` names: System32, then `%SystemRoot%`, then each
+/// directory the operator named with `--run-dir`, then a path inside the
+/// configured root.
 ///
 /// **`%PATH%` is deliberately not searched.** It is ambient, per-process and
 /// influenced by anything that has ever written the user's environment;
 /// resolving through it would make the reachable executable set undecidable
 /// from the configuration. A fixed list plus root-relative paths is decidable
-/// and deny-by-default.
+/// and deny-by-default, and `run_dirs` does not weaken that: every entry was
+/// named by the operator at launch and nothing is discovered.
+///
+/// **Appended, never prepended.** Every `command` that resolved before the
+/// allowlist existed resolves to the same file after it, so a named directory
+/// cannot shadow `cmd.exe`, `curl.exe` or `find.exe` for a configuration that
+/// already works. An operator who genuinely wants to override a System32 name
+/// puts the binary in the fs-root and names it as a path. Ties between two run
+/// directories go to the first named.
 ///
 /// The stated cost, which the refusal message carries so a model meets it
-/// rather than guessing: `cargo`, `node`, `python` and everything else under
-/// the user profile is **not reachable**, and would not launch even if this
-/// found it — no directory there carries an `ALL APPLICATION PACKAGES` ACE.
+/// rather than guessing: with no `--run-dir` configured, `cargo`, `node`,
+/// `python` and everything else under the user profile is **not reachable**.
 pub(crate) fn resolve_exe(
     root: &FsRoot,
-    _run_dirs: &[PathBuf],
+    run_dirs: &[PathBuf],
     command: &str,
 ) -> Result<PathBuf, String> {
     // A separator means the model is naming a path, and a path is only ever
@@ -49,19 +57,43 @@ pub(crate) fn resolve_exe(
             .ok_or_else(|| "this Windows installation does not name its own root".to_string())?,
     );
     let system32 = system_root.join("System32");
-    for directory in [&system32, &system_root] {
+    let searched: Vec<&Path> = [system32.as_path(), system_root.as_path()]
+        .into_iter()
+        .chain(run_dirs.iter().map(PathBuf::as_path))
+        .collect();
+    for directory in &searched {
         let candidate = directory.join(&name);
         if candidate.is_file() {
             return Ok(candidate);
         }
     }
+    // Every place it really looked, not two: a model cannot otherwise tell "not
+    // installed" from "not named at launch", and an operator cannot tell a
+    // mistyped `--run-dir` from a missing binary.
+    let places: Vec<String> = searched.iter().map(|directory| named(directory)).collect();
     Err(format!(
-        "{name} is in neither {} nor {}; %PATH% is deliberately not searched, so name an \
-         executable in one of those two directories or a path relative to the configured root",
-        system32.display(),
-        system_root.display()
+        "{name} is in none of {}; %PATH% is deliberately not searched, so name an executable in \
+         one of those directories or a path relative to the configured root",
+        places.join(", ")
     ))
 }
+
+/// A path as a person reads it, for the two strings a model is shown: this
+/// module's refusal and `proc_run`'s advertised description.
+///
+/// `RunDirs` canonicalizes, which on Windows yields a verbatim path. That
+/// prefix is meaningful to the Win32 API and meaningless to a reader, and a
+/// model shown one tends to try naming it back — which this tool refuses,
+/// because it is an absolute path.
+pub(crate) fn named(path: &Path) -> String {
+    let rendered = path.to_string_lossy();
+    match rendered.strip_prefix(VERBATIM) {
+        Some(rest) => rest.to_string(),
+        None => rendered.into_owned(),
+    }
+}
+
+const VERBATIM: &str = r"\\?\";
 
 /// One bounded launch, rendered the way the line-oriented tools next door
 /// render themselves.

@@ -171,26 +171,45 @@ UNGRANTED  cmd /c type <run dir>\secret.txt  -> exit 1  "Accès refusé."
 GRANTED    cmd /c type <run dir>\secret.txt  -> exit 0  "UNGRANTED-BYTES"
 ```
 
-A third measurement, recorded because it bounds what the grant can be claimed to do: a child
-spawning a sibling out of a directory by **absolute path** is refused with *access denied*
-regardless of the mask — with `GENERIC_READ|GENERIC_EXECUTE`, with `GENERIC_ALL`, and with
-`FILE_ALL_ACCESS` — and it is refused out of the **fs-root** too, which carries `GENERIC_ALL`. The
-same spawn by bare name out of the child's own cwd succeeds, as does one out of System32. So that
-failure is not about the run directory's mask and is not something a wider grant would fix.
+**And the case that actually justifies writing an ACE at all** — a child finding and launching a
+sibling through the `PATH` D8 puts the run directory on. Measured by neutering the grant loop in
+`profile::create` while leaving the `PATH` entry in place, so the two differ in nothing else:
+
+```
+UNGRANTED  cmd /c toolchain.exe /c echo X  -> exit 1  "'toolchain.exe' n'est pas reconnu…"
+GRANTED    cmd /c toolchain.exe /c echo X  -> exit 0  "X"
+PATH-VALUE "C:\windows\System32;C:\windows;D:\…\Temp\.tmphpwo0z"   (identical in both)
+```
+
+Ungranted, the child cannot even *enumerate* the directory, so the name is not recognised however
+correct the `PATH` is. This is the rustup-shim case of the plan's fact 20, and a linter invoking a
+helper, and a compiler reading a library beside its own binary. All three of these are in
+`launch.rs`'s test, with their ungranted controls in the same test.
+
+One more measurement, recorded because it bounds what may be claimed: a child spawning a sibling by
+**absolute path** is refused with *access denied* regardless of the mask — with
+`GENERIC_READ|GENERIC_EXECUTE`, with `GENERIC_ALL` and with `FILE_ALL_ACCESS` — and it is refused
+out of the **fs-root** too, which carries `GENERIC_ALL`. Since the same spawn by name through `PATH`
+succeeds, that failure is about how `cmd.exe` handles a full path in `/c`, not about any ACE, and no
+wider grant would change it.
 
 **What this does and does not change.**
 
-- D1, D2, D3, D5, D7, D8, D9 and D10 are untouched: `--run-dir`'s real user-visible effect is that
+- D1, D2, D3, D5, D7, D8, D9 and D10 are untouched. `--run-dir`'s user-visible effect is that
   `resolve_exe` searches the directory, the child's `PATH` names it, and the advertisement
-  enumerates it. All of that stands, and it is what makes `cargo` reachable.
-- D4's **mask** stands and is proven by T3: whatever ACE is written, read-and-execute is the right
-  one and the read-back test would fail just as loudly if it were widened.
-- D4's **justification** does not stand. The grant was justified as necessary to launch; it is not.
-  What it buys is the child's own reads inside that directory. Whether that is worth writing a
-  **persistent ACE on a directory outside the workspace** — one that survives `git revert` and has
-  to be removed with `icacls` by hand — is a security trade-off this run does not decide.
-  `--run-dir` would work for the headline `cargo --version` case with no grant at all. The grant is
-  kept as the plan specifies it, and the decision is left to the operator.
+  enumerates it. All of it stands, and the search list alone is what makes `cargo` reachable.
+- D4's **mask** stands and is proven twice, by T3's read-back and T5's effect.
+- D4's **grant** stands, but **not for the reason the plan and slice 019 give.** It is not what makes
+  a run-dir binary launchable — the parent-issued `CreateProcessW` never needed it. It is what makes
+  the directory usable by the child once it is running, and D8's `PATH` is inert without it. The
+  headline `cargo --version` case would work with no grant at all; a toolchain that has to reach
+  anything beside itself would not.
+- **The open question, left open:** the grant writes a persistent ACE on a directory outside the
+  workspace, one that survives `git revert` and has to be removed with `icacls` by hand. That cost
+  is now weighed against a narrower benefit than the plan assumed. Whether `--run-dir` should grant
+  at all, or grant only on request, is a decision this run does not take.
+- Slice 019's `spec.md` point 5 carries the false half of this and is left for its own record to
+  correct — amending a shipped slice's spec is outside this one's scope.
 
 ## Live verification (T10)
 

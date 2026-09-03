@@ -86,10 +86,14 @@ has its ACL touched.
    was `resolve_exe`'s search list, which is what this slice extends. Slice 019's `spec.md` point 5 —
    *"would not launch even if the search found them, for want of an `ALL APPLICATION PACKAGES` ACE"*
    — is wrong, and is left for slice 019's own record to correct rather than amended from here.
-   The grant is **not** inert: everything the child does for itself needs it, measured as
-   `Accès refusé` for a child reading a file in an ungranted run directory and exit 0 for the same
-   read once granted. Whether that is worth a persistent ACE on a directory outside the workspace is
-   an open question this slice records rather than settles; see `tasks.md`'s `## Finding`.
+   The grant is **not** inert, and it is what everything the child does for itself rests on. With
+   the run directory on the child's `PATH` either way, an ungranted child reports `toolchain.exe` as
+   *not recognised* — it cannot enumerate the directory — and a granted one runs it; an ungranted
+   child reading a file beside the toolchain gets `Accès refusé` and a granted one gets the bytes.
+   So the grant's real justification is the rustup shim of point 9, a linter invoking a helper, and
+   a compiler reading a library beside its own binary — not the launch. Whether that narrower
+   benefit is worth a persistent ACE on a directory outside the workspace is an open question this
+   slice records rather than settles; see `tasks.md`'s `## Finding`.
 9. **This makes the toolchain reachable and launchable. It does not make `cargo build` work.**
    Whether a full build succeeds inside an AppContainer with no network, no `TEMP` and one writable
    directory is a separate slice's finding. `cargo --version` was measured to exit 0 under the
