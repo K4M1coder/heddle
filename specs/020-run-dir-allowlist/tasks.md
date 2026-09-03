@@ -123,6 +123,23 @@ not hold, and the reason generalises. See `## Finding: the grant is not what mak
 launchable` below. The test now asserts what is actually attributable, with its ungranted control in
 the same test, following `escape.rs`'s recorded discipline.
 
+**T5** — no unwritten-code red, for T4's structural reason: T3's green is the mechanism this
+exercises. Its value is the two controls, and both were measured rather than assumed.
+
+The in-test control passes — a `copy` into the fs-root lands — so the refusal below is about the run
+directory's mask and not about a mistyped `copy`. And the counterfactual was run: with
+`RUN_DIR_ACCESS` temporarily widened to `GENERIC_ALL`, the same test fails, which is what makes the
+green attributable to the narrower mask rather than to anything else in the container:
+
+```
+a run directory is for reaching an executable, not for writing to; it wrote
+D:\Users\cthedrez\AppData\Local\Temp\.tmpsoIZjg\escaped.txt
+test result: FAILED. 0 passed; 1 failed
+```
+
+`profile.rs` reads the absent write bit off the descriptor; this reads it off the filesystem. Two
+independent proofs of one claim, which is what `escape.rs` already documents about itself.
+
 ## Finding: the grant is not what makes a run directory launchable
 
 **This contradicts a premise the plan's D4 and D7 rest on, and a claim slice 019's `spec.md` already

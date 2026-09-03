@@ -200,3 +200,67 @@ fn the_job_object_kills_the_tree_when_the_clock_runs_out() {
         "the tree must die with the job; the call took {elapsed:?}"
     );
 }
+
+/// Narrowness as an **effect**, not as an intent (spec 020 SC-003).
+///
+/// `profile.rs` reads the mask back off the run directory's own security
+/// descriptor and finds no write bit. This proves the same claim the other way
+/// round, from outside the DACL model entirely: a real `copy` into that
+/// directory leaves no file. Two independent proofs of one claim is this file's
+/// recorded discipline, and it is what would catch a mask that looked narrow
+/// and behaved wide.
+///
+/// The control is the **same copy into the fs-root**, which does land — so a
+/// mistyped `copy` cannot make this pass for the wrong reason, and the test
+/// pins the asymmetry rather than merely the refusal.
+#[test]
+fn a_sandboxed_process_cannot_write_into_a_run_dir() {
+    let root = TempDir::new().expect("a temp root");
+    let toolbin = TempDir::new().expect("a temp run directory");
+    std::fs::write(root.path().join("seed.txt"), "the payload").expect("a file to copy");
+    let escaped = toolbin.path().join("escaped.txt");
+    let sandbox = Sandbox::create(root.path(), &[toolbin.path().to_path_buf()])
+        .expect("the profile, the root's grant and the run directory's");
+
+    // The control first, into the writable root: if this does not land, the
+    // assertion below proves nothing about the run directory's narrower mask.
+    let landed = sandbox
+        .run(
+            &system32("cmd.exe"),
+            &args(&["/c", "copy", "seed.txt", "copied.txt"]),
+            16 * 1024,
+            Duration::from_secs(30),
+        )
+        .expect("the launch succeeds");
+    assert!(
+        root.path().join("copied.txt").exists(),
+        "the control must land inside the root, or the assertion below is vacuous: {} / {}",
+        landed.stdout.text,
+        landed.stderr.text
+    );
+
+    let run = sandbox
+        .run(
+            &system32("cmd.exe"),
+            &args(&[
+                "/c",
+                "copy",
+                "seed.txt",
+                &escaped.to_string_lossy().replace(r"\?\", ""),
+            ]),
+            16 * 1024,
+            Duration::from_secs(30),
+        )
+        .expect("the launch itself succeeds; it is the copy that must fail");
+
+    assert!(
+        !escaped.exists(),
+        "a run directory is for reaching an executable, not for writing to; it wrote {}",
+        escaped.display()
+    );
+    assert_ne!(
+        run.exit_code, 0,
+        "and it must say so: {} / {}",
+        run.stdout.text, run.stderr.text
+    );
+}
