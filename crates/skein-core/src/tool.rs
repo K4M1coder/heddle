@@ -60,6 +60,20 @@ pub struct ToolOutcome {
 /// transport owns its async runtime internally and blocks behind this boundary.
 pub trait ToolTransport {
     fn call(&mut self, call: &ToolCall) -> Result<ToolOutcome>;
+
+    /// The tools this transport can actually reach — MCP's `tools/list`, named
+    /// in the port's own vocabulary. [`ToolGateway::advertise`] filters it.
+    ///
+    /// Defaulted, where [`crate::native_loop::NativeLoop::new`]'s `Redactor` is
+    /// deliberately not, and the difference is the whole justification: **there
+    /// the silent default was the unsafe one** — a loop with no redactor records
+    /// a conversation in cleartext — **and here it is the safe one.** A
+    /// transport that does not override this advertises nothing, which is
+    /// deny-by-default (Constitution VI). Overriding it is how a transport opts
+    /// a tool *in*.
+    fn list(&mut self) -> Result<Vec<ToolSpec>> {
+        Ok(Vec::new())
+    }
 }
 
 /// What the governor decided about one call, and why.

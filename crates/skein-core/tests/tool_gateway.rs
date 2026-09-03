@@ -50,6 +50,28 @@ impl ToolTransport for CountingTransport {
     }
 }
 
+/// The nine `impl ToolTransport` sites in the tree that predate advertisement
+/// all look like this one: `call` and nothing else. What they offer a model is
+/// the property under test.
+struct UnlistedTransport;
+
+impl ToolTransport for UnlistedTransport {
+    fn call(&mut self, _call: &ToolCall) -> Result<ToolOutcome> {
+        panic!("this test never calls a tool")
+    }
+}
+
+#[test]
+fn a_transport_that_does_not_override_list_offers_nothing() {
+    // The inverse of `NativeLoop::new`'s required `Redactor`: there the silent
+    // default would have been the unsafe one, so it was refused; here it is the
+    // safe one. Inheriting this body is deny-by-default.
+    assert_eq!(
+        UnlistedTransport.list().expect("the default body succeeds"),
+        Vec::new()
+    );
+}
+
 fn gateway(transport: CountingTransport, approved: &[&str]) -> ToolGateway<CountingTransport> {
     ToolGateway::new(
         transport,

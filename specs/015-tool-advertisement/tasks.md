@@ -40,7 +40,7 @@ branch `015-tool-advertisement` cut from `dev` after slice 014 merged.
 - [x] **T1** control baseline: `cargo test --workspace` before any edit — **120 passed, 1 ignored**
 - [x] **T2** RED→GREEN — `ToolSpec` in `crates/skein-core/src/tool.rs`, re-exported from `lib.rs`,
       with its round-trip test in `crates/skein-core/tests/core.rs`
-- [ ] **T3** RED→GREEN — `ToolTransport::list` with its defaulted body and the docstring arguing why
+- [x] **T3** RED→GREEN — `ToolTransport::list` with its defaulted body and the docstring arguing why
       *this* silent default is the safe one
 - [ ] **T4** RED→GREEN — `ToolGateway::advertise`: list, filter to the allowlist, in allowlist order
 - [ ] **T5** RED→GREEN — `TurnRequest.tools` and every literal construction site, one atomic commit
@@ -72,3 +72,11 @@ All on 2026-09-03.
     — `no ToolSpec in the root`
   - `error: could not compile skein-core (test "core") due to 1 previous error`
   - Green: **18 passed** where 17 had passed, with the seventeen unchanged.
+
+- **T3** `cargo test -p skein-core --test tool_gateway` with the defaulted-body test written against
+  a trait that had only `call` — **1 compile error**:
+  - `error[E0599]: no method named list found for struct UnlistedTransport in the current scope` at
+    `crates/skein-core/tests/tool_gateway.rs:70:27`
+  - `error: could not compile skein-core (test "tool_gateway") due to 1 previous error`
+  - Green: **11 passed** where 10 had passed, with the ten unchanged — the proof that a defaulted
+    method left all nine pre-existing `impl ToolTransport` sites compiling untouched.
