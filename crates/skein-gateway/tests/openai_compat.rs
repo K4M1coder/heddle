@@ -583,3 +583,60 @@ fn a_hanging_provider_times_out_rather_than_blocking_the_run() {
         "the timeout must name the endpoint, got: {message}"
     );
 }
+
+/// The one thing a stub cannot prove: that a **real** local provider answers
+/// this wire format, and that it sends the token metering the loop's budget
+/// depends on.
+///
+/// `#[ignore]`d, so `cargo test --workspace` stays green on a machine — and on
+/// a CI runner — with no Ollama installed. `.github/workflows/core.yml` runs
+/// `cargo test --workspace` without `--include-ignored`, so this never runs
+/// there. Run it by hand:
+///
+/// ```text
+/// $env:SKEIN_LIVE_MODEL = "llama3.1"
+/// cargo test -p skein-gateway --test openai_compat -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore = "needs a real local provider; set SKEIN_LIVE_MODEL to run"]
+fn a_live_local_provider_answers() {
+    let Some(model_name) = std::env::var_os("SKEIN_LIVE_MODEL") else {
+        // Skipping cleanly rather than failing: the test's absence of a
+        // provider is a fact about the machine, not about the code.
+        eprintln!("SKEIN_LIVE_MODEL is unset; skipping the live provider test");
+        return;
+    };
+    let model_name = model_name.to_string_lossy().to_string();
+    let base_url = std::env::var("SKEIN_MODEL_BASE_URL")
+        .unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
+
+    let mut model = OpenAiCompatClient::new(
+        LocalEndpoint::parse(&base_url).expect("a loopback base URL"),
+        &model_name,
+        Duration::from_secs(120),
+    );
+
+    let response = model
+        .turn(&ask(vec![Message::user_text(
+            "Reply with exactly the word: pong",
+        )]))
+        .unwrap_or_else(|e| panic!("{base_url} did not answer for model {model_name:?}: {e}"));
+
+    eprintln!(
+        "live {model_name} @ {base_url}\n  content     = {:?}\n  tokens_used = {}\n  final_output = {}",
+        response.message.text(),
+        response.tokens_used,
+        response.final_output
+    );
+    assert!(
+        !response.message.text().is_empty(),
+        "a live provider must return content"
+    );
+    // The risk a mocked test cannot cover: a real provider that sends no
+    // `usage` would have made `turn` fail above, which is exactly the loud
+    // refusal D8 chose over metering zero.
+    assert!(
+        response.tokens_used > 0,
+        "a live provider must meter its own turn"
+    );
+}
