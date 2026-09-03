@@ -44,9 +44,12 @@ the real protocol, against the real binary — rather than being wired and taken
    *advertised* tool list off the wire and stops there, or refuses before the handshake.
 3. **(d) is also why the residual could sit open through two slices without anyone hitting a
    failure.** Because no ACP test ever provoked a tool call, that file's client having no permission
-   handler never mattered. Add a tool call *without* adding the handler and the request goes
-   unhandled → `ask` returns `Err` → `SkeinError::Tool` → `NativeLoop::mediate` treats it as fatal →
-   the prompt answers with an internal error. The handler is the slice's actual new machinery.
+   handler never mattered. The handler is the slice's actual new machinery, and adding a tool call
+   without it is **measured** (T3's red): the client does *not* auto-reply "method not found", the
+   request is simply never answered, and `AcpPermissionTransport::ask`'s untimed
+   `std::sync::mpsc::Receiver::recv()` blocks the child's loop thread forever. Not an internal error
+   — a hang. The file's pre-existing `run_with_timeout` is what makes that a 60-second failure
+   instead of a stuck CI job on three operating systems.
 4. **The disk is the proof, not the tool result.** The Deny assertion is
    `!fs_root.join("planted.txt").exists()`, on the **same fixture** where the Allow test proves the
    very same call *does* create that file. This is `governed_fs_run.rs`'s own recorded reasoning —
@@ -130,8 +133,9 @@ the real protocol, against the real binary — rather than being wired and taken
   mildly wrong. The deny test therefore asserts only the **absence** of a `Completed` status —
   asserting `Pending` positively would freeze behaviour this slice does not endorse.
 - **`AcpPermissionTransport::ask` blocks on an untimed `std::sync::mpsc::Receiver::recv()`.** A
-  client that receives the request and never answers hangs the child. Unchanged by this slice and
-  recorded; a timeout belongs to a slice that has timeout machinery.
+  client that receives the request and never answers hangs the child — **measured** in T3's red, not
+  inferred. Unchanged by this slice and recorded; a timeout belongs to a slice that has timeout
+  machinery.
 - **The Windows leg is observed locally; the macOS and Linux legs are unobserved** until this
   repository has a remote — the standing caveat of slices 004–017, unamended. No `#[cfg]` anywhere:
   the fixture is `TempDir` plus `Path::join`, and `FsRoot` canonicalizes both sides of its
