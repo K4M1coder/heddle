@@ -7,8 +7,10 @@
 
 mod connector;
 mod fs;
+mod git;
 mod server;
 
 pub use connector::{fs_connector, LocalConnector};
 pub use fs::FsRoot;
+pub use git::is_git_repository;
 pub use server::{FsServer, ListParams, ReadParams, WriteParams, READ_BYTE_CAP};
