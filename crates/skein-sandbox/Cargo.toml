@@ -25,4 +25,4 @@ tempfile.workspace = true
 # `CommandLineToArgvW` is the **real Win32 parser** the argv quoting test uses
 # as its oracle, instead of a hand-written mirror of the MSVCRT rules. It is
 # needed by tests only, so the feature stays out of the product dependency.
-windows = { workspace = true, features = ["Win32_UI_Shell"] }
+windows = { workspace = true, features = ["Win32_UI_Shell", "Win32_Storage_FileSystem"] }

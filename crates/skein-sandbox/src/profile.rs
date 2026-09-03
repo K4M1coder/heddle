@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use std::ffi::c_void;
 use std::path::Path;
 use windows::core::{HRESULT, PCWSTR, PWSTR};
-use windows::Win32::Foundation::{LocalFree, GENERIC_ALL, HLOCAL};
+use windows::Win32::Foundation::{LocalFree, GENERIC_ALL, GENERIC_EXECUTE, GENERIC_READ, HLOCAL};
 use windows::Win32::Security::Authorization::{
     ConvertSidToStringSidW, GetNamedSecurityInfoW, SetEntriesInAclW, SetNamedSecurityInfoW,
     EXPLICIT_ACCESS_W, GRANT_ACCESS, NO_MULTIPLE_TRUSTEE, SE_FILE_OBJECT, TRUSTEE_IS_SID,
@@ -29,6 +29,22 @@ use windows::Win32::Security::{
 /// room and never needs a length check. Eight bytes of SHA-256 is far more
 /// collision margin than a per-machine set of workspace directories needs.
 const NAME_HASH_BYTES: usize = 8;
+
+/// What a `--run-dir` gets, and it is Windows' own answer rather than a guess.
+///
+/// `%SystemRoot%\System32` and `C:\Program Files` — the directories every
+/// AppContainer on a Windows machine already executes from — each carry
+/// `ALL APPLICATION PACKAGES` at an effective `FILE_GENERIC_READ |
+/// FILE_GENERIC_EXECUTE` plus an inherit-only `GENERIC_READ | GENERIC_EXECUTE`,
+/// measured with `Get-Acl`. Writing this mask with
+/// `SUB_CONTAINERS_AND_OBJECTS_INHERIT` reproduces that pair exactly.
+///
+/// Read is there because `FILE_GENERIC_EXECUTE` alone does not carry
+/// `FILE_READ_DATA` and the image loader has to read the PE file. Write is
+/// absent because a toolchain directory does not need to be writable by the
+/// thing it launches, and a child that could overwrite `cargo.exe` would leave
+/// a side effect outliving the run.
+const RUN_DIR_ACCESS: u32 = GENERIC_READ.0 | GENERIC_EXECUTE.0;
 
 pub(crate) fn create(root: &Path, run_dirs: &[std::path::PathBuf]) -> Result<Sandbox, String> {
     let name = profile_name(root);
@@ -67,11 +83,22 @@ pub(crate) fn create(root: &Path, run_dirs: &[std::path::PathBuf]) -> Result<San
         }
     };
 
-    // Both fallible steps happen while the `PSID` is live, and the `FreeSid`
-    // below runs on every path out — including the error ones, which is why
-    // neither uses `?` directly.
-    let identity =
-        unsafe { string_sid(sid).and_then(|text| grant(root, sid, GENERIC_ALL.0).map(|()| text)) };
+    // Every grant happens while the `PSID` is live, and the `FreeSid` below runs
+    // on every path out — including the error ones, which is why none of these
+    // uses `?` directly. The whole construction fails if any one grant does: a
+    // sandbox that could not re-permission a directory the operator named must
+    // be an exit code before a model is shown a tool, not a per-call surprise.
+    let identity = unsafe {
+        string_sid(sid).and_then(|text| {
+            grant(root, sid, GENERIC_ALL.0)
+                .and_then(|()| {
+                    run_dirs
+                        .iter()
+                        .try_for_each(|dir| grant(dir, sid, RUN_DIR_ACCESS).map_err(unwritable))
+                })
+                .map(|()| text)
+        })
+    };
     unsafe { FreeSid(sid) };
 
     Ok(Sandbox {
@@ -79,6 +106,21 @@ pub(crate) fn create(root: &Path, run_dirs: &[std::path::PathBuf]) -> Result<San
         run_dirs: run_dirs.to_vec(),
         sid: identity?,
     })
+}
+
+/// The two ways out of a `--run-dir` this user cannot re-permission, appended
+/// to the Win32 error that named the directory.
+///
+/// Reachable in practice, not theoretical: `C:\Program Files\nodejs` does not
+/// inherit its parent's AppContainer ACEs, its DACL is protected and its owner
+/// is `NT AUTHORITY\SYSTEM`, so naming it from a non-elevated shell fails with
+/// `ERROR_ACCESS_DENIED`. An operator meeting that at startup needs to be told
+/// what to do about it, not handed an error code.
+fn unwritable(reason: String) -> String {
+    format!(
+        "{reason}; a directory's permissions are writable only by its owner or an \
+         administrator, so run skein elevated once or name a directory you own"
+    )
 }
 
 /// `HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS)`, which windows-rs 0.61 does not

@@ -79,7 +79,32 @@ Slice 019's close records 193 at `b82f37a`, before its own tests landed; the del
 
 ## Observed red
 
-_Recorded per step below as each was measured._
+**T3** — `cargo test -p skein-sandbox --test profile`, the one new test:
+
+```
+thread 'a_run_dir_is_granted_read_and_execute_and_the_root_is_not' panicked at
+crates\skein-sandbox	ests\profile.rs:185:5:
+the run directory's DACL must name the AppContainer SID at all, got
+[("S-1-5-21-1203453866-3760803099-1050353712-1008", 1245631),
+ ("S-1-5-21-1411561155-2461164688-2535433281-4238526846", 1245631),
+ ("S-1-5-18", 2032127), ("S-1-5-32-544", 2032127),
+ ("S-1-5-21-4080930094-269924791-1978800073-2222", 2032127)]
+test result: FAILED. 2 passed; 1 failed
+```
+
+The expected red and not an ACL or a Win32 one: T2 threaded the list through `Sandbox::create` and
+deliberately granted nothing with it, so the run directory carries its five ordinary ACEs and no
+AppContainer one. The mask dump in the failure message is the helper doing its job — those five are
+the two users, SYSTEM, Administrators and the owner, at `0x1301FF` and `0x1F01FF`, all normalised.
+
+One **stated deviation** from the plan's control diff, made to get this red at all: the test needs
+`FILE_GENERIC_READ`, `FILE_READ_DATA`, `WRITE_DAC` and their neighbours, which live behind the
+`windows` crate's `Win32_Storage_FileSystem` feature. That feature was added to `skein-sandbox`'s
+existing `[target.'cfg(windows)'.dev-dependencies]` `windows` entry, beside the `Win32_UI_Shell` the
+argv oracle already needs. **No product dependency and no product feature changed** — the plan's
+"`skein-sandbox`'s dependency set is untouched" holds for `[dependencies]`. The rejected alternative
+was hand-copied hex constants in a security test, which is exactly the kind of second source of
+truth this codebase refuses.
 
 ## Live verification (T10)
 

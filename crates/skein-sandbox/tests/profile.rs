@@ -15,24 +15,39 @@ use windows::Win32::Security::Authorization::{
     ConvertSidToStringSidW, GetNamedSecurityInfoW, SE_FILE_OBJECT,
 };
 use windows::Win32::Security::{
-    GetAce, ACCESS_ALLOWED_ACE, ACL, DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
+    GetAce, MapGenericMask, ACCESS_ALLOWED_ACE, ACL, DACL_SECURITY_INFORMATION, GENERIC_MAPPING,
+    PSECURITY_DESCRIPTOR, PSID,
+};
+use windows::Win32::Storage::FileSystem::{
+    FILE_ALL_ACCESS, FILE_APPEND_DATA, FILE_EXECUTE, FILE_GENERIC_EXECUTE, FILE_GENERIC_READ,
+    FILE_GENERIC_WRITE, FILE_READ_DATA, FILE_WRITE_DATA, WRITE_DAC,
 };
 
 fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-/// Every SID named by an allow-ACE in the directory's DACL, in string form.
+/// Every allow-ACE in the directory's DACL, as its trustee's string SID and
+/// its access mask **normalised through `MapGenericMask`**.
 ///
 /// Read back through the **real** `GetNamedSecurityInfoW` rather than by
 /// trusting what `Sandbox::create` says it wrote: the grant is the load-bearing
 /// containment mechanism, so its ground truth has to be the object's own
 /// security descriptor.
-fn granted_sids(dir: &std::path::Path) -> Vec<String> {
+///
+/// The normalisation is not optional, and it was measured rather than assumed.
+/// A generic mask written on a directory with `CONTAINER_INHERIT |
+/// OBJECT_INHERIT` **splits into two ACEs**: writing `0xA0000000`
+/// (`GENERIC_READ | GENERIC_EXECUTE`) reads back as `0x1200A9` with no inherit
+/// flags *plus* `0xA0000000` flagged inherit-only. A test comparing against the
+/// constant it wrote would be right about one of them and wrong about the
+/// other. `MapGenericMask` with the file mapping resolves both to the same
+/// specific rights, and is a no-op on a mask that is already specific.
+fn allow_aces(dir: &std::path::Path) -> Vec<(String, u32)> {
     let name = wide(&dir.to_string_lossy());
     let mut dacl: *mut ACL = std::ptr::null_mut();
     let mut descriptor = PSECURITY_DESCRIPTOR::default();
-    let mut sids = Vec::new();
+    let mut aces = Vec::new();
     unsafe {
         let status = GetNamedSecurityInfoW(
             PCWSTR(name.as_ptr()),
@@ -57,13 +72,38 @@ fn granted_sids(dir: &std::path::Path) -> Vec<String> {
             let sid = PSID(std::ptr::addr_of!((*allowed).SidStart) as *mut c_void);
             let mut text = PWSTR::null();
             if ConvertSidToStringSidW(sid, &mut text).is_ok() {
-                sids.push(text.to_string().expect("a SID renders as UTF-16"));
+                let mut mask = (*allowed).Mask;
+                MapGenericMask(&mut mask, &FILE_MAPPING);
+                aces.push((text.to_string().expect("a SID renders as UTF-16"), mask));
                 let _ = LocalFree(Some(HLOCAL(text.0 as *mut c_void)));
             }
         }
         let _ = LocalFree(Some(HLOCAL(descriptor.0)));
     }
-    sids
+    aces
+}
+
+/// The file `GENERIC_MAPPING`, which is what turns a `GENERIC_*` bit into the
+/// specific rights it actually confers on a file object.
+const FILE_MAPPING: GENERIC_MAPPING = GENERIC_MAPPING {
+    GenericRead: FILE_GENERIC_READ.0,
+    GenericWrite: FILE_GENERIC_WRITE.0,
+    GenericExecute: FILE_GENERIC_EXECUTE.0,
+    GenericAll: FILE_ALL_ACCESS.0,
+};
+
+fn granted_sids(dir: &std::path::Path) -> Vec<String> {
+    allow_aces(dir).into_iter().map(|(sid, _)| sid).collect()
+}
+
+/// Every normalised mask this directory's DACL grants `sid`, and nothing it
+/// grants anyone else.
+fn granted_masks(dir: &std::path::Path, sid: &str) -> Vec<u32> {
+    allow_aces(dir)
+        .into_iter()
+        .filter(|(trustee, _)| trustee == sid)
+        .map(|(_, mask)| mask)
+        .collect()
 }
 
 #[test]
@@ -115,5 +155,62 @@ fn the_same_root_reuses_one_profile_and_two_roots_do_not() {
         first.string_sid(),
         elsewhere.string_sid(),
         "two roots must not share an identity, or a grant on one would reach the other"
+    );
+}
+
+/// The narrower grant, measured against the object's own descriptor rather than
+/// asserted about intent (spec 020 SC-001).
+///
+/// A run directory is for *reaching an executable*, and a toolchain directory
+/// does not need to be writable by the sandboxed child — a child that could
+/// overwrite `cargo.exe` would leave a side effect outliving the run. The
+/// fs-root is the opposite case and keeps its full access, so this test pins
+/// both halves: it would pass just as loudly if the two masks were swapped.
+///
+/// The mask itself is not invented here. `%SystemRoot%\System32` — the
+/// directory every AppContainer on this machine already executes from — carries
+/// `ALL APPLICATION PACKAGES` at exactly `FILE_GENERIC_READ |
+/// FILE_GENERIC_EXECUTE`, measured with `Get-Acl`. This is Windows' own answer
+/// to the question, copied.
+#[test]
+fn a_run_dir_is_granted_read_and_execute_and_the_root_is_not() {
+    let root = TempDir::new().expect("a temp root");
+    let toolbin = TempDir::new().expect("a temp run directory");
+
+    let sandbox = Sandbox::create(root.path(), &[toolbin.path().to_path_buf()])
+        .expect("the profile, the root's grant and the run directory's");
+
+    let sid = sandbox.string_sid();
+    let run_masks = granted_masks(toolbin.path(), sid);
+    assert!(
+        !run_masks.is_empty(),
+        "the run directory's DACL must name the AppContainer SID at all, got {:?}",
+        allow_aces(toolbin.path())
+    );
+    for mask in &run_masks {
+        assert_eq!(
+            mask & (FILE_READ_DATA.0 | FILE_EXECUTE.0),
+            FILE_READ_DATA.0 | FILE_EXECUTE.0,
+            "the image loader must be able to read and execute the PE file: {mask:#x}"
+        );
+        // Three separate bits, because they fail differently: `FILE_WRITE_DATA`
+        // would let the child overwrite `cargo.exe`, `FILE_APPEND_DATA` would
+        // let it corrupt one, and `WRITE_DAC` would let it widen its own grant.
+        assert_eq!(
+            mask & (FILE_WRITE_DATA.0 | FILE_APPEND_DATA.0 | WRITE_DAC.0),
+            0,
+            "a run directory must not become writable by the thing it launches: {mask:#x}"
+        );
+    }
+
+    // The control, in the same test and for `escape.rs`'s recorded reason: if
+    // the root were narrowed too, the assertion above would pass while the
+    // whole grant did nothing.
+    let root_masks = granted_masks(root.path(), sid);
+    assert!(
+        root_masks
+            .iter()
+            .any(|mask| mask & FILE_WRITE_DATA.0 == FILE_WRITE_DATA.0),
+        "the fs-root keeps its full access — an agent's workspace is writable: {root_masks:?}"
     );
 }
