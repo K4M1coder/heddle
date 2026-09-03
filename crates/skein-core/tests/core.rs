@@ -2,7 +2,8 @@
 
 use skein_core::{
     Content, Exit, Ledger, LedgerStore, LoopBudget, LoopController, Message, Redactor, Result,
-    Role, SecretProvider, SecretRef, SecretValue, SkeinError, Step, StepKind, ToolSpec, TurnRequest,
+    Role, SecretProvider, SecretRef, SecretValue, SkeinError, Step, StepKind, ToolSpec,
+    TurnRequest,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};

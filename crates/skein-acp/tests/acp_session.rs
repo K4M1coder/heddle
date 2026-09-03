@@ -1116,7 +1116,10 @@ async fn p4_the_permission_decorator_forwards_the_catalogue_it_wraps() {
         .expect("enumerating a catalogue is not a governed call");
 
     assert_eq!(
-        advertised.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
+        advertised
+            .iter()
+            .map(|s| s.name.as_str())
+            .collect::<Vec<_>>(),
         vec!["fs_read", "fs_list"],
         "the inner transport's catalogue, in its own order"
     );

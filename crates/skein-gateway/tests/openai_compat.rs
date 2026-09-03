@@ -238,10 +238,19 @@ fn advertised_tools_are_sent_in_openais_function_shape() {
             tools: vec![ToolSpec::new(
                 "fs_read",
                 "Read a UTF-8 text file.",
+                // The schema's keys are spelled in alphabetical order, and that
+                // is load-bearing rather than tidy. `agent-client-protocol`
+                // enables `serde_json/preserve_order`, and Cargo unifies
+                // features per build graph — so `Map` is an insertion-ordered
+                // `IndexMap` under `cargo test --workspace` and a sorted
+                // `BTreeMap` under `cargo test -p skein-gateway`. Writing the
+                // keys sorted makes the two orders identical, so the byte-exact
+                // assertion below holds under either resolution. The envelope
+                // keys around it are struct fields, so their order is ours.
                 serde_json::json!({
-                    "type": "object",
                     "properties": {"path": {"type": "string"}},
                     "required": ["path"],
+                    "type": "object",
                 }),
             )],
         })
