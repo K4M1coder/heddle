@@ -37,14 +37,14 @@ merged.
 - [x] **T1** pinned the `clap` surface against the vendored `clap 4.6.6` source and a compiled probe,
       *before* any product code; measured, not copied — see below
 - [x] **T2** control baseline: `cargo test --workspace` before any edit — **71**
-- [ ] **T3** RED — `ledger_runs_lists_run_ids_in_first_append_order` in
+- [x] **T3** RED — `ledger_runs_lists_run_ids_in_first_append_order` in
       `crates/skein-core/tests/core.rs` against the not-yet-existing `Ledger::runs()`
-- [ ] **T4** GREEN — `Ledger::runs()` in `crates/skein-core/src/ledger.rs`
-- [ ] **T5** RED — `crates/skein-cli/tests/cli_ledger.rs` (e1..e7) against a `fn main() {}` stub
-- [ ] **T6** GREEN — `src/main.rs` + `src/ledger.rs`
-- [ ] **T7** RED — `crates/skein-cli/tests/cli_secret.rs` (e8..e9)
-- [ ] **T8** GREEN — `src/secret.rs`
-- [ ] **T9** gates: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D
+- [x] **T4** GREEN — `Ledger::runs()` in `crates/skein-core/src/ledger.rs`
+- [x] **T5** RED — `crates/skein-cli/tests/cli_ledger.rs` (e1..e7) against a `fn main() {}` stub
+- [x] **T6** GREEN — `src/main.rs` + `src/ledger.rs`
+- [x] **T7** RED — `crates/skein-cli/tests/cli_secret.rs` (e8..e9)
+- [x] **T8** GREEN — `src/secret.rs`
+- [x] **T9** gates: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D
       warnings`, `cargo test --workspace`, `cargo build --workspace` + run `skein --help`
 - [ ] **T10** control diff: `git diff dev` empty on `crates/skein-mcp/`, `crates/skein-acp/`,
       `crates/skein-silo/`, `spikes/`, `.github/` and `rust-toolchain.toml`
@@ -107,7 +107,72 @@ This is the number T9 diffs against.
 
 ## Observed red (Constitution III)
 
+- **T3** `cargo test -p skein-core --test core`, 2026-09-03:
+  - `error[E0599]: no method named runs found for struct Ledger in the current scope`
+    (`crates\skein-core	ests\core.rs:285:13`)
+  - `error: could not compile skein-core (test "core") due to 1 previous error`
+- **T5** `cargo test -p skein-cli --test cli_ledger` against a `fn main() {}` stub, 2026-09-03:
+  **8 failed, 0 passed.** The stub parses no arguments and prints nothing, so every test failed on
+  its output or its exit code rather than on a compile error — unlike slices 007–010, whose red was
+  an unresolved import. Two representative failures:
+  - `e1_ledger_log_prints_every_step_in_the_silo` — `assertion left == right failed; left: ""`
+    against the three expected four-column lines.
+  - `e6_ledger_verify_fails_on_a_forged_row` — `left: Some(0), right: Some(1)`: the stub exits 0,
+    so a forged chain looked verified. That is the failure mode the test exists for.
+- **T7** `cargo test -p skein-cli --test cli_secret`, 2026-09-03: **1 failed, 1 passed.**
+  - `e8_secret_set_then_delete_round_trips_without_printing_the_value` — the real red:
+    `error: secret: keychain://skein-cli-test-<pid>-0/cli: not implemented`, from the placeholder
+    `src/secret.rs` T6 left behind.
+  - `e9_secret_set_has_no_value_flag_and_refuses_an_empty_secret` **passed before its product code
+    existed**, and this is recorded rather than glossed. Both its halves were already satisfied:
+    clap rejects `--value` with exit 2 purely from the argument tree T6 landed (the property T1
+    pinned), and the placeholder's `SkeinError::Secret` happened to produce the `secret:` prefix
+    and exit 1 the empty-stdin half asserts. A test that cannot fail proves nothing, so e9 was
+    re-run after T8 replaced the placeholder — where it now passes against `read_value`'s own
+    emptiness refusal, and the `--value` half remains a genuine guard against the flag being added
+    later.
+
 ## Gate run (T9)
+
+2026-09-03, Windows leg observed locally; macOS and Linux legs unobserved until the repository has
+a remote (SC-001).
+
+- `cargo fmt --all -- --check` — clean.
+- `cargo clippy --workspace --all-targets -- -D warnings` — clean, no lint raised on the new crate.
+- `cargo test --workspace` — **82 passing**, 0 failed, 0 ignored: 71 pre-existing + 1 core seam
+  test + 10 CLI process tests. Per binary: `acp_session` 13, `cli_ledger` 8, `cli_secret` 2,
+  `core` 13, `native_loop` 18, `tool_gateway` 9, `rmcp_gateway` 7, `silo_ledger` 7,
+  `silo_secret` 5. The new `[[bin]]` target contributes a `Running unittests src\main.rs …
+  0 passed` line, as T1 measured, so it does not inflate the count.
+- **82, not the advisory plan's 81.** The extra test is
+  `e10_the_silo_root_falls_back_to_skein_root_and_is_required`, which covers FR-005: `--root`
+  wins, `$SKEIN_ROOT` is the fallback, and neither is a loud exit 1 rather than a silent default.
+  The advisory plan enumerated nine CLI tests and did not include one, but it also specified the
+  `--root` → `$SKEIN_ROOT` → error precedence as product behaviour in its step 7. Shipping a
+  documented resolution rule with no test — where a process test costs four lines and the failure
+  mode (silently defaulting somewhere) is invisible — was the worse of the two deviations. It is a
+  process test of a real contract, not one of the three shapes the plan's "no padding" clause
+  excludes (no test of clap itself, no test of `--help` text, no unit test of an inner formatter).
+- `cargo build --workspace` — clean; `target/debug/skein.exe` exists (7.3 MB) and runs.
+  `skein --help` prints `Usage: skein <COMMAND>` with the `ledger` and `secret` groups, and
+  `skein --version` prints `skein 0.0.0` (SC-002). **`Usage: skein`, not `skein.exe`** — the
+  `bin_name` attribute T1 pinned, observed in the shipped binary and not only in the probe.
+- The two `cli_secret` tests ran against the **real** Windows Credential Manager under service
+  names unique per process and per test (`skein-cli-test-<pid>-<n>`), each removed by a `Drop`
+  guard. `cmdkey /list` afterwards matches nothing containing `skein`, so the suite leaves the
+  developer's credential store as it found it.
+
+**The one path no automated test covers**, as foreseen: the terminal-stdin refusal, because the
+harness has no PTY. It was exercised by hand instead — `Start-Process skein.exe secret set
+keychain://manual/probe` with a console stdin and only the output streams redirected:
+
+```
+EXITCODE=1
+error: secret: refusing to read a secret from a terminal: pipe it instead, e.g. `printf %s "$TOKEN" | skein secret set <REFERENCE>`
+```
+
+stdout was empty and nothing was stored. `is_terminal()` on stdin has no `#[cfg]` in this code, so
+the macOS and Linux behaviour follows from `std`, not from a per-OS branch of ours.
 
 ## Control diff (T10)
 
