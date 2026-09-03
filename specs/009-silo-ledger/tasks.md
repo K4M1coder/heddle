@@ -39,7 +39,7 @@ and the new `crates/skein-silo`, branch `009-silo-ledger` cut from `dev`.
 - [x] **T4** GREEN — `LedgerStore`, `Ledger::open`, the `store` field, fallible `append`,
       `SkeinError::Storage`, and the `?` churn across `native_loop.rs`, `tool.rs` and the three
       `skein-core` test binaries
-- [ ] **T5** RED — `crates/skein-silo` with an empty `src/lib.rs` and the whole of
+- [x] **T5** RED — `crates/skein-silo` with an empty `src/lib.rs` and the whole of
       `tests/silo_ledger.rs` against the not-yet-existing `Silo`; red recorded below
 - [ ] **T6** GREEN — `SqliteLedgerStore` + `Silo`
 - [ ] **T7** `skein-acp` wiring: `SessionParts.ledger`, two test construction sites
@@ -109,6 +109,13 @@ is used by `ledger_store.rs` exactly as spelled here.
   - As in slices 007 and 008, rustc abandons the crate once import resolution fails, so this one
     diagnostic is the whole red: the `Ledger::open` and fallible-`append` errors underneath it are
     never reached.
+- **T5** `cargo test -p skein-silo --test silo_ledger`, 2026-09-03, against an empty `src/lib.rs`:
+  - `error[E0432]: unresolved import skein_silo::Silo` — *"no `Silo` in the root"*
+    (`crates/skein-silo/tests/silo_ledger.rs:14:5`)
+  - `error: could not compile skein-silo (test "silo_ledger") due to 1 previous error`
+  - Every name the suite needs comes through `Silo`, so again one diagnostic is the whole red.
+    `rusqlite` itself resolves in the test binary from the crate's `[dependencies]`, which is how
+    `s5`/`s6` reach the file with raw SQL without a second dependency spelling.
 
 ## Next slice (not this feature)
 - [ ] `SecretProvider` (OS keychain) + JIT `Redactor` — spec 010, extending `crates/skein-silo`
