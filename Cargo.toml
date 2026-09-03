@@ -18,6 +18,7 @@ rmcp = { version = "2.2" }
 tokio = { version = "1" }
 schemars = "1"
 agent-client-protocol = "2.0.0"
+futures = { version = "0.3", default-features = false, features = ["std", "executor"] }
 tokio-util = "0.7"
 rusqlite = { version = "0.40", default-features = false, features = ["bundled"] }
 tempfile = "3"

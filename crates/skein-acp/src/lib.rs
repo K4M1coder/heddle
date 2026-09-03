@@ -22,7 +22,7 @@ use agent_client_protocol::schema::v1::{
     ToolCall as AcpToolCall, ToolCallContent, ToolCallId, ToolCallStatus, ToolCallUpdate,
     ToolCallUpdateFields, ToolKind,
 };
-use agent_client_protocol::{Agent, Client, ConnectTo, ConnectionTo, Error};
+use agent_client_protocol::{Agent, Client, ConnectTo, ConnectionTo, Error, Stdio};
 use skein_core::{
     CapturedResult, Exit, Ledger, LoopBudget, LoopController, Message, ModelClient, ProgressProbe,
     Redactor, Result, StepKind, ToolCall, ToolGateway, ToolPolicy, ToolTransport, TurnResponse,
@@ -280,6 +280,23 @@ where
             .expect("sessions lock")
             .get(id)
             .cloned()
+    }
+
+    /// Serves this agent on the process's own stdin/stdout until the client
+    /// disconnects, blocking the calling thread.
+    ///
+    /// **stdout is the protocol.** Nothing else in the process may write to it:
+    /// one stray byte corrupts the JSON-RPC stream.
+    ///
+    /// The executor lives here rather than in the caller for the same reason
+    /// `skein-mcp`'s `RmcpToolTransport` owns its runtime — so a CLI does not
+    /// have to name a protocol crate's types to run a protocol adapter. ACP is
+    /// runtime-agnostic and its stdio transport does its blocking work on
+    /// `blocking::Unblock`'s own threads, so polling the one connection future
+    /// on this thread is a complete runtime for it.
+    pub fn serve_stdio(self) -> Result<()> {
+        futures::executor::block_on(self.serve(Stdio::new()))
+            .map_err(|e| skein_core::SkeinError::Protocol(format!("acp stdio: {e}")))
     }
 
     /// Runs the ACP agent over `transport` until the connection closes.

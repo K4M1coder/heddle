@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 skein-core = { path = "../skein-core" }
 agent-client-protocol.workspace = true
+futures.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
