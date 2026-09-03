@@ -95,4 +95,17 @@ method's ordering barrier requires.
 
 ## Observed red (Constitution III)
 
+- **T3** `cargo build --workspace --all-targets`, 2026-09-03:
+  - `error[E0432]: unresolved imports skein_acp::project_updates, skein_acp::CancellableModel,
+    skein_acp::SessionParts, skein_acp::SkeinAgent`
+    (`crates/skein-acp/tests/acp_session.rs:12:17` — *"no `SkeinAgent` in the root"*,
+    *"no `SessionParts` in the root"*, *"no `CancellableModel` in the root"*,
+    *"no `project_updates` in the root"*)
+  - `error[E0433]: cannot find AcpPermissionTransport in skein_acp`
+    (`crates/skein-acp/tests/acp_session.rs:649:52`)
+  - `error: could not compile skein-acp (test "acp_session") due to 2 previous errors`
+  - As in slice 007, rustc abandons the crate once import resolution fails, so these two
+    diagnostics are the whole red: every name the suite needs is unresolved, and no
+    type-level error is reached.
+
 ## Next slice (not this feature)
