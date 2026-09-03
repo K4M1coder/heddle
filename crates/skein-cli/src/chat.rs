@@ -10,11 +10,9 @@
 //! a run the engine stopped prints nothing at all rather than an empty answer
 //! that looks like an answer.
 
-use crate::wiring::{NoGroundTruth, NoTools};
+use crate::wiring::NoGroundTruth;
 use crate::{ChatArgs, SiloArgs};
-use skein_core::{
-    Exit, LoopController, Message, NativeLoop, Result, SkeinError, ToolGateway, ToolPolicy,
-};
+use skein_core::{Exit, LoopController, Message, NativeLoop, Result, SkeinError, ToolGateway};
 use skein_silo::Silo;
 use std::io::Read;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -28,6 +26,11 @@ pub fn chat(silo: &SiloArgs, args: &ChatArgs) -> Result<()> {
     // Before the silo for the same reason, and after the endpoint so the two
     // refusals keep the order both commands document.
     let redactor = args.redact.redactor()?;
+    // Third and last of the pre-flight refusals, in the order this command
+    // documents and `acp` mirrors: a `--fs-root` that does not exist is an exit
+    // code before the silo is touched, so no chain holds a one-step run for an
+    // attempt that never left the process.
+    let transport = args.tools.transport()?;
     let prompt = prompt(args.prompt.as_deref())?;
 
     let run_id = match &args.run_id {
@@ -40,12 +43,14 @@ pub fn chat(silo: &SiloArgs, args: &ChatArgs) -> Result<()> {
         args.model.client(endpoint),
         NoGroundTruth,
         ToolGateway::new(
-            NoTools,
-            // Deny-by-default with an empty allowlist: no tool name can reach
-            // the transport, because the policy refuses every one of them
-            // first. `NoTools` is unreachable by construction rather than a
-            // stub that pretends to work.
-            ToolPolicy::new(vec![], vec![]),
+            transport,
+            // Without `--fs-root` this is still an empty allowlist, so no tool
+            // name reaches the transport and nothing is advertised. With one,
+            // it is the two read-only fs tools and **not** `fs_write`: this
+            // command is non-interactive, and Constitution VI does not let a
+            // destructive tool run with nobody to confirm it. `wiring`'s
+            // `chat_policy` carries the argument.
+            args.tools.chat_policy(),
             // The same secret set on both sides of the run: the gateway and the
             // loop write into one chain.
             redactor.clone(),

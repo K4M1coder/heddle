@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 skein-acp = { path = "../skein-acp" }
+skein-connectors = { path = "../skein-connectors" }
 skein-core = { path = "../skein-core" }
 skein-gateway = { path = "../skein-gateway" }
 skein-silo = { path = "../skein-silo" }

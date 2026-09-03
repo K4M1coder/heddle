@@ -10,19 +10,29 @@
 //! not obliged to drain the child's stderr, and a full pipe would block the
 //! agent.
 
-use crate::wiring::{ModelArgs, NoGroundTruth, NoTools, RedactArgs};
+use crate::wiring::{ModelArgs, NoGroundTruth, RedactArgs, ToolArgs};
 use crate::SiloArgs;
 use skein_acp::{SessionParts, SkeinAgent};
-use skein_core::{Result, ToolPolicy};
+use skein_core::Result;
 use skein_silo::Silo;
 
-pub fn serve(silo: &SiloArgs, model: ModelArgs, redact: &RedactArgs) -> Result<()> {
+pub fn serve(
+    silo: &SiloArgs,
+    model: ModelArgs,
+    redact: &RedactArgs,
+    tools: ToolArgs,
+) -> Result<()> {
     // The Principle II guard first, so an off-machine `--base-url` opens no
     // chain and reaches no handshake — the same ordering `chat` documents.
     let endpoint = model.endpoint()?;
     // Resolved once for the process, then cloned per session below: an
     // unresolvable reference is an exit code before a single session exists.
     let redactor = redact.redactor()?;
+    // Proved here rather than per session: each session builds its own
+    // connector inside the factory below, long after serving began, so a
+    // mistyped `--fs-root` would otherwise surface as a JSON-RPC error inside
+    // an editor after a successful handshake instead of an exit code.
+    tools.verify_root()?;
     let root = silo.root()?;
     let id = silo.silo.clone();
 
@@ -40,13 +50,17 @@ pub fn serve(silo: &SiloArgs, model: ModelArgs, redact: &RedactArgs) -> Result<(
         Ok(SessionParts {
             client: model.client(endpoint.clone()),
             probe: NoGroundTruth,
-            transport: NoTools,
-            // Deny-by-default with an empty allowlist: no tool name can reach
-            // the transport, because the policy refuses every one of them
-            // first. It also means `AcpPermissionTransport` is unreachable here
-            // until tool advertisement exists — a model that invents a tool
-            // call gets a denial the client sees as a failed tool call.
-            policy: ToolPolicy::new(vec![], vec![]),
+            // One embedded server per session, matching the one client per
+            // session above. Built here, under `futures::executor::block_on`
+            // rather than a tokio runtime, which is what makes it legal at all.
+            transport: tools.transport()?,
+            // Without `--fs-root` this is an empty allowlist and nothing is
+            // advertised. With one, `fs_write` is allowed **and** approved —
+            // not a weakening but the only way to reach a human, because
+            // `call_captured` consults the policy before the transport, so a
+            // mutating tool the policy stops never becomes a permission request
+            // for `AcpPermissionTransport` to ask.
+            policy: tools.agent_policy(),
             redactor: redactor.clone(),
             budget: budget.clone(),
             // One chain per session, opened here rather than shared, because

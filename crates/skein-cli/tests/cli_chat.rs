@@ -16,9 +16,16 @@ use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::time::Duration;
 use tempfile::TempDir;
 
-/// A local provider answering a fixed script, one connection per turn.
+/// Long enough that a slow runner never trips it, short enough that a child
+/// which silently sends nothing fails as a failure rather than as a hang.
+const OBSERVE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// A local provider answering a fixed script, one connection per turn, and
+/// reporting the request bodies the child sent it.
 ///
 /// The listener is bound before the child process starts, so `--base-url` can
 /// name a port that is certainly live; `connection: close` on each reply makes a
@@ -26,18 +33,23 @@ use tempfile::TempDir;
 /// client's connection pool.
 struct StubProvider {
     base_url: String,
+    requests: Receiver<String>,
 }
 
 impl StubProvider {
     fn serving(bodies: Vec<String>) -> StubProvider {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
         let addr = listener.local_addr().expect("the bound address");
+        let (tx, requests) = mpsc::channel();
         std::thread::spawn(move || {
             for body in bodies {
                 let Ok((mut socket, _)) = listener.accept() else {
                     return;
                 };
-                if read_request(&mut socket).is_none() {
+                let Some(seen) = read_request(&mut socket) else {
+                    return;
+                };
+                if tx.send(seen).is_err() {
                     return;
                 }
                 let _ = socket.write_all(
@@ -52,11 +64,26 @@ impl StubProvider {
         });
         StubProvider {
             base_url: format!("http://{addr}/v1"),
+            requests,
+        }
+    }
+
+    /// The next request's body, parsed. This is how a test asserts what the
+    /// **real binary** put on the wire rather than only what it printed.
+    fn request_body(&self) -> serde_json::Value {
+        match self.requests.recv_timeout(OBSERVE_TIMEOUT) {
+            Ok(body) => serde_json::from_str(&body).expect("a JSON request body"),
+            Err(RecvTimeoutError::Timeout) => {
+                panic!("the child sent no request within {OBSERVE_TIMEOUT:?}")
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                panic!("the stub provider stopped before a request arrived")
+            }
         }
     }
 }
 
-fn read_request(socket: &mut TcpStream) -> Option<()> {
+fn read_request(socket: &mut TcpStream) -> Option<String> {
     let mut reader = BufReader::new(socket.try_clone().ok()?);
     let mut len = 0usize;
     loop {
@@ -73,7 +100,7 @@ fn read_request(socket: &mut TcpStream) -> Option<()> {
     }
     let mut body = vec![0u8; len];
     reader.read_exact(&mut body).ok()?;
-    Some(())
+    Some(String::from_utf8_lossy(&body).to_string())
 }
 
 fn reply(content: &str, finish_reason: &str, total_tokens: u64) -> String {
@@ -587,4 +614,153 @@ fn chat_refuses_an_unresolvable_redaction_reference_before_opening_a_chain() {
             .exists(),
         "an unresolvable reference must not open a chain"
     );
+}
+
+// ---- the fs connector (spec 016) ----
+
+/// A turn in which the model asks for one tool, in the shape Ollama's
+/// OpenAI-compatible endpoint sends: `content: null`, and the arguments as a
+/// JSON *string* holding JSON.
+fn tool_call_reply(tool: &str, arguments: serde_json::Value) -> String {
+    serde_json::json!({
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": null,
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": tool, "arguments": arguments.to_string()}
+                }]
+            },
+            "finish_reason": "tool_calls"
+        }],
+        "usage": {"total_tokens": 12}
+    })
+    .to_string()
+}
+
+/// A directory holding one file, for `--fs-root` to be pointed at.
+fn fs_root_holding(name: &str, contents: &str) -> (TempDir, String) {
+    let dir = TempDir::new().expect("a temp fs root");
+    std::fs::write(dir.path().join(name), contents).expect("a file under the fs root");
+    let path = dir.path().to_str().expect("a utf-8 temp path").to_string();
+    (dir, path)
+}
+
+/// The last message of the request the child sent, which is what the model was
+/// told about the tool it asked for.
+fn last_message(request: &serde_json::Value) -> String {
+    request["messages"]
+        .as_array()
+        .expect("a messages array")
+        .last()
+        .expect("at least one message")["content"]
+        .as_str()
+        .expect("text content")
+        .to_string()
+}
+
+#[test]
+fn chat_with_an_fs_root_advertises_the_read_tools_and_reads_a_real_file() {
+    let provider = StubProvider::serving(vec![
+        tool_call_reply("fs_read", serde_json::json!({"path": "notes.txt"})),
+        reply("the first line is: hello from disk", "stop", 9),
+    ]);
+    let (_dir, root) = temp_root();
+    let (_files, fs_root) = fs_root_holding("notes.txt", "hello from disk");
+
+    let out = skein(&[
+        "chat",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "lambda",
+        "--model",
+        "llama3.1",
+        "--base-url",
+        &provider.base_url,
+        "--fs-root",
+        &fs_root,
+        "--prompt",
+        "what is the first line of notes.txt?",
+    ]);
+
+    assert_eq!(out.status.code(), Some(0), "stderr:\n{}", stderr(&out));
+    assert_eq!(stdout(&out), "the first line is: hello from disk\n");
+
+    // The real binary put the server's own derived schemas on the wire, and
+    // only the two read-only names: `fs_write` exists on the server and is
+    // absent here because `skein chat` has nobody to ask for a confirmation.
+    let first = provider.request_body();
+    let advertised = first["tools"]
+        .as_array()
+        .unwrap_or_else(|| panic!("the first request must carry a tools array: {first}"));
+    assert_eq!(
+        advertised
+            .iter()
+            .map(|t| t["function"]["name"].as_str().expect("a tool name"))
+            .collect::<Vec<_>>(),
+        vec!["fs_read", "fs_list"]
+    );
+    assert_eq!(
+        advertised[0]["function"]["parameters"]["properties"]["path"]["type"],
+        serde_json::json!("string"),
+        "{first}"
+    );
+
+    // And the file really was read, by the shipped binary, off disk.
+    let second = provider.request_body();
+    let told = last_message(&second);
+    assert!(
+        told.starts_with("[tool_result tool=fs_read status=ok]")
+            && told.contains("hello from disk"),
+        "{told}"
+    );
+
+    let run_id = reported_run_id(&out);
+    let log = skein(&[
+        "ledger",
+        "log",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "lambda",
+        "--run",
+        &run_id,
+    ]);
+    let logged = stdout(&log);
+    let kinds: Vec<&str> = logged
+        .lines()
+        .map(|l| l.split('\t').nth(2).expect("a kind column"))
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![
+            "iteration_boundary",
+            "llm_request",
+            "llm_response",
+            "budget_spent",
+            "tool_call",
+            "approval",
+            "tool_result",
+            "iteration_boundary",
+            "llm_request",
+            "llm_response",
+            "budget_spent",
+            "exit"
+        ]
+    );
+
+    let verify = skein(&[
+        "ledger",
+        "verify",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "lambda",
+        "--run",
+        &run_id,
+    ]);
+    assert_eq!(stdout(&verify), format!("{run_id}\tok\t12 steps\n"));
 }

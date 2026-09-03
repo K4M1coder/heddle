@@ -7,12 +7,14 @@
 //! talk to" — is NON-NEGOTIABLE, so there is exactly one.
 
 use clap::Args;
+use skein_connectors::{fs_connector, FsRoot, LocalConnector};
 use skein_core::{
-    LoopBudget, ProgressProbe, Redactor, Result, SecretRef, SkeinError, ToolCall, ToolOutcome,
-    ToolTransport,
+    LoopBudget, ProgressProbe, Redactor, Result, SecretRef, SkeinError, ToolAccess, ToolCall,
+    ToolOutcome, ToolPolicy, ToolSpec, ToolTransport,
 };
 use skein_gateway::{LocalEndpoint, OpenAiCompatClient};
 use skein_silo::OsKeychain;
+use std::path::PathBuf;
 use std::time::Duration;
 
 /// Ollama's own OpenAI-compatible endpoint, which `scripts/bootstrap.ps1
@@ -124,9 +126,8 @@ impl ProgressProbe for NoGroundTruth {
 
 /// Unreachable by construction: paired with an empty [`ToolPolicy`], every tool
 /// name is refused before the transport is consulted. It exists because
-/// `NativeLoop` is generic over a transport, not because a tool could run.
-///
-/// [`ToolPolicy`]: skein_core::ToolPolicy
+/// `NativeLoop` is generic over a transport, not because a tool could run —
+/// and it is what [`ConfiguredTools::None`] delegates to.
 pub struct NoTools;
 
 impl ToolTransport for NoTools {
@@ -135,5 +136,132 @@ impl ToolTransport for NoTools {
             "no tool server is configured in this command: {} was not called",
             call.tool
         )))
+    }
+}
+
+/// Which directory, if any, this run's tools may reach.
+///
+/// Deliberately not part of [`ModelArgs`], for the reason [`RedactArgs`] is
+/// not: what an agent may touch is run-governance, not a model knob.
+#[derive(Args)]
+pub struct ToolArgs {
+    /// Directory the fs tools may work inside. Absent, the run has no tools at
+    /// all — every path outside it is unreachable, and so is every path when no
+    /// root is named.
+    #[arg(long, value_name = "PATH")]
+    pub fs_root: Option<PathBuf>,
+}
+
+impl ToolArgs {
+    /// Proves the root exists **without** starting a server, for the ordering
+    /// [`ModelArgs::endpoint`] documents: a mistyped `--fs-root` must be an
+    /// exit code before a chain is opened or a protocol handshake happens, not
+    /// an error an operator only meets inside an editor afterwards.
+    ///
+    /// `skein chat` gets this for free from [`ToolArgs::transport`], which it
+    /// calls at the same point in its sequence. `skein acp-agent` cannot: it
+    /// builds one connector per session, inside the session factory, long after
+    /// it has begun serving.
+    pub fn verify_root(&self) -> Result<()> {
+        match &self.fs_root {
+            Some(path) => FsRoot::new(path).map(|_| ()),
+            None => Ok(()),
+        }
+    }
+
+    /// The transport this run's gateway reaches. One embedded server per call:
+    /// [`LocalConnector`] is not shareable, so an ACP session gets its own —
+    /// and its own tokio runtime with it, which is the accepted v0 cost of
+    /// matching the one-client-per-session shape sessions already have.
+    ///
+    /// **Not callable from inside a tokio context**, per
+    /// [`LocalConnector`]'s docstring.
+    pub fn transport(&self) -> Result<ConfiguredTools> {
+        match &self.fs_root {
+            Some(path) => Ok(ConfiguredTools::Fs(Box::new(fs_connector(FsRoot::new(
+                path,
+            )?)?))),
+            None => Ok(ConfiguredTools::None),
+        }
+    }
+
+    /// `skein chat`'s allowlist: the two read-only tools, and **not**
+    /// `fs_write`.
+    ///
+    /// The omission is the decision. Constitution VI requires confirmation for
+    /// a destructive action and this command is non-interactive, so there is
+    /// nobody to ask. Shipping `fs_write` here would mean shipping a tool that
+    /// could only ever be denied; leaving it off the list makes it a genuinely
+    /// unlisted tool, refused by the policy before the transport is consulted
+    /// and with a reason the model is told.
+    pub fn chat_policy(&self) -> ToolPolicy {
+        self.policy(read_only(), Vec::new())
+    }
+
+    /// `skein acp-agent`'s allowlist: the same two, plus `fs_write` — which is
+    /// also in `approved`, and that is not a weakening.
+    ///
+    /// `ToolGateway::call_captured` consults the policy **before** the
+    /// transport, so a `Mutating` tool absent from `approved` never reaches
+    /// `AcpPermissionTransport` and therefore never becomes a question for the
+    /// human behind the editor. Approving it here is the only way to move the
+    /// decision to where a human actually is.
+    pub fn agent_policy(&self) -> ToolPolicy {
+        let mut allowed = read_only();
+        allowed.push(("fs_write".to_string(), ToolAccess::Mutating));
+        self.policy(allowed, vec!["fs_write".to_string()])
+    }
+
+    /// Deny-by-default when no root is configured, and this is **not**
+    /// cosmetic. [`ConfiguredTools::None`] *fails* a call rather than serving
+    /// it, and `NativeLoop::mediate` survives only `ToolDenied` — any other
+    /// transport error ends the run. So an allowlisted name with no connector
+    /// behind it would turn a model's invented tool call into a dead run
+    /// instead of a refusal it is told about.
+    fn policy(&self, allowed: Vec<(String, ToolAccess)>, approved: Vec<String>) -> ToolPolicy {
+        match self.fs_root {
+            Some(_) => ToolPolicy::new(allowed, approved),
+            None => ToolPolicy::new(Vec::new(), Vec::new()),
+        }
+    }
+}
+
+/// `fs_read` and `fs_list` are `ReadOnly` because they mutate nothing;
+/// `fs_write` is `Mutating` because it destroys a file's prior contents.
+/// Classification is operator configuration, never read from the server's own
+/// annotations — a server does not get to declare its own risk.
+fn read_only() -> Vec<(String, ToolAccess)> {
+    vec![
+        ("fs_read".to_string(), ToolAccess::ReadOnly),
+        ("fs_list".to_string(), ToolAccess::ReadOnly),
+    ]
+}
+
+/// What `--fs-root` resolved to. An enum rather than `Box<dyn ToolTransport>`
+/// because `NativeLoop` is generic over its transport by deliberate design and
+/// the dispatch is a two-arm match.
+///
+/// The `Fs` variant is boxed: [`LocalConnector`] owns a tokio runtime and
+/// [`NoTools`] is zero-sized, which is `clippy::large_enum_variant`.
+pub enum ConfiguredTools {
+    None,
+    Fs(Box<LocalConnector>),
+}
+
+/// Delegation both ways, so the "no root" arm keeps [`NoTools`]'s message and
+/// its reasoning in one place rather than a second copy of them here.
+impl ToolTransport for ConfiguredTools {
+    fn call(&mut self, call: &ToolCall) -> Result<ToolOutcome> {
+        match self {
+            ConfiguredTools::None => NoTools.call(call),
+            ConfiguredTools::Fs(connector) => connector.call(call),
+        }
+    }
+
+    fn list(&mut self) -> Result<Vec<ToolSpec>> {
+        match self {
+            ConfiguredTools::None => NoTools.list(),
+            ConfiguredTools::Fs(connector) => connector.list(),
+        }
     }
 }

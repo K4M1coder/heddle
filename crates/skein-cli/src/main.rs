@@ -65,6 +65,8 @@ enum Command {
         model: wiring::ModelArgs,
         #[command(flatten)]
         redact: wiring::RedactArgs,
+        #[command(flatten)]
+        tools: wiring::ToolArgs,
     },
 }
 
@@ -102,6 +104,8 @@ pub struct ChatArgs {
     model: wiring::ModelArgs,
     #[command(flatten)]
     redact: wiring::RedactArgs,
+    #[command(flatten)]
+    tools: wiring::ToolArgs,
     /// The prompt. Omitted, it is read from stdin to EOF.
     #[arg(long, value_name = "TEXT")]
     prompt: Option<String>,
@@ -183,6 +187,7 @@ fn run(cli: Cli) -> Result<()> {
             silo,
             model,
             redact,
-        } => acp::serve(&silo, model, &redact),
+            tools,
+        } => acp::serve(&silo, model, &redact, tools),
     }
 }
