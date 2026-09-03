@@ -65,19 +65,169 @@ gate figure exactly.
 
 ## Observed red (Constitution III)
 
-_Recorded as each step lands._
+All on 2026-09-03.
+
+- **T2** `cargo test -p skein-core --test core` before the variant existed:
+  - `error[E0599]: no variant, associated function, or constant named Protocol found for enum
+    SkeinError in the current scope`
+  - `error: could not compile skein-core (test "core") due to 1 previous error`
+- **T3** `cargo test -p skein-acp --test acp_session` against the infallible factory bound:
+  - `error[E0308]: mismatched types` — *expected `SessionParts<_, _, _>`, found
+    `Result<_, SkeinError>`*, twice: once on the `Err` arm and once on the `Ok` arm, with
+    `note: return type inferred to be SessionParts<_, _, _> here`
+  - The green then flipped **14 passed** where 13 had passed, and `git diff` on the thirteen
+    slice-008 tests shows only `Ok(…)` at the three construction sites and the one bound on
+    `with_facade` — no assertion changed, so all thirteen stayed live controls on the signature
+    change.
+- **T4 has no in-process red, and one was not invented.** `serve_stdio` hands `Stdio::new()` to the
+  already-tested `serve`; an in-process test of it would have to substitute a different transport,
+  which is exactly the thing it does not do. **Its red is T6's subprocess test**, which fails
+  without it, and that is a stronger observation than a compile error on an absent name: T6
+  exercises the real executor, the real pipes and the real process. Recorded here rather than
+  papered over, the way slice 012 recorded its mutation-observed reds.
+- **T5 is a refactor and has no red of its own.** Its control is the five pre-existing `cli_chat.rs`
+  tests, run with **unchanged bodies** — `git diff dev -- crates/skein-cli/tests/cli_chat.rs` is
+  empty — including the two that pin the behaviours being moved,
+  `the_base_url_falls_back_to_the_environment_and_the_local_default` and
+  `chat_refuses_a_non_loopback_base_url`.
+- **T6** `cargo test -p skein-cli --test cli_acp_agent` before the subcommand existed: **3 failed,
+  0 passed** — a red on output and exit codes rather than on a compile error, because clap rejects
+  an unknown subcommand at runtime, the same shape slices 011 and 012 record.
+  - `acp_agent_exits_zero_when_its_client_disconnects` — `left: Some(2), right: Some(0)`, with
+    `error: unrecognized subcommand 'acp-agent'` on stderr: clap exits **2** where the command's own
+    contract is 0.
+  - `acp_agent_refuses_a_non_loopback_base_url_before_serving` — `left: Some(2), right: Some(1)`.
+  - `an_acp_client_drives_the_real_binary_and_the_session_lands_on_the_chain` — the ACP client's own
+    error: `Error { code: -32603: Internal error, message: "Incoming transport closed", data:
+    {"reason": "incoming_transport_closed", "method": "initialize"} }`. The child died on argument
+    parsing before answering the handshake, which is precisely what an editor would see.
+- **T7's green** turned all three green on the first run, with no change to the test file.
 
 ## Gate run (T8)
 
-_Recorded at T8._
+2026-09-03, Windows leg observed locally; macOS and Linux legs unobserved until the repository has a
+remote (SC-001).
+
+- `cargo fmt --all -- --check` — clean.
+- `cargo clippy --workspace --all-targets -- -D warnings` — clean, no warning on any of the six
+  crates.
+- `cargo test --workspace` — **110 passed, 0 failed, 1 ignored**: the 105 baseline plus five, and
+  every one of the 105 with an unchanged body. `acp_session` 13→**14** (the fallible-factory test),
+  `core` 14→**15** (`SkeinError::Protocol`'s message), and the new `cli_acp_agent` **3**. Unchanged:
+  `cli_chat` 6, `cli_ledger` 8, `cli_secret` 2, `native_loop` 18, `tool_gateway` 9, `governed_run` 2,
+  `openai_compat` 14 (+1 ignored), `rmcp_gateway` 7, `silo_ledger` 7, `silo_secret` 5.
+- `cargo build --workspace` — clean; the built `skein` carries the new subcommand.
+- `skein acp-agent --help` — succeeds, listing `--root --silo --model --base-url --max-iters
+  --max-tokens --no-progress-limit --timeout-secs`.
+- `skein chat --help` — still lists every flag it listed on `dev`, with identical value names,
+  defaults and help strings. One honest difference: `--prompt` and `--run-id` now print **after** the
+  four budget flags rather than between `--base-url` and them, because `ChatArgs` flattens
+  `ModelArgs` first. SC-007 is "the same flags", and no test in the tree asserts help text.
+
+### The headline claim, checked by running it
+
+**The editor leg is unobserved, and this is the reason:** no ACP-speaking editor is installed on this
+host — neither Zed nor goose is on `PATH` or under the user's `Programs` directory. SC-008's
+alternative is taken: recorded as unobserved, plainly.
+
+**The real-model leg is observed.** Following slice 012's T1 probe precedent — a probe crate built
+outside the repository, run, and deleted, with `git status` clean before and after — a
+`probe-client` binary using the crate's own `AcpAgent` transport (the same one an editor uses, and
+the same one `cli_acp_agent.rs` uses) spawned the real `skein acp-agent` against the **live local
+Ollama**, no stub anywhere:
+
+```
+$ probe-client <skein.exe> acp-agent --root <tmp> --silo handrun --model lfm2.5:latest --timeout-secs 120
+SESSION skein-1
+UPDATE AgentMessageChunk(ContentChunk { content: Text(TextContent { … text: "hello from skein" … }) })
+STOP EndTurn
+
+$ skein ledger log --root <tmp> --silo handrun
+skein-1#1  0  iteration_boundary  1d470fb743862350bb7e846eeb3d191ceeb4977eeaa5bf70657f0187ed3085e5
+skein-1#1  1  llm_request         11f6763c27cce3076b054a74cd4ec2fb6deefa06ad1509f487b79181333c315c
+skein-1#1  2  llm_response        6d4b29aaeb895c5c4c30e31f1681fb0c05311ce8cb04ec48b88c5627237a1181
+skein-1#1  3  budget_spent        c03b5219046b6266861aec02ee71c5ac139b68f7c9526a07e19a008a6fef107a
+skein-1#1  4  exit                0141ca05ae9cf7d9a55e68ca2f1f7c4f6c6e4429f6114f9b68037b20884d41be
+
+$ skein ledger verify --root <tmp> --silo handrun
+skein-1#1  ok  5 steps
+```
+
+`skein ledger show` of that `budget_spent` step prints `184` — the model's **real** metering, not a
+number this repository invented (Constitution VIII).
+
+So everything between the ACP wire and the disk is observed against a real model over a real
+subprocess. What is unobserved is only whether a particular editor's *own* agent-server
+configuration launches the command as expected.
 
 ## Control diff (T9)
 
-_Recorded at T9._
+`git diff dev --stat -- crates/skein-mcp/ crates/skein-silo/ crates/skein-gateway/ spikes/ .github/
+rust-toolchain.toml` is **empty** (SC-005), `spikes/` included per ADR-0004 D2. `core.yml`'s `paths:`
+already covers `crates/**` and `Cargo.toml`, and this slice adds no workspace member — confirmed by
+reading, not edited.
+
+`git diff dev --stat -- crates/skein-core/` is `src/error.rs | 4 +` and `tests/core.rs | 14 +` —
+**one added error variant and one added test, 18 insertions and 0 deletions** (SC-006). No existing
+variant, signature or test body changed.
+
+`git diff dev --stat` over the branch is **1209 insertions and 121 deletions** across 15 files. The
+deletions are accounted for in three places and nowhere else:
+
+- `crates/skein-cli/src/chat.rs` — the base-URL resolution, `DEFAULT_BASE_URL`, and the
+  `NoGroundTruth`/`NoTools` definitions, all **moved** to `wiring.rs` with their comments intact.
+  The only wording change is `NoTools`'s message, which named `skein chat` and now names "this
+  command", because two commands share it.
+- `crates/skein-cli/src/main.rs` — `ChatArgs`'s six model flags, replaced by
+  `#[command(flatten)] model: wiring::ModelArgs`; plus the module docstring, which claimed
+  `skein acp-agent` was *"still absent, and now only for want of a stdio transport and an async
+  runtime"*. Both halves of that sentence are now false, so it is rewritten rather than left — the
+  same courtesy slice 012's T11 did for its predecessor's stale claim.
+- `crates/skein-acp/tests/acp_session.rs` — the three construction sites re-indented inside `Ok(…)`
+  and the one `with_facade` bound. No assertion moved.
+
+`git diff dev -- Cargo.toml` is **exactly one added `[workspace.dependencies]` line**, `futures`.
 
 ## Drift (T9)
 
-_Recorded at T9._
+Measured against a detached worktree at the branch point (`2e41492`), so both sides come from a real
+resolution rather than from the previous slice's note.
+
+**Zero new packages, on every target.** `cargo tree -e normal,build,dev [--target …] --prefix none`,
+deduplicated by name and version with workspace-member paths normalised away:
+
+| Target | before | after | added |
+|---|---|---|---|
+| `x86_64-pc-windows-msvc` (host) | 149 | 149 | none |
+| `x86_64-unknown-linux-gnu` | 148 | 148 | none |
+| `aarch64-apple-darwin` | 150 | 150 | none |
+
+Nothing was added and nothing removed on any target. As in slices 010–012, a handful of package
+versions differ between the two trees purely as resolution noise, because `Cargo.lock` is
+`.gitignore`d here: the freshly resolved **base** worktree picked up `serde`/`serde_core`/
+`serde_derive` 1.0.229, `serde_json` 1.0.151, `proc-macro2` 1.0.107, `quote` 1.0.47 and (on
+Linux/macOS) `libc` 0.2.189, one patch ahead of the working tree's cached lock. Those are excluded
+above.
+
+This slice therefore adds **edges only**, exactly as SC-006 predicted:
+
+- `skein-acp → futures` — `futures 0.3.34` and `futures-executor 0.3.34` were already resolved,
+  because `agent-client-protocol` declares `futures` with default features and `executor` is in that
+  default set. The declaration is `default-features = false, features = ["std", "executor"]`, so
+  this crate asks for the smallest subset it uses rather than re-enabling the default set.
+- `skein-cli → skein-acp` — its fourth path dependency, bringing its direct list to `skein-acp`,
+  `skein-core`, `skein-gateway`, `skein-silo`, `clap`, `serde_json`.
+- `skein-cli` **dev** → `agent-client-protocol` + `futures`, for the real ACP client in
+  `cli_acp_agent.rs`. Deliberately dev-only: FR-007 keeps the protocol out of product code, and the
+  manifest says so in a comment.
+
+**No toolchain change and no new build prerequisite.** No crate entered the graph, so nothing can
+have raised the MSRV, and `rust-toolchain.toml`, `workspace.package.rust-version` and
+`.github/workflows/core.yml` are untouched. `docs/DEVELOPMENT.md`'s "Machine prerequisites" is
+unchanged by this slice.
+
+**Neither `skein-acp` nor `skein-cli` takes `tokio` in product code.** It remains a dev-dependency of
+`skein-acp` alone, exactly as it was on `dev`.
 
 ## Out of scope
 
