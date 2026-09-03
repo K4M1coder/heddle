@@ -21,6 +21,15 @@ agent-client-protocol = "2.0.0"
 futures = { version = "0.3", default-features = false, features = ["std", "executor"] }
 tokio-util = "0.7"
 rusqlite = { version = "0.40", default-features = false, features = ["bundled"] }
+# `default-features = false` is the point, not tidiness: git2 0.21's `default`
+# is empty, so with `https` and `ssh` left off **no network transport is
+# compiled in at all** — no `openssl-sys`, no `libssh2-sys` in the tree. That is
+# the same build-property guarantee `skein-gateway` makes about TLS
+# (Constitution II, NON-NEGOTIABLE), now applied to git. `vendored-libgit2`
+# pins one libgit2 on all three OSes instead of linking whatever a runner has,
+# mirroring `rusqlite`'s `bundled` above.
+git2 = { version = "0.21", default-features = false, features = ["vendored-libgit2"] }
+chrono = { version = "0.4", default-features = false, features = ["std"] }
 tempfile = "3"
 zeroize = { version = "1", default-features = false, features = ["alloc"] }
 keyring-core = "1"

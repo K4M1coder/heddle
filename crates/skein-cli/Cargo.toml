@@ -28,3 +28,8 @@ agent-client-protocol.workspace = true
 futures.workspace = true
 tempfile.workspace = true
 rusqlite.workspace = true
+# The acceptance tests point `--fs-root` at a real repository with real commits,
+# built here through `git2`. Product code in this crate must never see it: the
+# CLI reaches the connector only through `ToolTransport` and asks
+# `skein_connectors::is_git_repository` whether a root is one.
+git2.workspace = true
