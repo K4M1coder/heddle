@@ -44,7 +44,7 @@ branch `015-tool-advertisement` cut from `dev` after slice 014 merged.
       *this* silent default is the safe one
 - [x] **T4** RED→GREEN — `ToolGateway::advertise`: list, filter to the allowlist, in allowlist order
 - [x] **T5** RED→GREEN — `TurnRequest.tools` and every literal construction site, one atomic commit
-- [ ] **T6** RED→GREEN — `NativeLoop::run` advertises once per run and stamps the specs into every
+- [x] **T6** RED→GREEN — `NativeLoop::run` advertises once per run and stamps the specs into every
       `TurnRequest`; a `list` failure is fatal
 - [ ] **T7** RED→GREEN — `AcpPermissionTransport::list` forwards to its inner transport (the slice's
       highest-risk line, its own test)
@@ -104,3 +104,19 @@ All on 2026-09-03.
     **126 passed, 1 ignored**. The three literal construction sites gained `tools: Vec::new()` and
     nothing else; `openai_compat.rs`'s byte-exact no-tools assertion is still green with an
     **unchanged body**, which is what D5's skip-when-empty exists to achieve.
+
+- **T6** `cargo test -p skein-core --test native_loop` with the four advertisement tests written
+  against a `run` that never listed anything — **2 failed, 23 passed**:
+  - `the_advertised_catalogue_reaches_every_turn_of_the_run` —
+    `assertion left == right failed: once per run, not once per turn: the catalogue does not change
+    mid-run / left: 0 / right: 1`, at `crates/skein-core/tests/native_loop.rs:1131`
+  - `a_catalogue_that_cannot_be_read_ends_the_run_before_it_starts` — panicked at `:1163` on
+    `expect_err("an inventory we could not read leaves the run's capabilities unknown")`: the run
+    completed happily, because nothing had asked the transport anything.
+  - The other two new tests (`a_zero_budget_run_never_asks_for_a_catalogue` and
+    `a_run_with_an_empty_catalogue_captures_no_tools_key`) were **green from the start**, and that is
+    recorded rather than dressed up: they pin behaviour the tree already had and this step must not
+    break. The zero-budget one is what would fail if `advertise` were ever moved above the pre-flight
+    `should_exit` check; the empty-catalogue one is what would fail if the `skip_serializing_if` were
+    dropped.
+  - Green: **25 passed** where 21 had passed, with the twenty-one unchanged.

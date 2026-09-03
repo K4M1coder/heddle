@@ -69,6 +69,16 @@ impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> NativeLoop<C, P, T> {
             return terminate(ledger, run_id, exit, None);
         }
 
+        // Once per run, and after the budget check above so a run with no budget
+        // makes no round trip. The catalogue does not change mid-run, so every
+        // turn is told the same thing.
+        //
+        // A failure here ends the run, exactly as `mediate` treats any
+        // non-`ToolDenied` transport error: an inventory we could not read
+        // leaves the run's capabilities unknown, and a model told "no tools"
+        // because a server was unreachable would answer as if it had none.
+        let tools = self.gateway.advertise()?;
+
         let mut messages = vec![prompt];
 
         loop {
@@ -81,7 +91,7 @@ impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> NativeLoop<C, P, T> {
             let req = TurnRequest {
                 run_id: run_id.to_string(),
                 messages: messages.clone(),
-                tools: Vec::new(),
+                tools: tools.clone(),
             };
             // Captured before the call, so a client that errors still leaves the
             // request in the chain. Scrubbed on the way in and nowhere else:

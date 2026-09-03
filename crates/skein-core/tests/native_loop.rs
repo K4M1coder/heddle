@@ -7,7 +7,7 @@ use serde_json::json;
 use skein_core::{
     Exit, Ledger, LoopBudget, LoopController, Message, ModelClient, NativeLoop, ProgressProbe,
     Redactor, Result, Role, SkeinError, StepKind, ToolAccess, ToolCall, ToolGateway, ToolOutcome,
-    ToolPolicy, ToolTransport, TurnRequest, TurnResponse,
+    ToolPolicy, ToolSpec, ToolTransport, TurnRequest, TurnResponse,
 };
 
 const SECRET: &str = "sk-SECRET-abc123";
@@ -90,6 +90,12 @@ struct RecordingTransport {
     calls: usize,
     seen: Vec<ToolCall>,
     mode: TransportMode,
+    /// The catalogue and how often it was asked for. Separate from `mode`: a
+    /// transport that cannot *call* can still enumerate, and the pre-existing
+    /// `failing`/`forbidden` fixtures must keep failing where they always did.
+    catalogue: Vec<ToolSpec>,
+    lists: usize,
+    list_fails: bool,
 }
 
 impl RecordingTransport {
@@ -98,6 +104,9 @@ impl RecordingTransport {
             calls: 0,
             seen: Vec::new(),
             mode: TransportMode::Reply(reply.to_string()),
+            catalogue: Vec::new(),
+            lists: 0,
+            list_fails: false,
         }
     }
 
@@ -114,6 +123,23 @@ impl RecordingTransport {
             ..RecordingTransport::new("")
         }
     }
+
+    /// A catalogue and nothing callable: the advertisement tests prove what the
+    /// model was *told*, and a script that names no tool must still never reach
+    /// a transport.
+    fn offering(names: &[&str]) -> Self {
+        RecordingTransport {
+            catalogue: names.iter().map(|name| spec(name)).collect(),
+            ..RecordingTransport::forbidden()
+        }
+    }
+
+    fn list_failing() -> Self {
+        RecordingTransport {
+            list_fails: true,
+            ..RecordingTransport::forbidden()
+        }
+    }
 }
 
 impl ToolTransport for RecordingTransport {
@@ -128,6 +154,24 @@ impl ToolTransport for RecordingTransport {
             TransportMode::Forbidden => panic!("a tool-free script must never reach a transport"),
         }
     }
+
+    fn list(&mut self) -> Result<Vec<ToolSpec>> {
+        self.lists += 1;
+        if self.list_fails {
+            return Err(SkeinError::Tool("the server would not enumerate".into()));
+        }
+        Ok(self.catalogue.clone())
+    }
+}
+
+/// A catalogue entry as a server would derive it, with a schema no caller could
+/// have reconstructed from a name alone.
+fn spec(name: &str) -> ToolSpec {
+    ToolSpec::new(
+        name,
+        format!("what {name} does"),
+        json!({"type": "object", "properties": {name: {"type": "string"}}}),
+    )
 }
 
 fn gateway(transport: RecordingTransport, approved: &[&str]) -> ToolGateway<RecordingTransport> {
@@ -1045,4 +1089,136 @@ fn a_tool_call_arriving_with_a_secret_in_its_name_is_redacted_from_the_llm_respo
         "a model-chosen tool name is model-authored text: {payloads:?}"
     );
     assert!(payloads.iter().any(|p| p.contains("read_***")));
+}
+
+// ---- tool advertisement on the request path (spec 015) ----
+
+/// Every `TurnRequest` the run captured, as the chain holds it.
+fn captured_requests(led: &Ledger, run_id: &str) -> Vec<TurnRequest> {
+    led.log(run_id)
+        .into_iter()
+        .filter(|s| s.kind == StepKind::LlmRequest)
+        .map(|s| serde_json::from_str(&s.payload).unwrap())
+        .collect()
+}
+
+#[test]
+fn the_advertised_catalogue_reaches_every_turn_of_the_run() {
+    let model = ScriptedModel::new(vec![
+        reply("thinking", 1, false),
+        reply("thinking still", 1, false),
+        reply("done", 1, true),
+    ]);
+    let mut lp = NativeLoop::new(
+        model,
+        ScriptedProbe::new(vec![true]),
+        // `read_first` and `read_second` are allowlisted and `banned` is not, so
+        // this proves the loop stamps the *filtered* list rather than the
+        // transport's own catalogue.
+        gateway(
+            RecordingTransport::offering(&["read_second", "banned", "read_first"]),
+            &[],
+        ),
+        Redactor::new(Vec::new()),
+    );
+    let mut led = Ledger::new();
+    let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 10));
+
+    lp.run("run-adv", Message::user_text("go"), &mut led, &mut ctl)
+        .expect("the run completes");
+
+    let advertised = vec![spec("read_first"), spec("read_second")];
+    assert_eq!(
+        lp.gateway.transport.lists, 1,
+        "once per run, not once per turn: the catalogue does not change mid-run"
+    );
+    assert_eq!(lp.client.seen.len(), 3, "three turns were taken");
+    for (turn, req) in lp.client.seen.iter().enumerate() {
+        assert_eq!(
+            req.tools, advertised,
+            "the model must be told the same tools on turn {turn}"
+        );
+    }
+    // And the chain holds what the model was told, so `skein ledger show` can
+    // answer "what did this run think it could do".
+    for req in captured_requests(&led, "run-adv") {
+        assert_eq!(req.tools, advertised);
+    }
+}
+
+#[test]
+fn a_catalogue_that_cannot_be_read_ends_the_run_before_it_starts() {
+    let model = ScriptedModel::new(vec![reply("never asked", 1, true)]);
+    let mut lp = NativeLoop::new(
+        model,
+        ScriptedProbe::new(vec![true]),
+        gateway(RecordingTransport::list_failing(), &[]),
+        Redactor::new(Vec::new()),
+    );
+    let mut led = Ledger::new();
+    let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 10));
+
+    let err = lp
+        .run("run-nolist", Message::user_text("go"), &mut led, &mut ctl)
+        .expect_err("an inventory we could not read leaves the run's capabilities unknown");
+
+    assert!(matches!(err, SkeinError::Tool(_)), "{err:?}");
+    assert_eq!(lp.client.calls, 0, "no turn was spent");
+    assert!(
+        led.log("run-nolist").is_empty(),
+        "fatal before the first boundary, exactly as a mid-loop provider failure \
+         leaves no step of its own: {:?}",
+        kinds(&led, "run-nolist")
+    );
+}
+
+#[test]
+fn a_zero_budget_run_never_asks_for_a_catalogue() {
+    let model = ScriptedModel::new(vec![reply("never asked", 1, true)]);
+    let mut lp = NativeLoop::new(
+        model,
+        ScriptedProbe::new(vec![true]),
+        gateway(RecordingTransport::offering(&["read_first"]), &[]),
+        Redactor::new(Vec::new()),
+    );
+    let mut led = Ledger::new();
+    let mut ctl = LoopController::new(LoopBudget::new(0, 1_000_000, 10));
+
+    let run = lp
+        .run("run-nobudget", Message::user_text("go"), &mut led, &mut ctl)
+        .expect("a refused budget is a clean exit");
+
+    assert_eq!(run.exit, Exit::MaxIters);
+    assert_eq!(
+        lp.gateway.transport.lists, 0,
+        "the budget is checked first, so a run with none makes no round trip"
+    );
+}
+
+#[test]
+fn a_run_with_an_empty_catalogue_captures_no_tools_key() {
+    let model = ScriptedModel::new(vec![reply("done", 1, true)]);
+    let mut lp = NativeLoop::new(
+        model,
+        ScriptedProbe::new(vec![true]),
+        no_tools(),
+        Redactor::new(Vec::new()),
+    );
+    let mut led = Ledger::new();
+    let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 10));
+
+    lp.run("run-empty", Message::user_text("go"), &mut led, &mut ctl)
+        .expect("the run completes");
+
+    // Byte-level, not field-level: the point is that the payload of a tool-free
+    // run is the one this tree wrote before advertisement existed, so every
+    // chain already in a silo still reads identically.
+    let payload = led
+        .log("run-empty")
+        .into_iter()
+        .find(|s| s.kind == StepKind::LlmRequest)
+        .expect("the request is captured")
+        .payload
+        .clone();
+    assert!(!payload.contains("tools"), "{payload}");
 }
