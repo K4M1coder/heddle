@@ -133,6 +133,37 @@ assertion `left == right` failed
 That is exactly the failure SC-012 makes a stop condition, and the two `disable_route` calls are
 what answer it. Its assertions were **not** changed; only its import line moved.
 
+**T6, T7, T8** — `tests/governed_git_run.rs` was **green on arrival**, because T4 and T5 had
+already built everything it composes. Recorded as such rather than dressed up: these are
+composition guards, and a guard that has never failed is a guard nobody has checked. Each one's
+teeth were therefore demonstrated by breaking exactly the thing it claims to protect.
+
+T7, with `SECRET_IN_A_COMMIT` removed from the run's `Redactor` configuration and nothing else
+changed:
+
+```
+---- a_secret_in_a_commit_message_is_scrubbed_from_every_payload_of_the_run stdout ----
+no payload of the run may carry a configured secret: [… "{\"tool\":\"git_log\",\"content\":
+\"{\\\"content\\\":[{\\\"type\\\":\\\"text\\\",\\\"text\\\":\\\"595e302\\\\t2026-09-03T20:07:11Z
+\\\\tFixture Author\\\\toops, committed sk-from-a-commit-message-SECRET-abc123 in the subject …
+```
+
+So a secret in a commit message really does reach the Ledger through `git_log`, and only the
+`Redactor` keeps it out. The unconfigured case remains the stated gap slice 016 recorded.
+
+T8, with the crafted `count` replaced by a valid `5`:
+
+```
+---- a_crafted_count_is_refused_as_a_tool_error_and_the_run_survives stdout ----
+the refusal must arrive flagged as a tool error: [tool_result tool=git_log status=ok]
+{"content":[{"type":"text","text":"07fb893\t2026-09-03T20:07:22Z\tFixture Author\tthe only
+commit"}],"isError":false}
+```
+
+So the `isError: true` the test asserts is genuinely produced by the crafted value being refused at
+the typed boundary, and not by anything the harness would have said anyway. Both were restored
+verbatim afterwards and both are green.
+
 ## Gates (T12)
 
 *(filled in at close-out)*
