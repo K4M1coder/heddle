@@ -233,7 +233,7 @@ where
     C: ModelClient + Send + 'static,
     P: ProgressProbe + Send + 'static,
     T: ToolTransport + Send + 'static,
-    F: FnMut() -> SessionParts<C, P, T> + Send + 'static,
+    F: FnMut() -> Result<SessionParts<C, P, T>> + Send + 'static,
 {
     pub fn new(factory: F) -> Self {
         SkeinAgent {
@@ -252,12 +252,16 @@ where
             .map(|registered| registered.session.clone())
     }
 
-    fn open(&self, connection: ConnectionTo<Client>) -> SessionId {
+    /// Fallible because the first real factory opens a silo per session. A
+    /// panic here would poison the factory mutex and end every other session on
+    /// a recoverable disk error; an in-memory fallback would run the session
+    /// with nothing persisted.
+    fn open(&self, connection: ConnectionTo<Client>) -> Result<SessionId> {
         let id = SessionId::new(format!(
             "skein-{}",
             self.next_id.fetch_add(1, Ordering::SeqCst)
         ));
-        let parts = (self.factory.lock().expect("factory lock"))();
+        let parts = (self.factory.lock().expect("factory lock"))()?;
         let session = SkeinSession::new(id.clone(), parts, connection);
         let cancelled = session.cancelled.clone();
         self.sessions.lock().expect("sessions lock").insert(
@@ -267,7 +271,7 @@ where
                 cancelled,
             },
         );
-        id
+        Ok(id)
     }
 
     fn registered(&self, id: &SessionId) -> Option<Registered<C, P, T>> {
@@ -300,8 +304,9 @@ where
                 agent_client_protocol::on_receive_request!(),
             )
             .on_receive_request(
-                async move |_request: NewSessionRequest, responder, cx| {
-                    responder.respond(NewSessionResponse::new(opener.open(cx)))
+                async move |_request: NewSessionRequest, responder, cx| match opener.open(cx) {
+                    Ok(id) => responder.respond(NewSessionResponse::new(id)),
+                    Err(error) => responder.respond_with_internal_error(error),
                 },
                 agent_client_protocol::on_receive_request!(),
             )

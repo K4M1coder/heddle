@@ -134,7 +134,7 @@ where
     C: ModelClient + Send + 'static,
     P: ProgressProbe + Send + 'static,
     T: ToolTransport + Send + 'static,
-    F: FnMut() -> SessionParts<C, P, T> + Send + 'static,
+    F: FnMut() -> Result<SessionParts<C, P, T>> + Send + 'static,
 {
     let (agent_side, client_side) = tokio::io::duplex(65536);
     let (agent_read, agent_write) = tokio::io::split(agent_side);
@@ -214,23 +214,26 @@ fn factory(
     tool_calls: Arc<AtomicUsize>,
     allowed: Vec<(String, ToolAccess)>,
     approved: Vec<String>,
-) -> impl FnMut() -> SessionParts<ScriptedModel, StaticProbe, CountingTransport> + Send + 'static {
-    move || SessionParts {
-        client: ScriptedModel {
-            script: script.clone(),
-            calls: model_calls.clone(),
-            gate: None,
-            started: None,
-        },
-        probe: StaticProbe(true),
-        transport: CountingTransport {
-            calls: tool_calls.clone(),
-            content: "file contents".into(),
-        },
-        policy: ToolPolicy::new(allowed.clone(), approved.clone()),
-        redactor: Redactor::new(Vec::new()),
-        budget: LoopBudget::new(8, 10_000, 8),
-        ledger: Ledger::new(),
+) -> impl FnMut() -> Result<SessionParts<ScriptedModel, StaticProbe, CountingTransport>> + Send + 'static
+{
+    move || {
+        Ok(SessionParts {
+            client: ScriptedModel {
+                script: script.clone(),
+                calls: model_calls.clone(),
+                gate: None,
+                started: None,
+            },
+            probe: StaticProbe(true),
+            transport: CountingTransport {
+                calls: tool_calls.clone(),
+                content: "file contents".into(),
+            },
+            policy: ToolPolicy::new(allowed.clone(), approved.clone()),
+            redactor: Redactor::new(Vec::new()),
+            budget: LoopBudget::new(8, 10_000, 8),
+            ledger: Ledger::new(),
+        })
     }
 }
 
@@ -294,22 +297,24 @@ async fn a8_the_session_runs_in_the_ledger_the_operator_injected() {
         .append("prior-run", StepKind::LlmRequest, "from an earlier process")
         .unwrap();
     let mut once = Some(seeded);
-    let agent = SkeinAgent::new(move || SessionParts {
-        client: ScriptedModel {
-            script: vec![finishes("all done")],
-            calls: Arc::new(AtomicUsize::new(0)),
-            gate: None,
-            started: None,
-        },
-        probe: StaticProbe(true),
-        transport: CountingTransport {
-            calls: Arc::new(AtomicUsize::new(0)),
-            content: "unused".into(),
-        },
-        policy: ToolPolicy::new(Vec::new(), Vec::new()),
-        redactor: Redactor::new(Vec::new()),
-        budget: LoopBudget::new(8, 10_000, 8),
-        ledger: once.take().expect("one session only"),
+    let agent = SkeinAgent::new(move || {
+        Ok(SessionParts {
+            client: ScriptedModel {
+                script: vec![finishes("all done")],
+                calls: Arc::new(AtomicUsize::new(0)),
+                gate: None,
+                started: None,
+            },
+            probe: StaticProbe(true),
+            transport: CountingTransport {
+                calls: Arc::new(AtomicUsize::new(0)),
+                content: "unused".into(),
+            },
+            policy: ToolPolicy::new(Vec::new(), Vec::new()),
+            redactor: Redactor::new(Vec::new()),
+            budget: LoopBudget::new(8, 10_000, 8),
+            ledger: once.take().expect("one session only"),
+        })
     });
 
     let inspect = agent.clone();
@@ -338,6 +343,72 @@ async fn a8_the_session_runs_in_the_ledger_the_operator_injected() {
         .ledger()
         .verify_chain(&format!("{session_id}#1"))
         .expect("the run landed in that same chain and verifies");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a9_a_factory_that_fails_makes_session_new_fail_and_leaves_the_connection_usable() {
+    // The first real caller opens a silo per session, which is a SQLite file
+    // open plus a full replay of the chain — fallible on permissions, a locked
+    // file, or a corrupt store. Panicking would poison the factory mutex and
+    // take every other session with it; falling back to an in-memory `Ledger`
+    // would run the session with nothing persisted. Neither is acceptable, so
+    // the factory returns a `Result` and the refusal is a JSON-RPC error the
+    // client can show its user.
+    let mut fail_next = true;
+    let agent = SkeinAgent::new(move || {
+        if std::mem::replace(&mut fail_next, false) {
+            return Err(skein_core::SkeinError::Storage("the silo is locked".into()));
+        }
+        Ok(SessionParts {
+            client: ScriptedModel {
+                script: vec![finishes("all done")],
+                calls: Arc::new(AtomicUsize::new(0)),
+                gate: None,
+                started: None,
+            },
+            probe: StaticProbe(true),
+            transport: CountingTransport {
+                calls: Arc::new(AtomicUsize::new(0)),
+                content: "unused".into(),
+            },
+            policy: ToolPolicy::new(Vec::new(), Vec::new()),
+            redactor: Redactor::new(Vec::new()),
+            budget: LoopBudget::new(8, 10_000, 8),
+            ledger: Ledger::new(),
+        })
+    });
+
+    let (refusal, second) = with_facade(
+        agent,
+        Answer::Allow,
+        Observed::default(),
+        async |cx: ConnectionTo<Agent>| {
+            cx.send_request(InitializeRequest::new(ProtocolVersion::V1))
+                .block_task()
+                .await?;
+            let refused = cx
+                .send_request(NewSessionRequest::new(PathBuf::from(".")))
+                .block_task()
+                .await;
+            // On the same connection, after the refusal: a dead connection
+            // would fail here too, and the point is that it does not.
+            let second = cx
+                .send_request(NewSessionRequest::new(PathBuf::from(".")))
+                .block_task()
+                .await?;
+            Ok((refused.err(), second.session_id))
+        },
+    )
+    .await;
+
+    let refusal = refusal.expect("session/new is refused when the factory fails");
+    assert!(
+        format!("{refusal:?}").contains("the silo is locked"),
+        "the client is told what failed, got: {refusal:?}"
+    );
+    // A refused open still consumes its id: ids are opaque and are never
+    // reused, so uniqueness does not depend on the factory succeeding.
+    assert_eq!(second, SessionId::new("skein-2"));
 }
 
 // ---------------------------------------------------------------------------
@@ -590,7 +661,7 @@ async fn a7_session_cancel_ends_the_run_and_reports_cancelled() {
     let mut once = Some((started_tx, gate_rx));
     let agent = SkeinAgent::new(move || {
         let (started, gate) = once.take().expect("one session only");
-        SessionParts {
+        Ok(SessionParts {
             client: ScriptedModel {
                 script: script.clone(),
                 calls: calls.clone(),
@@ -606,7 +677,7 @@ async fn a7_session_cancel_ends_the_run_and_reports_cancelled() {
             redactor: Redactor::new(Vec::new()),
             budget: LoopBudget::new(8, 10_000, 8),
             ledger: Ledger::new(),
-        }
+        })
     });
 
     let inspect = agent.clone();
