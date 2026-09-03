@@ -30,7 +30,7 @@ slice 009 merged.
 ## Tasks
 - [x] **T0** `specs/010-secret-provider/{spec.md,plan.md,tasks.md}`; branch `010-secret-provider`
       cut from `dev` with slice 009 merged
-- [ ] **T1** pinned the credential-store surface against the vendored `keyring 4.2.0`,
+- [x] **T1** pinned the credential-store surface against the vendored `keyring 4.2.0`,
       `keyring-core 1.0.0` and store-crate sources, and against a compiled probe, *before* any
       product code. **The advisory plan's whole dependency shape was wrong**; see below
 - [ ] **T2** control baseline: `cargo test --workspace` before any edit — **63**
@@ -48,6 +48,57 @@ slice 009 merged.
 - [ ] **T9** dependency drift recorded below
 - [ ] **T10** close out: tick the `SecretProvider` bullet in spec 009's "Next slice" list and in
       `specs/003-skein-core-foundation/tasks.md`, and set this spec's Status
+
+## Pinned credential-store surface (T1)
+
+**The advisory plan's dependency shape did not survive contact with the source.** It assumed a
+single `keyring = "4.2"` dependency with per-OS *features*. Read from the vendored source:
+
+1. `windows-native-keyring-store` and friends are **optional target-gated dependencies** of
+   `keyring`, not standalone entry points. `keyring/src/lib.rs:32` is
+   `compile_error!("At least one of the features 'v1' or 'cli' must be enabled")`, so a
+   `default-features = false` build with only the store features **does not compile**.
+2. `keyring`'s `v1` feature — the crate default — hard-codes **zbus Secret Service** on every
+   non-Apple unix (`keyring/src/v1.rs:115`), i.e. D-Bus. That is exactly the shape a headless
+   `ubuntu-latest` cannot run, so the default is the one thing this slice must not take.
+3. The `cli` feature does reach keyutils (`keyring/src/cli.rs:97`,
+   `use_native_store(prefer_secret_service: bool)`), but it enables **every** store at once —
+   `db-keystore`, `dbus-secret-service` with vendored crypto, `zbus`, and the sample store.
+4. `keyring`'s own module doc (`src/lib.rs:17-27`) says applications "which want to control which
+   credential stores they use on which platforms … should not be linking to this library at all;
+   they should instead be linking to `keyring-core` and any specific credential stores".
+
+So the dependency is `keyring-core` plus exactly one native store crate per OS — the advisory
+plan's *intent* (a native store per OS, keyutils on Linux) reached through the shape the library
+supports. Every name below is used by `crates/skein-silo/src/secret.rs` exactly as spelled here.
+
+| Item | Pinned spelling |
+|---|---|
+| `keyring-core` version | `1.0.0`, MIT OR Apache-2.0; one dependency (`log`) |
+| `CredentialStore` | `pub type CredentialStore = dyn CredentialStoreApi + Send + Sync` (`keyring-core/src/api.rs:258`) |
+| `CredentialStoreApi::build` | `fn build(&self, service: &str, user: &str, modifiers: Option<&HashMap<&str, &str>>) -> Result<Entry>` (`api.rs:204`) — the no-global path |
+| `Entry::set_password` / `get_password` / `delete_credential` | `(&self, …) -> Result<()>` / `-> Result<String>` / `-> Result<()>` (`keyring-core/src/lib.rs:212,261,358`) |
+| missing credential | `Error::NoEntry` (`keyring-core/src/error.rs:40`) — the variant `resolve` maps to `SkeinError::Secret` |
+| Windows store | `windows_native_keyring_store::Store::new() -> Result<Arc<Self>>` (`store.rs:35`), crate `windows-native-keyring-store 1.1.0` |
+| macOS store | `apple_native_keyring_store::keychain::Store::new() -> Result<Arc<Self>>` (`keychain.rs:181`), crate `apple-native-keyring-store 1.0.2`, **feature `keychain`** (`keychain = ["security-framework"]`) |
+| Linux store | `linux_keyutils_keyring_store::Store::new() -> Result<Arc<Self>>` (`store.rs:34`), crate `linux-keyutils-keyring-store 1.0.0` |
+| `zeroize` | `1.9.0`, no dependencies; `Zeroizing<String>` needs the default `alloc` feature and `Deref`s to `String` |
+
+**Four facts were measured, not assumed** (a throwaway `cargo` probe outside this repository,
+2026-09-03, this Windows host):
+
+- `Store::new()` → `store.build(service, user, None)` → `set_password` / `get_password` /
+  `delete_credential` **round-trips against the real Windows Credential Manager**, with no call to
+  `keyring_core::set_default_store`. The process-global default store that `keyring::v1` installs
+  (`v1.rs:108`, a `RwLock` static behind a `LazyLock`) is avoidable, so `OsKeychain` owns its
+  store and two providers in one process cannot fight over a global.
+- `get_password` after `delete_credential`, and `get_password` for a never-stored service, both
+  give **`Error::NoEntry`** — so a missing secret is distinguishable from a platform failure.
+- `delete_credential` of an absent credential also gives `Error::NoEntry`, so test cleanup must
+  tolerate it rather than `unwrap`.
+- **The Windows store accepts an empty service name without error.** Validation of
+  `keychain://<service>/<account>` therefore has to be ours: an empty service or account is
+  rejected by `SecretRef` parsing before the store is ever reached.
 
 ## Next slice (not this feature)
 - [ ] `skein-cli` reference client: `skein secret set|delete` (the second caller of
