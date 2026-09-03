@@ -272,6 +272,55 @@ fn redactor_resolve_propagates_a_provider_failure() {
     );
 }
 
+/// A secret carrying a quote and a newline: serialized first, both are
+/// JSON-escaped, so a string-level replace on the serialized payload would never
+/// see this needle.
+const AWKWARD: &str = "a\"b\nc";
+
+#[test]
+fn redact_json_scrubs_the_strings_and_keeps_the_shape() {
+    let redactor = Redactor::new(vec!["hunter2".into()]);
+    let awkward = Redactor::new(vec![AWKWARD.into()]);
+    let value = serde_json::json!({
+        "token": "hunter2",
+        "nested": {"hunter2": ["prefix hunter2 suffix", 7, true, null]},
+        "awkward": AWKWARD,
+    });
+
+    let scrubbed = redactor.redact_json(&value).expect("a Value serializes");
+    let back: serde_json::Value =
+        serde_json::from_str(&scrubbed).expect("the payload still parses");
+
+    assert_eq!(back["token"], serde_json::json!("***"));
+    assert_eq!(
+        back["nested"]["***"],
+        serde_json::json!(["prefix *** suffix", 7, true, null]),
+        "keys are scrubbed too, and non-string scalars survive unchanged: {back}"
+    );
+    assert!(!scrubbed.contains("hunter2"), "{scrubbed}");
+
+    let escaped = awkward.redact_json(&value).expect("a Value serializes");
+    let back: serde_json::Value = serde_json::from_str(&escaped).expect("the payload still parses");
+    assert_eq!(
+        back["awkward"],
+        serde_json::json!("***"),
+        "a secret containing a quote and a newline is scrubbed before it is escaped: {escaped}"
+    );
+}
+
+#[test]
+fn a_cloned_redactor_scrubs_what_the_original_scrubs() {
+    let original = Redactor::new(vec!["hunter2".into()]);
+    let copy = original.clone();
+
+    assert_eq!(copy.redact("token=hunter2"), "token=***");
+    assert_eq!(
+        original.redact("token=hunter2"),
+        copy.redact("token=hunter2"),
+        "one run configures one secret set, however many collaborators hold it"
+    );
+}
+
 // ---- ledger run enumeration ----
 
 #[test]

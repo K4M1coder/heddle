@@ -137,6 +137,17 @@ impl Redactor {
         out
     }
 
+    /// Serializes `value` and scrubs the strings inside it, leaving its shape
+    /// intact — so the captured payload stays parseable for replay.
+    ///
+    /// Serialize *then* scrub, never the other way round: a secret containing a
+    /// quote, a backslash or a newline is JSON-escaped inside a serialized
+    /// payload, so the literal needle would not appear in it and the secret
+    /// would be missed entirely.
+    pub fn redact_json<T: Serialize + ?Sized>(&self, value: &T) -> Result<String> {
+        Ok(self.redact_value(&serde_json::to_value(value)?).to_string())
+    }
+
     /// Redacts the strings inside a JSON value, leaving its shape intact — so
     /// the captured payload stays parseable for replay.
     fn redact_value(&self, value: &Value) -> Value {
@@ -152,6 +163,24 @@ impl Redactor {
                     .collect(),
             ),
             other => other.clone(),
+        }
+    }
+}
+
+/// Hand-written, because `SecretValue` is deliberately not `Clone`: a run
+/// configures **one** secret set and both the loop and the gateway must scrub
+/// the same values, so this copies the material rather than widening
+/// `secret.rs`'s public API. Both copies are `Zeroizing` and both zeroize on
+/// drop. The empty-secret filter is not re-applied: the source is already
+/// filtered.
+impl Clone for Redactor {
+    fn clone(&self) -> Self {
+        Redactor {
+            secrets: self
+                .secrets
+                .iter()
+                .map(|s| SecretValue::new(s.expose()))
+                .collect(),
         }
     }
 }

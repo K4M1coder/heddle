@@ -37,7 +37,7 @@ branch `014-ledger-redaction` cut from `dev` after slice 013 merged.
 - [x] **T0** `specs/014-ledger-redaction/{spec.md,plan.md,tasks.md}`; branch `014-ledger-redaction`
       cut from `dev` with slice 013 merged
 - [x] **T1** control baseline: `cargo test --workspace` before any edit — **110 passed, 1 ignored**
-- [ ] **T2** RED→GREEN — `Redactor::redact_json` and `impl Clone for Redactor`, with their tests in
+- [x] **T2** RED→GREEN — `Redactor::redact_json` and `impl Clone for Redactor`, with their tests in
       `crates/skein-core/tests/core.rs`. First because nothing else compiles without them
 - [ ] **T3** RED→GREEN — `NativeLoop`'s fourth constructor argument and the two `redact_json` calls
       in `run`, with all 26 call sites updated in the same atomic commit. Its red is T4's tests
@@ -64,7 +64,15 @@ against.
 
 ## Observed red (Constitution III)
 
-_Recorded per step._
+All on 2026-09-03.
+
+- **T2** `cargo test -p skein-core --test core` before either addition existed — **3 compile
+  errors**, and the file did not build:
+  - `error[E0599]: no method named redact_json found for struct Redactor in the current scope`,
+    twice, each with `help: there is a method redact with a similar name`
+  - `error[E0599]: no method named clone found for struct Redactor in the current scope`
+  - `error: could not compile skein-core (test "core") due to 3 previous errors`
+  - Green: **17 passed** where 15 had passed, with the fifteen unchanged.
 
 ## Gate run (T9)
 
