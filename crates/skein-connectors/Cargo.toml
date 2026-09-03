@@ -20,6 +20,11 @@ serde.workspace = true
 # quality, and if that footprint ever stops mattering the swap touches one file.
 git2.workspace = true
 chrono.workspace = true
+# `src/fs.rs` is the only module in the workspace that may name this — the same
+# boundary `git2` above and `skein-sandbox` below get, and here it is the point
+# of the type: no `cap_std` type appears in any public signature outside
+# `FsRoot`, so `skein-core` and every `ToolTransport` stay unaware of it.
+cap-std.workspace = true
 # `src/run.rs` is the only module that names this, and it is the only crate in
 # the workspace containing `unsafe` — the same boundary discipline `git2` above
 # gets, for a much stronger reason. Declared unconditionally because the crate

@@ -30,6 +30,28 @@ rusqlite = { version = "0.40", default-features = false, features = ["bundled"] 
 # mirroring `rusqlite`'s `bundled` above.
 git2 = { version = "0.21", default-features = false, features = ["vendored-libgit2"] }
 chrono = { version = "0.4", default-features = false, features = ["std"] }
+# The one containment primitive in the product that a string cannot express:
+# a directory handle, and opens resolved relative to it. Windows has no
+# `openat`, so a genuine handle-relative open needs `NtCreateFile` with
+# `OBJECT_ATTRIBUTES.RootDirectory` — the `Wdk_*` layer of `windows-sys`, below
+# the Win32 layer `skein-sandbox` uses. This crate is the Bytecode Alliance's,
+# it is the filesystem sandbox underneath Wasmtime's WASI, and it clears every
+# criterion ADR-0006 used to reject `rappct` (~5,400 all-time downloads, single
+# maintainer, pre-1.0) by orders of magnitude: ~18.9M all-time downloads, an
+# organization behind it, 4.0.3, and a filed-and-fixed RustSec advisory
+# (RUSTSEC-2024-0445) proving the process exists.
+#
+# **The cost, measured and accepted rather than glossed:** 16 new packages on
+# the Windows product tree, of which three are duplicate `windows-sys` majors
+# (0.59 via `fs-set-times`/`winx`, 0.60 via `io-extras`) on top of the 0.61
+# pinned above, plus two duplicate `windows-targets` pairs — directly against
+# that pin's own "one copy of a very large generated crate beats two". Accepted
+# because this is `windows`'s and `win32job`'s shape and not `gix`'s: those two
+# were taken, large, as the only way to get a **security property** the product
+# had claimed, where `gix` was refused as a convenience over a working `git2`.
+# `default-features = false` for `git2`'s recorded reason — `default` is already
+# empty here, and stating it is this workspace's house style.
+cap-std = { version = "4", default-features = false }
 tempfile = "3"
 zeroize = { version = "1", default-features = false, features = ["alloc"] }
 keyring-core = "1"
