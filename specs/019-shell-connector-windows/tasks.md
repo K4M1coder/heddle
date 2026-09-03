@@ -76,4 +76,17 @@ the expected figure and is why the baseline is re-measured rather than quoted.
 
 ## Observed red
 
-Filled in per step as each red is observed, before its green.
+**T3** — `cargo test -p skein-sandbox --test profile`, both tests:
+
+```
+thread 'a_sandbox_derives_an_appcontainer_sid_and_grants_it_the_root' panicked at
+crates\skein-sandbox\src\lib.rs:98:9:
+not yet implemented: T3
+test result: FAILED. 0 passed; 2 failed
+```
+
+An **unwritten-code** red — the `todo!("T3")` T2 deliberately left in `Sandbox::create` — and not an
+ACL or a Win32 one. That distinction is the whole reason T2 exists as its own step. Getting there
+took two compile errors in the *test's* own Win32 helper, both fixed before the red was recorded:
+`HLOCAL` implements neither `From<*mut u16>` nor `From<*mut c_void>` in windows 0.61, so the frees
+are written `HLOCAL(text.0 as *mut c_void)` rather than `.into()`.

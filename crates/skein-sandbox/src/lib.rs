@@ -65,9 +65,7 @@ pub struct Run {
 #[cfg(windows)]
 pub struct Sandbox {
     root: std::path::PathBuf,
-    /// The string SID as UTF-16, NUL-terminated, ready for
-    /// `ConvertStringSidToSidW`.
-    sid: Vec<u16>,
+    sid: String,
 }
 
 /// Uninhabited off Windows, which is the platform gate stated in the type
@@ -77,8 +75,30 @@ pub struct Sandbox {
 #[cfg(not(windows))]
 pub struct Sandbox(std::convert::Infallible);
 
+/// A path in the form the **name-based** Win32 APIs accept.
+///
+/// `FsRoot` canonicalizes once in its constructor, which on Windows yields a
+/// `\\?\`-verbatim path — and neither the ADVAPI32 name-based security
+/// functions nor `CreateProcessW`'s `lpCurrentDirectory` is documented to
+/// accept that prefix. Stripping it here rather than in each caller keeps the
+/// one rule in one place, and keeps the verbatim form everywhere Rust's own
+/// path comparisons need it.
+#[cfg(windows)]
+fn win32_path(path: &Path) -> String {
+    let rendered = path.to_string_lossy();
+    match rendered.strip_prefix(r"\\?\") {
+        // `\\?\UNC\server\share` is a share, and dropping the whole prefix
+        // would leave the bare word `UNC` as the volume.
+        Some(rest) => match rest.strip_prefix(r"UNC\") {
+            Some(share) => format!(r"\\{share}"),
+            None => rest.to_string(),
+        },
+        None => rendered.into_owned(),
+    }
+}
+
 #[cfg(not(windows))]
-const NO_BACKEND: &str = "a sandboxed process launcher has no backend on this platform; shell \
+const NO_BACKEND: &str ="a sandboxed process launcher has no backend on this platform; shell \
                           tools are Windows-only in v0";
 
 impl Sandbox {
@@ -97,12 +117,23 @@ impl Sandbox {
     /// exit code before a model sees a tool, not a per-call refusal.
     #[cfg(windows)]
     pub fn create(root: &Path) -> std::result::Result<Sandbox, String> {
-        todo!("T3")
+        profile::create(root)
     }
 
     #[cfg(not(windows))]
     pub fn create(_root: &Path) -> std::result::Result<Sandbox, String> {
         Err(NO_BACKEND.to_string())
+    }
+
+    /// The AppContainer identity this sandbox launches under, in `S-1-15-2-…`
+    /// form.
+    ///
+    /// Public so a test can read the grant back off the directory's **own**
+    /// security descriptor and compare, rather than trusting what
+    /// [`Sandbox::create`] says it wrote.
+    #[cfg(windows)]
+    pub fn string_sid(&self) -> &str {
+        &self.sid
     }
 
     /// One process, bounded by the Job Object and the AppContainer.
