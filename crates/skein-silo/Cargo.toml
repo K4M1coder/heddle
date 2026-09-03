@@ -9,6 +9,17 @@ license.workspace = true
 skein-core = { path = "../skein-core" }
 rusqlite.workspace = true
 serde_json.workspace = true
+keyring-core.workspace = true
+
+# One native credential store per OS; only one is ever compiled for a target.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-native-keyring-store.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+linux-keyutils-keyring-store.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -21,3 +21,7 @@ tokio-util = "0.7"
 rusqlite = { version = "0.40", default-features = false, features = ["bundled"] }
 tempfile = "3"
 zeroize = { version = "1", default-features = false, features = ["alloc"] }
+keyring-core = "1"
+windows-native-keyring-store = "1"
+apple-native-keyring-store = { version = "1", features = ["keychain"] }
+linux-keyutils-keyring-store = "1"

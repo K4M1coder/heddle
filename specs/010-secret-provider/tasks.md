@@ -40,7 +40,7 @@ slice 009 merged.
       `SkeinError::Secret`, re-exports, and the now-stale `Redactor` doc comment corrected
 - [x] **T5** RED — `crates/skein-silo/tests/silo_secret.rs` against the not-yet-existing
       `OsKeychain`; red recorded below
-- [ ] **T6** GREEN — `crates/skein-silo/src/secret.rs` and the per-OS `keyring-core` dependencies
+- [x] **T6** GREEN — `crates/skein-silo/src/secret.rs` and the per-OS `keyring-core` dependencies
 - [ ] **T7** gates: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D
       warnings`, `cargo test --workspace`; new total recorded below
 - [ ] **T8** control diff: `git diff dev` empty on `crates/skein-mcp/`, `crates/skein-acp/`,

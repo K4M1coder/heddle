@@ -8,13 +8,16 @@
 //! merely forbidden — it has no expressible form, because there is no handle to
 //! the other silo's data.
 //!
-//! This is also the only crate in the product that names `rusqlite`, so
-//! `skein-core` discovers durable storage through `LedgerStore` and never
-//! through a database type.
+//! This is also the only crate in the product that names `rusqlite` or a
+//! credential store, so `skein-core` discovers durable storage through
+//! `LedgerStore` and secrets through `SecretProvider`, never through a database
+//! type or an OS API.
 
 mod ledger_store;
+mod secret;
 
 pub use ledger_store::SqliteLedgerStore;
+pub use secret::OsKeychain;
 
 use skein_core::{Ledger, Result, SkeinError};
 use std::path::{Path, PathBuf};

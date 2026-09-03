@@ -83,8 +83,7 @@ fn k1_keychain_round_trips_a_secret() {
     let err = held
         .keychain
         .resolve(&held.reference)
-        .err()
-        .expect("a deleted credential no longer resolves");
+        .expect_err("a deleted credential no longer resolves");
     assert!(matches!(err, SkeinError::Secret(_)), "got {err}");
 }
 
@@ -98,8 +97,7 @@ fn k2_a_missing_reference_fails_loudly() {
 
     let err = keychain
         .resolve(&never_stored)
-        .err()
-        .expect("an unstored reference must not resolve");
+        .expect_err("an unstored reference must not resolve");
 
     assert!(
         matches!(err, SkeinError::Secret(_)),
@@ -143,7 +141,10 @@ fn k4_a_governed_call_redacts_a_provider_resolved_secret() {
         EchoTransport {
             reply: "Authorization: Bearer hunter2".into(),
         },
-        ToolPolicy::new(vec![("read_secret".into(), ToolAccess::ReadOnly)], Vec::new()),
+        ToolPolicy::new(
+            vec![("read_secret".into(), ToolAccess::ReadOnly)],
+            Vec::new(),
+        ),
         redactor,
     );
 
