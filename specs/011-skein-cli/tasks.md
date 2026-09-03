@@ -240,10 +240,12 @@ working tree's cached lock. Those seven are excluded below.
   violation. No `tokio`: every path is synchronous.
 
 ## Next slice (not this feature)
-- [ ] **`skein acp-agent` and `skein chat`, together with the real `ModelClient`** (BMAD Story
-      1.4). Deliberately deferred out of this slice rather than shipped behind a placeholder: an
-      echo model would put a fake in product code, and a model that only refuses is machinery with
-      no user and no caller. Both cost about one file each once a real client exists.
+- [x] **`skein chat`, together with the real `ModelClient`** (BMAD Story 1.4) — landed in slice
+      012 (`specs/012-model-gateway/`) as `crates/skein-gateway` plus `skein-cli/src/chat.rs`. The
+      deferral's estimate held: with a real client in hand, the chat surface did cost about one
+      file. **`skein acp-agent` is still open**, and is carried on slice 012's own "Next slice"
+      list — it needs a stdio `ConnectTo<Agent>`, a `tokio` runtime inside `skein-cli` and a
+      subprocess ACP test, which is a slice and not a file.
 - [ ] **redaction on the `LlmRequest`/`LlmResponse` path**, so `skein ledger show` cannot print a
       conversation secret. `ToolCall`/`ToolResult` payloads already pass through the `Redactor` in
       `ToolGateway::call_captured`, but `NativeLoop::run` appends model I/O **raw**. A real gap,
