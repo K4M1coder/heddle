@@ -18,6 +18,9 @@ struct ScriptedModel {
     script: Vec<TurnResponse>,
     calls: usize,
     fail_at: Option<usize>,
+    /// Every request as the client received it, so a test can prove the model
+    /// was handed the raw value the chain must not hold.
+    seen: Vec<TurnRequest>,
 }
 
 impl ScriptedModel {
@@ -26,6 +29,7 @@ impl ScriptedModel {
             script,
             calls: 0,
             fail_at: None,
+            seen: Vec::new(),
         }
     }
     fn failing_at(script: Vec<TurnResponse>, fail_at: usize) -> Self {
@@ -33,14 +37,16 @@ impl ScriptedModel {
             script,
             calls: 0,
             fail_at: Some(fail_at),
+            seen: Vec::new(),
         }
     }
 }
 
 impl ModelClient for ScriptedModel {
-    fn turn(&mut self, _req: &TurnRequest) -> Result<TurnResponse> {
+    fn turn(&mut self, req: &TurnRequest) -> Result<TurnResponse> {
         let i = self.calls;
         self.calls += 1;
+        self.seen.push(req.clone());
         if self.fail_at == Some(i) {
             return Err(SkeinError::Model(format!("scripted failure on turn {i}")));
         }
@@ -848,4 +854,139 @@ fn model_named_tool_outside_the_allowlist_never_reaches_the_transport() {
         notice.starts_with("[tool_result tool=shell_exec status=denied]"),
         "the model is told plainly that the tool it named was refused: {notice}"
     );
+}
+
+// ---- redaction on the model-I/O path (spec 014) ----
+
+#[test]
+fn a_secret_in_the_conversation_is_redacted_from_the_llm_payloads() {
+    let model = ScriptedModel::new(vec![reply(&format!("your key {SECRET} is fine"), 3, true)]);
+    let mut lp = NativeLoop::new(
+        model,
+        ScriptedProbe::new(vec![true]),
+        no_tools(),
+        Redactor::new(vec![SECRET.into()]),
+    );
+    let mut led = Ledger::new();
+    let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 10));
+
+    let run = lp
+        .run(
+            "run-llm-secret",
+            Message::user_text(format!("here is my key: {SECRET}")),
+            &mut led,
+            &mut ctl,
+        )
+        .unwrap();
+
+    // Every payload, not only the two: this is the assertion that would catch a
+    // future step type leaking.
+    let payloads: Vec<String> = led
+        .log("run-llm-secret")
+        .iter()
+        .map(|s| s.payload.clone())
+        .collect();
+    assert!(
+        payloads.iter().all(|p| !p.contains(SECRET)),
+        "no payload of the run may contain the secret: {payloads:?}"
+    );
+    assert!(payloads.iter().any(|p| p.contains("***")));
+
+    assert!(
+        lp.client.seen[0].messages[0].text().contains(SECRET),
+        "the model is sent the real prompt; only the record is scrubbed"
+    );
+    assert!(
+        run.final_message.unwrap().text().contains(SECRET),
+        "the caller gets the real answer; only the record is scrubbed"
+    );
+    led.verify_chain("run-llm-secret").unwrap();
+}
+
+#[test]
+fn the_redacted_llm_payloads_are_still_parseable_turn_request_and_response() {
+    let model = ScriptedModel::new(vec![reply(&format!("answer: {SECRET} it is"), 42, true)]);
+    let mut lp = NativeLoop::new(
+        model,
+        ScriptedProbe::new(vec![true]),
+        no_tools(),
+        Redactor::new(vec![SECRET.into()]),
+    );
+    let mut led = Ledger::new();
+    let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 10));
+
+    lp.run(
+        "run-parseable",
+        Message::user_text(format!("ask about {SECRET}")),
+        &mut led,
+        &mut ctl,
+    )
+    .unwrap();
+
+    let log = led.log("run-parseable");
+    let payload = |kind: StepKind| {
+        log.iter()
+            .find(|s| s.kind == kind)
+            .unwrap_or_else(|| panic!("the run has a {kind:?} step"))
+            .payload
+            .clone()
+    };
+
+    // Scrubbed, not truncated and not emptied: the record stays replayable.
+    let req: TurnRequest = serde_json::from_str(&payload(StepKind::LlmRequest))
+        .expect("a redacted LlmRequest payload is still a TurnRequest");
+    assert_eq!(req.run_id, "run-parseable");
+    assert_eq!(req.messages.len(), 1);
+    assert_eq!(req.messages[0].role, Role::User);
+    assert_eq!(req.messages[0].text(), "ask about ***");
+
+    let resp: TurnResponse = serde_json::from_str(&payload(StepKind::LlmResponse))
+        .expect("a redacted LlmResponse payload is still a TurnResponse");
+    assert_eq!(resp.tokens_used, 42);
+    assert!(resp.final_output);
+    assert_eq!(resp.message.role, Role::Assistant);
+    assert_eq!(resp.message.text(), "answer: *** it is");
+}
+
+#[test]
+fn a_tool_call_arriving_with_a_secret_in_its_name_is_redacted_from_the_llm_response_too() {
+    let model = ScriptedModel::new(vec![
+        reply_with_tools(
+            "calling",
+            1,
+            false,
+            vec![ToolCall::new(format!("read_{SECRET}"), json!({}))],
+        ),
+        reply("fine, no tool then", 1, true),
+    ]);
+    let mut lp = NativeLoop::new(
+        model,
+        ScriptedProbe::new(vec![true]),
+        gateway(RecordingTransport::forbidden(), &[]),
+        Redactor::new(vec![SECRET.into()]),
+    );
+    let mut led = Ledger::new();
+    let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 10));
+
+    let run = lp
+        .run("run-toolname", Message::user_text("go"), &mut led, &mut ctl)
+        .unwrap();
+
+    assert_eq!(run.exit, Exit::FinalOutput, "a refusal is not a failed run");
+    assert_eq!(lp.gateway.transport.calls, 0);
+
+    // The LlmResponse payload carries the whole tool_calls array, so a fix that
+    // only scrubbed the ToolCall step would leak the name here. The tool steps
+    // are tool_gateway.rs's subject; these two are the loop's.
+    let payloads: Vec<String> = led
+        .log("run-toolname")
+        .iter()
+        .filter(|s| matches!(s.kind, StepKind::LlmRequest | StepKind::LlmResponse))
+        .map(|s| s.payload.clone())
+        .collect();
+    assert!(
+        payloads.iter().all(|p| !p.contains(SECRET)),
+        "a model-chosen tool name is model-authored text: {payloads:?}"
+    );
+    assert!(payloads.iter().any(|p| p.contains("read_***")));
 }

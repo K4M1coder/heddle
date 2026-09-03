@@ -41,7 +41,7 @@ branch `014-ledger-redaction` cut from `dev` after slice 013 merged.
       `crates/skein-core/tests/core.rs`. First because nothing else compiles without them
 - [ ] **T3** RED→GREEN — `NativeLoop`'s fourth constructor argument and the two `redact_json` calls
       in `run`, with all 26 call sites updated in the same atomic commit. Its red is T4's tests
-- [ ] **T4** RED (written before T3's green) — the three new tests in
+- [x] **T4** RED (written before T3's green) — the three new tests in
       `crates/skein-core/tests/native_loop.rs`, plus the additive `ScriptedModel.seen` field
 - [ ] **T5** RED→GREEN — the tool-name redaction in `ToolGateway::call_captured`
 - [ ] **T6** GREEN — `SkeinSession::new` clones the injected redactor into both collaborators
@@ -73,6 +73,14 @@ All on 2026-09-03.
   - `error[E0599]: no method named clone found for struct Redactor in the current scope`
   - `error: could not compile skein-core (test "core") due to 3 previous errors`
   - Green: **17 passed** where 15 had passed, with the fifteen unchanged.
+
+- **T4** `cargo test -p skein-core --test native_loop` with the three new tests written against a
+  signature that did not exist yet — **3 compile errors**, one per new construction site:
+  - `error[E0061]: this function takes 3 arguments but 4 arguments were supplied`, at
+    `tests/native_loop.rs:864`, `:909` and `:962`, each pointing at
+    `crates/skein-core/src/native_loop.rs:40`
+  - `error: could not compile skein-core (test "native_loop") due to 3 previous errors`
+  - Committed red, the way slice 013 committed `cli_acp_agent.rs` before its subcommand existed.
 
 ## Gate run (T9)
 
