@@ -37,6 +37,24 @@ impl Reply {
             stall: None,
         }
     }
+
+    fn status(status: &'static str, body: impl Into<String>) -> Reply {
+        Reply {
+            status,
+            body: body.into(),
+            stall: None,
+        }
+    }
+
+    /// Accepts the request, then holds it — the shape a client must time out
+    /// against rather than block the run on.
+    fn stalled(stall: Duration) -> Reply {
+        Reply {
+            status: "200 OK",
+            body: "{}".into(),
+            stall: Some(stall),
+        }
+    }
 }
 
 /// A provider that answers `replies` in order and reports the exact request
@@ -399,5 +417,169 @@ fn a_response_without_usage_is_refused_rather_than_metered_as_zero() {
     assert!(
         turn_error(&partial, "and now?").contains("without token metering"),
         "a half-filled usage object is not metering"
+    );
+}
+
+/// A loopback URL nothing is listening on: bind a kernel-assigned port to learn
+/// a number that is certainly free, then drop the listener.
+fn dead_loopback_url() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+    let port = listener.local_addr().expect("the bound address").port();
+    drop(listener);
+    format!("http://127.0.0.1:{port}/v1")
+}
+
+#[test]
+fn finish_reason_length_is_not_a_final_answer() {
+    // `"length"` means the provider truncated the model mid-thought. Treating
+    // it as a completed answer would let a truncation launder itself past
+    // LoopController, which Constitution VIII(a) reserves to the engine.
+    let stub = Stub::serving(vec![Reply::ok(provider_reply(
+        "the first half of a thoug",
+        "length",
+        99,
+    ))]);
+    let mut model = client(stub.base_url(), "llama3.1");
+
+    let response = model
+        .turn(&ask(vec![Message::user_text("explain everything")]))
+        .expect("the stub answers");
+
+    assert!(
+        !response.final_output,
+        "a truncated answer is not a final answer"
+    );
+    // The turn is still metered: the tokens were really spent.
+    assert_eq!(response.tokens_used, 99);
+}
+
+#[test]
+fn tool_calls_are_translated_and_are_not_a_final_answer() {
+    // This client advertises no tools, so a provider should not send these. It
+    // translates them anyway: the chain records the TurnResponse and not the
+    // raw body, so silently dropping a model intent would weaken Constitution
+    // V. `content` is null on a tool-calling turn, which must not be a parse
+    // failure.
+    let stub = Stub::serving(vec![Reply::ok(
+        serde_json::json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "read_file",
+                            "arguments": "{\"path\":\"README.md\"}"
+                        }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }],
+            "usage": {"total_tokens": 12}
+        })
+        .to_string(),
+    )]);
+    let mut model = client(stub.base_url(), "llama3.1");
+
+    let response = model
+        .turn(&ask(vec![Message::user_text("read the readme")]))
+        .expect("the stub answers");
+
+    assert_eq!(
+        response.tool_calls,
+        vec![skein_core::ToolCall::new(
+            "read_file",
+            serde_json::json!({"path": "README.md"})
+        )]
+    );
+    assert!(!response.final_output, "a tool request is not an answer");
+    assert_eq!(response.message, Message::assistant_text(""));
+}
+
+#[test]
+fn an_unreachable_provider_fails_with_a_message_naming_the_endpoint() {
+    let base_url = dead_loopback_url();
+    let mut model = client(&base_url, "llama3.1");
+
+    let message = match model.turn(&ask(vec![Message::user_text("anyone home?")])) {
+        Ok(response) => panic!("expected a refusal, got {response:?}"),
+        Err(SkeinError::Model(message)) => message,
+        Err(other) => panic!("expected SkeinError::Model, got {other:?}"),
+    };
+
+    // The shape, not the OS's connection-refused wording, which differs across
+    // platforms.
+    assert!(
+        message.contains(&base_url) && message.contains("is a local provider listening"),
+        "the operator must be told which endpoint and what to check, got: {message}"
+    );
+}
+
+#[test]
+fn a_provider_error_status_carries_the_providers_own_message() {
+    // Ollama's own 404 shape. `http_status_as_error(false)` is what lets this
+    // reach the operator instead of being flattened into a status code.
+    let stub = Stub::serving(vec![Reply::status(
+        "404 Not Found",
+        r#"{"error":{"message":"model \"nope\" not found, try pulling it first","type":"api_error"}}"#,
+    )]);
+
+    let message = turn_error(&stub, "use a model I do not have");
+    assert!(
+        message.contains("returned 404") && message.contains(r#"model \"nope\" not found"#),
+        "the provider's own message must survive, got: {message}"
+    );
+    assert!(
+        message.contains(stub.base_url()),
+        "the endpoint must be named, got: {message}"
+    );
+}
+
+#[test]
+fn an_unrecognised_response_body_is_refused() {
+    let not_json = Stub::serving(vec![Reply::ok("<html>upstream proxy says no</html>")]);
+    let message = turn_error(&not_json, "what is this");
+    assert!(
+        message.contains("unrecognised chat-completions response")
+            && message.contains("upstream proxy says no"),
+        "the body must be shown so the operator can see what answered, got: {message}"
+    );
+
+    // A well-formed JSON object with no choices is equally unusable, and must
+    // not become an empty answer.
+    let no_choices = Stub::serving(vec![Reply::ok(
+        r#"{"choices":[],"usage":{"total_tokens":1}}"#,
+    )]);
+    assert!(
+        turn_error(&no_choices, "and this").contains("no choices[0]"),
+        "an empty choices array is not an answer"
+    );
+}
+
+#[test]
+fn a_hanging_provider_times_out_rather_than_blocking_the_run() {
+    let stub = Stub::serving(vec![Reply::stalled(Duration::from_secs(30))]);
+    let mut model = OpenAiCompatClient::new(
+        LocalEndpoint::parse(stub.base_url()).expect("a loopback base URL"),
+        "llama3.1",
+        Duration::from_millis(300),
+    );
+
+    let started = std::time::Instant::now();
+    let message = match model.turn(&ask(vec![Message::user_text("take your time")])) {
+        Ok(response) => panic!("expected a timeout, got {response:?}"),
+        Err(SkeinError::Model(message)) => message,
+        Err(other) => panic!("expected SkeinError::Model, got {other:?}"),
+    };
+
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "the client must give up on its own budget, not on the server's"
+    );
+    assert!(
+        message.contains("timeout") && message.contains(stub.base_url()),
+        "the timeout must name the endpoint, got: {message}"
     );
 }
