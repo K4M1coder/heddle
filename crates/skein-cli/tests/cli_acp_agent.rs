@@ -1303,3 +1303,114 @@ fn an_acp_client_that_rejects_stops_the_proc_run_and_the_run_survives() {
         chunks(&answered.updates)
     );
 }
+
+/// The third opt-in (spec 020 SC-008), on `acp-agent` and **nowhere else**.
+///
+/// `skein chat` does not carry `--allow-run`, so it must not carry the flag
+/// that needs it either — `wiring::ToolArgs::chat_policy` records why a
+/// mutating tool that could only ever be denied belongs absent from a
+/// non-interactive command.
+#[test]
+fn acp_agent_documents_the_run_dir_flag_and_chat_does_not() {
+    let agent = skein(&["acp-agent", "--help"]);
+    let chat = skein(&["chat", "--help"]);
+
+    assert_eq!(agent.status.code(), Some(0), "stderr:\n{}", stderr(&agent));
+    assert!(
+        stdout(&agent).contains("--run-dir"),
+        "an opt-in capability an operator cannot discover is not opt-in, got:\n{}",
+        stdout(&agent)
+    );
+    // The flag changes a directory's permissions and the change outlives the
+    // run, so the operator has to meet that where they meet the flag.
+    assert!(
+        stdout(&agent).contains("read-and-execute"),
+        "and what saying yes costs belongs in the flag's own help, got:\n{}",
+        stdout(&agent)
+    );
+
+    assert_eq!(chat.status.code(), Some(0), "stderr:\n{}", stderr(&chat));
+    assert!(
+        !stdout(&chat).contains("--run-dir"),
+        "`skein chat` has nobody to ask for permission and must not offer it, got:\n{}",
+        stdout(&chat)
+    );
+}
+
+/// Deny-by-default at the operator boundary, against the real binary.
+///
+/// A run directory without run access is meaningless, and the two flags have to
+/// be named together or an operator cannot tell which one they forgot.
+#[test]
+fn run_dir_without_allow_run_is_an_exit_code_naming_both_flags() {
+    let (_dir, root) = temp_root();
+
+    let out = skein(&[
+        "acp-agent",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "tau",
+        "--model",
+        "llama3.1",
+        "--fs-root",
+        &root_arg(&root),
+        "--run-dir",
+        &root_arg(&root),
+    ]);
+
+    assert_ne!(out.status.code(), Some(0), "stderr:\n{}", stderr(&out));
+    assert_eq!(
+        stdout(&out),
+        "",
+        "stdout is the protocol; nothing may go there"
+    );
+    let told = stderr(&out);
+    assert!(
+        told.contains("--run-dir") && told.contains("--allow-run"),
+        "the refusal must name both flags: {told}"
+    );
+}
+
+/// A mistyped `--run-dir` is an exit code before a chain is opened, for the
+/// reason `--fs-root`'s own refusal documents: an operator wants to hear about
+/// it before a model does.
+#[test]
+fn acp_agent_refuses_a_run_dir_that_does_not_exist_before_serving() {
+    let (_dir, root) = temp_root();
+    let missing = root.join("no-such-toolchain");
+
+    let out = skein(&[
+        "acp-agent",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "tau",
+        "--model",
+        "llama3.1",
+        "--fs-root",
+        &root_arg(&root),
+        "--allow-run",
+        "--run-dir",
+        missing.to_str().expect("a utf-8 temp path"),
+    ]);
+
+    assert_ne!(out.status.code(), Some(0), "stderr:\n{}", stderr(&out));
+    assert_eq!(
+        stdout(&out),
+        "",
+        "stdout is the protocol; nothing may go there"
+    );
+    assert!(
+        stderr(&out).contains("no-such-toolchain"),
+        "the refusal must name the path the operator gave, got:\n{}",
+        stderr(&out)
+    );
+    assert!(
+        !Silo::open(&root, "tau")
+            .expect("a silo path")
+            .ledger_path()
+            .exists(),
+        "a refused run directory must not open a chain"
+    );
+}

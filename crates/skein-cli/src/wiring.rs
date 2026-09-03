@@ -8,8 +8,12 @@
 
 use clap::Args;
 use skein_connectors::{
-    is_git_repository, local_connector_with_run, FsRoot, LocalConnector, RunAccess, RunDirs,
+    is_git_repository, local_connector_with_run, FsRoot, LocalConnector, RunAccess,
 };
+// Only the Windows arm of `RunArgs::resolve` builds one; elsewhere `--allow-run`
+// is a refusal before any directory is validated.
+#[cfg(windows)]
+use skein_connectors::RunDirs;
 use skein_core::{
     LoopBudget, ProgressProbe, Redactor, Result, SecretRef, SkeinError, ToolAccess, ToolCall,
     ToolOutcome, ToolPolicy, ToolSpec, ToolTransport,
@@ -296,27 +300,47 @@ pub struct RunArgs {
     /// ACL, which is a real and lasting change to the directory's permissions.
     #[arg(long)]
     pub allow_run: bool,
+    /// A directory whose executables `proc_run` may resolve by bare name and
+    /// run. Repeatable, and needs --allow-run. Grants this run's AppContainer
+    /// identity a read-and-execute entry on that directory — narrower than
+    /// --fs-root's, and still a real and lasting change to its permissions.
+    /// Nothing is discovered: %PATH% is never searched and no toolchain
+    /// location is guessed at.
+    #[arg(long = "run-dir", value_name = "PATH", requires = "allow_run")]
+    pub run_dir: Vec<PathBuf>,
 }
 
 impl RunArgs {
-    /// Resolves the flag against the platform, **loudly**.
+    /// Resolves the flags against the platform and the filesystem, **loudly**.
     ///
     /// Call this **before** opening a silo, in the position
     /// [`ToolArgs::verify_root`] already occupies and for the same documented
-    /// reason: an unsupported flag must be an exit code and a message, not a
-    /// JSON-RPC error an operator only meets inside an editor after a
-    /// successful handshake.
+    /// reason: an unsupported flag or a mistyped directory must be an exit code
+    /// and a message, not a JSON-RPC error an operator only meets inside an
+    /// editor after a successful handshake.
     ///
     /// The `#[cfg]` is here rather than deeper because this is the layer that
     /// owns the *operator's* answer. Below it, `skein-sandbox` refuses on the
     /// same platforms for the same reason — but by then a session exists.
+    ///
+    /// The `--run-dir`-without-`--allow-run` check duplicates clap's own
+    /// `requires` relation on purpose. A second reader of this flag — a future
+    /// subcommand that flattens `RunArgs` without clap's derive doing the
+    /// checking — must not be able to lose the gate silently.
     pub fn resolve(&self) -> Result<RunAccess> {
         if !self.allow_run {
+            if !self.run_dir.is_empty() {
+                return Err(SkeinError::Tool(
+                    "--run-dir names a directory for a tool this run does not offer; it needs \
+                     --allow-run"
+                        .into(),
+                ));
+            }
             return Ok(RunAccess::Denied);
         }
         #[cfg(windows)]
         {
-            Ok(RunAccess::Allowed(RunDirs::none()))
+            Ok(RunAccess::Allowed(RunDirs::new(&self.run_dir)?))
         }
         #[cfg(not(windows))]
         {

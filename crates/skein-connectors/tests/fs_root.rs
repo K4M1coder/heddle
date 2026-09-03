@@ -225,3 +225,33 @@ fn a_root_that_is_a_file_is_refused_at_construction() {
 
     FsRoot::new(&file).expect_err("a root must be a directory");
 }
+
+/// `RunDirs::new`'s validation, in the file that already owns `FsRoot::new`'s
+/// (spec 020 SC-008).
+#[test]
+fn a_run_dir_that_is_not_a_directory_is_a_loud_refusal() {
+    use skein_connectors::RunDirs;
+
+    let dir = TempDir::new().expect("a temp dir");
+    let file = dir.path().join("cargo.exe");
+    std::fs::write(&file, "a file, not a directory").expect("a file to point a run dir at");
+
+    let err = RunDirs::new(&[file]).expect_err("a run dir must be a directory");
+    assert!(
+        err.to_string().contains("cargo.exe"),
+        "the error must name the path the operator gave, got: {err}"
+    );
+
+    let missing = RunDirs::new(&[dir.path().join("no-such-toolchain")])
+        .expect_err("a run dir that does not exist must fail loudly at construction");
+    assert!(
+        missing.to_string().contains("no-such-toolchain"),
+        "and so must this one, got: {missing}"
+    );
+
+    // Two spellings of one directory are one entry: a doubled flag must double
+    // neither an ACL write nor a `PATH` entry.
+    let doubled = RunDirs::new(&[dir.path().to_path_buf(), dir.path().to_path_buf()])
+        .expect("a real directory named twice");
+    assert_eq!(doubled.paths().len(), 1, "{:?}", doubled.paths());
+}

@@ -175,6 +175,30 @@ The static `#[tool(description = …)]` string, reaching the model unchanged —
 point of the step. rmcp 2.2.0's `ToolRouter::map` and `ToolRoute::attr` are `pub` as the plan's fact
 12 records, and mutating an already-registered route's description worked first time.
 
+**T8** — `cargo test -p skein-cli --test cli_acp_agent run_dir`, all three:
+
+```
+thread 'run_dir_without_allow_run_is_an_exit_code_naming_both_flags' panicked at
+crates\skein-cli\tests\cli_acp_agent.rs:1369:5:
+the refusal must name both flags: error: unexpected argument '--run-dir' found
+Usage: skein acp-agent --silo <ID> --model <NAME> --root <PATH> --fs-root <PATH>
+test result: FAILED. 0 passed; 3 failed
+```
+
+Clap refusing a flag that does not exist yet — the expected red, and against the **real binary**
+rather than the parser in-process.
+
+`a_run_dir_that_is_not_a_directory_is_a_loud_refusal` in `fs_root.rs` had **no** red: T2 built
+`RunDirs` with a real body rather than a `todo!()`, deliberately, because it is plain path
+validation and a panic there would have made every later red ambiguous. That is the plan's own T2
+decision and this is its consequence, stated rather than hidden.
+
+One thing the plan does not mention and the non-Windows CI legs would have caught: `RunDirs` is only
+named by `RunArgs::resolve`'s Windows arm, so its import needs the same `#[cfg(windows)]` or the
+Linux and macOS legs fail `clippy -D warnings` on an unused import. The
+`--run-dir`-without-`--allow-run` check is deliberately **outside** the `#[cfg]`, because that
+refusal is right on every platform.
+
 ## Finding: the grant is not what makes a run directory launchable
 
 **This contradicts a premise the plan's D4 and D7 rest on, and a claim slice 019's `spec.md` already
