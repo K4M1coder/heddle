@@ -82,6 +82,29 @@ impl FsRoot {
         Ok(self.contained(canonical_parent, arg)?.join(name))
     }
 
+    /// The file at `arg`, opened.
+    ///
+    /// The three `open`/`create`/`read_dir` methods exist so that `server.rs`
+    /// never holds a resolved path: a caller that is handed a `PathBuf` re-walks
+    /// it by name, and every re-walk is a fresh chance for the name to mean
+    /// something else.
+    pub fn open_file(&self, arg: &str) -> std::result::Result<std::fs::File, String> {
+        let path = self.resolve(arg)?;
+        std::fs::File::open(path).map_err(|e| format!("{arg}: {e}"))
+    }
+
+    /// The file at `arg`, truncated if it exists and created if it does not.
+    pub fn create_file(&self, arg: &str) -> std::result::Result<std::fs::File, String> {
+        let path = self.resolve_new(arg)?;
+        std::fs::File::create(path).map_err(|e| format!("{arg}: {e}"))
+    }
+
+    /// The directory at `arg`, opened for iteration.
+    pub fn read_dir(&self, arg: &str) -> std::result::Result<std::fs::ReadDir, String> {
+        let path = self.resolve(arg)?;
+        std::fs::read_dir(path).map_err(|e| format!("{arg}: {e}"))
+    }
+
     fn contained(&self, canonical: PathBuf, arg: &str) -> std::result::Result<PathBuf, String> {
         if canonical.starts_with(&self.root) {
             Ok(canonical)

@@ -22,6 +22,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use skein_core::SkeinError;
 use skein_sandbox::Sandbox;
+use std::io::{Read, Write};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -279,17 +280,20 @@ impl EmbeddedServer {
     )]
     pub fn fs_read(&self, params: Parameters<ReadParams>) -> Result<String, String> {
         let arg = params.0.path;
-        let path = self.root.resolve(&arg)?;
-        let size = std::fs::metadata(&path)
-            .map_err(|e| format!("{arg}: {e}"))?
-            .len();
+        let mut file = self.root.open_file(&arg)?;
+        // The size and the bytes come off the **same** open handle, so the file
+        // measured against the cap is provably the file returned. Two
+        // independent `std::fs` calls over one path never guaranteed that.
+        let size = file.metadata().map_err(|e| format!("{arg}: {e}"))?.len();
         if size > READ_BYTE_CAP as u64 {
             return Err(format!(
                 "{arg} is {size} bytes, over the {READ_BYTE_CAP}-byte read cap; read a smaller \
                  file"
             ));
         }
-        std::fs::read_to_string(&path).map_err(|e| format!("{arg}: {e}"))
+        let mut contents = String::new();
+        Read::read_to_string(&mut file, &mut contents).map_err(|e| format!("{arg}: {e}"))?;
+        Ok(contents)
     }
 
     #[tool(
@@ -299,9 +303,8 @@ impl EmbeddedServer {
     )]
     pub fn fs_list(&self, params: Parameters<ListParams>) -> Result<String, String> {
         let arg = params.0.path;
-        let dir = self.root.resolve(&arg)?;
         let mut lines = Vec::new();
-        for entry in std::fs::read_dir(&dir).map_err(|e| format!("{arg}: {e}"))? {
+        for entry in self.root.read_dir(&arg)? {
             let entry = entry.map_err(|e| format!("{arg}: {e}"))?;
             let kind = match entry.file_type() {
                 Ok(t) if t.is_dir() => "dir",
@@ -322,8 +325,9 @@ impl EmbeddedServer {
     )]
     pub fn fs_write(&self, params: Parameters<WriteParams>) -> Result<String, String> {
         let WriteParams { path: arg, content } = params.0;
-        let path = self.root.resolve_new(&arg)?;
-        std::fs::write(&path, &content).map_err(|e| format!("{arg}: {e}"))?;
+        let mut file = self.root.create_file(&arg)?;
+        file.write_all(content.as_bytes())
+            .map_err(|e| format!("{arg}: {e}"))?;
         Ok(format!("wrote {} bytes to {arg}", content.len()))
     }
 
