@@ -60,20 +60,6 @@ pub struct ReadParams {
     pub path: String,
 }
 
-/// `git_log`'s arguments, and the **only** model-supplied value anywhere in
-/// the git tools. Public for the reason [`ReadParams`] documents.
-///
-/// A `u32` and not a string, which is the whole injection story: there is no
-/// subprocess, no argument vector and no shell in the git path, and the one
-/// value a model does supply cannot carry text. A crafted `count` fails
-/// deserialization, which rmcp reports as `isError: true` — a refusal the
-/// model is told about and the run survives.
-#[derive(Debug, Deserialize, JsonSchema)]
-pub struct LogParams {
-    /// How many of the most recent commits to return, newest first.
-    pub count: u32,
-}
-
 /// `fs_list`'s arguments. Public for the reason [`ReadParams`] documents.
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ListParams {
@@ -88,6 +74,20 @@ pub struct WriteParams {
     pub path: String,
     /// The file's entire new contents.
     pub content: String,
+}
+
+/// `git_log`'s arguments, and the **only** model-supplied value anywhere in
+/// the git tools. Public for the reason [`ReadParams`] documents.
+///
+/// A `u32` and not a string, which is the whole injection story: there is no
+/// subprocess, no argument vector and no shell in the git path, and the one
+/// value a model does supply cannot carry text. A crafted `count` fails
+/// deserialization, which rmcp reports as `isError: true` — a refusal the
+/// model is told about and the run survives.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct LogParams {
+    /// How many of the most recent commits to return, newest first.
+    pub count: u32,
 }
 
 /// The tool holder. `Clone` because rmcp's router hands each request a clone of

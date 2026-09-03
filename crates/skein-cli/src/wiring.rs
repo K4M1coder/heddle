@@ -200,8 +200,9 @@ impl ToolArgs {
         self.policy(allowed, Vec::new())
     }
 
-    /// `skein acp-agent`'s allowlist: the same two, plus `fs_write` — which is
-    /// also in `approved`, and that is not a weakening.
+    /// `skein acp-agent`'s allowlist: everything [`ToolArgs::chat_policy`]
+    /// lists, plus `fs_write` — which is also in `approved`, and that is not a
+    /// weakening.
     ///
     /// `ToolGateway::call_captured` consults the policy **before** the
     /// transport, so a `Mutating` tool absent from `approved` never reaches
