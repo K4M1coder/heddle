@@ -14,7 +14,7 @@ use serde_json::json;
 use skein_core::{
     replay_tool_calls, Ledger, LoopBudget, LoopController, Message, ModelClient, NativeLoop,
     ProgressProbe, Redactor, SkeinError, StepKind, ToolAccess, ToolCall, ToolGateway, ToolPolicy,
-    TurnRequest, TurnResponse,
+    ToolTransport, TurnRequest, TurnResponse,
 };
 use skein_mcp::RmcpToolTransport;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -322,5 +322,55 @@ fn c7_unlisted_tool_never_reaches_the_live_server() {
         invocations.load(Ordering::SeqCst),
         0,
         "the server really implements read_secret, so only the allowlist stopped it"
+    );
+}
+
+#[test]
+fn c8_the_transport_lists_the_live_servers_own_tools() {
+    let (_rt, mut gw, _invocations) = live_server(&[]);
+
+    let mut catalogue = gw
+        .transport
+        .list()
+        .expect("tools/list reaches the live MCP server");
+    catalogue.sort_by(|a, b| a.name.cmp(&b.name));
+
+    assert_eq!(
+        catalogue
+            .iter()
+            .map(|s| s.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["fs_write", "read_secret"],
+        "the catalogue is the server's own, not a hand-written list"
+    );
+    for spec in &catalogue {
+        assert!(!spec.description.is_empty(), "{}", spec.name);
+        // The schema is the one `#[tool]` derived from the real parameter type.
+        // A transport that inherited the empty default would have returned no
+        // spec at all, which is the failure this test exists to catch.
+        assert_eq!(
+            spec.parameters.get("type").and_then(|t| t.as_str()),
+            Some("object"),
+            "{}: {}",
+            spec.name,
+            spec.parameters
+        );
+    }
+}
+
+#[test]
+fn c9_advertisement_filters_the_live_servers_catalogue_to_the_allowlist() {
+    let (_rt, mut gw, _invocations) =
+        live_server_allowing(&[("read_secret", ToolAccess::ReadOnly)], &[]);
+
+    let advertised = gw.advertise().expect("the live catalogue is filtered");
+
+    assert_eq!(
+        advertised
+            .iter()
+            .map(|s| s.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["read_secret"],
+        "the server offers fs_write too; only the operator's allowlist may reach the model"
     );
 }

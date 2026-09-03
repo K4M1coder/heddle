@@ -1,12 +1,14 @@
 //! The rmcp-backed `ToolTransport` (design §4.3, Constitution IV): the only
-//! crate in the product that names the MCP protocol. `skein-core` reaches an MCP
-//! server through the port it defines and never depends on this crate.
+//! crate in the product that names the MCP protocol **as a client**.
+//! `skein-connectors` is the only one that names it as a **server**, and the two
+//! meet over an in-process duplex there. `skein-core` reaches an MCP server
+//! through the port it defines and never depends on either crate.
 
-use rmcp::model::CallToolRequestParams;
+use rmcp::model::{CallToolRequestParams, Tool};
 use rmcp::service::{RoleClient, RunningService};
 use rmcp::transport::IntoTransport;
 use rmcp::ServiceExt;
-use skein_core::{Result, SkeinError, ToolCall, ToolOutcome, ToolTransport};
+use skein_core::{Result, SkeinError, ToolCall, ToolOutcome, ToolSpec, ToolTransport};
 use tokio::runtime::Runtime;
 
 /// An MCP client behind the synchronous [`ToolTransport`] port. It owns its
@@ -56,4 +58,33 @@ impl ToolTransport for RmcpToolTransport {
             content: serde_json::to_string(&result)?,
         })
     }
+
+    /// MCP's `tools/list`, paginated to exhaustion by `list_all_tools`.
+    ///
+    /// Overriding matters more than it looks: [`ToolTransport::list`] is
+    /// defaulted to the empty catalogue, so a client that did not override it
+    /// would advertise **nothing** against a server offering everything, with
+    /// no compile error and no runtime error to say so.
+    fn list(&mut self) -> Result<Vec<ToolSpec>> {
+        let tools = self
+            .runtime
+            .block_on(self.client.list_all_tools())
+            .map_err(|e| SkeinError::Tool(e.to_string()))?;
+        Ok(tools.iter().map(spec_of).collect())
+    }
+}
+
+/// One MCP tool as the model is told about it. `input_schema` is passed through
+/// untouched — it is the server's own document, derived at the far end from the
+/// type the tool deserializes against, and re-deriving it here would be the
+/// drift `ToolSpec` exists to prevent.
+fn spec_of(tool: &Tool) -> ToolSpec {
+    ToolSpec::new(
+        tool.name.to_string(),
+        // Optional on the wire. A server that describes nothing gets an empty
+        // description rather than being dropped from the catalogue: whether the
+        // operator may use it is the policy's decision, not the schema's.
+        tool.description.as_deref().unwrap_or_default(),
+        serde_json::Value::Object((*tool.input_schema).clone()),
+    )
 }
