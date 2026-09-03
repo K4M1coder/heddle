@@ -11,7 +11,7 @@ use agent_client_protocol::schema::v1::{
     RequestPermissionRequest, SessionId, ToolCallId, ToolCallUpdate, ToolCallUpdateFields,
 };
 use agent_client_protocol::{Client, ConnectionTo};
-use skein_core::{Result, SkeinError, ToolCall, ToolOutcome, ToolTransport};
+use skein_core::{Result, SkeinError, ToolCall, ToolOutcome, ToolSpec, ToolTransport};
 
 const ALLOW_ONCE: &str = "skein.allow-once";
 const REJECT_ONCE: &str = "skein.reject-once";
@@ -90,5 +90,18 @@ impl<T: ToolTransport> ToolTransport for AcpPermissionTransport<T> {
             ))),
             _ => Err(denied("acp permission request cancelled".into())),
         }
+    }
+
+    /// Overridden rather than inherited, and this is the one line in the
+    /// decorator that no compiler protects. `ToolTransport::list` defaults to an
+    /// empty catalogue — the safe default everywhere else — so a decorator that
+    /// left it alone would make `skein acp-agent` silently advertise nothing
+    /// while `skein chat` worked.
+    ///
+    /// No permission is asked: the client governs each *call*, and enumerating
+    /// what exists is not one. Restriction still only ever narrows, because
+    /// every advertised tool must survive `call` to run.
+    fn list(&mut self) -> Result<Vec<ToolSpec>> {
+        self.inner.list()
     }
 }

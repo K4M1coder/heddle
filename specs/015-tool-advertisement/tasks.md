@@ -46,7 +46,7 @@ branch `015-tool-advertisement` cut from `dev` after slice 014 merged.
 - [x] **T5** RED→GREEN — `TurnRequest.tools` and every literal construction site, one atomic commit
 - [x] **T6** RED→GREEN — `NativeLoop::run` advertises once per run and stamps the specs into every
       `TurnRequest`; a `list` failure is fatal
-- [ ] **T7** RED→GREEN — `AcpPermissionTransport::list` forwards to its inner transport (the slice's
+- [x] **T7** RED→GREEN — `AcpPermissionTransport::list` forwards to its inner transport (the slice's
       highest-risk line, its own test)
 - [ ] **T8** RED→GREEN — `ChatRequest.tools` in `crates/skein-gateway/src/lib.rs`, byte-exact
 - [ ] **T9** gates, control diff, dependency drift, close-out
@@ -120,3 +120,14 @@ All on 2026-09-03.
     `should_exit` check; the empty-catalogue one is what would fail if the `skip_serializing_if` were
     dropped.
   - Green: **25 passed** where 21 had passed, with the twenty-one unchanged.
+
+- **T7** `cargo test -p skein-acp --test acp_session p4` before the override existed — **1 failed**,
+  and the failure is the exact bug the plan called the slice's highest-risk line:
+  - `assertion left == right failed: the inner transport's catalogue, in its own order / left: [] /
+    right: ["fs_read", "fs_list"]`, at `crates/skein-acp/tests/acp_session.rs:1118`
+  - Worth stating plainly: this red **compiled cleanly**. Inheriting a defaulted trait method is not
+    a compile error, so nothing but this test stands between the tree and a `skein acp-agent` that
+    silently advertises nothing while `skein chat` works.
+  - Green: **16 passed** where 15 had passed, with the fifteen unchanged. `CataloguedTransport` is a
+    new double rather than a field on `CountingTransport`, so the three pre-existing permission
+    tests stay controls.

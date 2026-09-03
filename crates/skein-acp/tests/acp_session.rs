@@ -12,7 +12,7 @@ use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo};
 use skein_acp::{project_updates, CancellableModel, SessionParts, SkeinAgent};
 use skein_core::{
     CapturedResult, Ledger, LoopBudget, Message, ModelClient, ProgressProbe, Redactor, Result,
-    StepKind, ToolAccess, ToolCall, ToolOutcome, ToolPolicy, ToolTransport, TurnRequest,
+    StepKind, ToolAccess, ToolCall, ToolOutcome, ToolPolicy, ToolSpec, ToolTransport, TurnRequest,
     TurnResponse,
 };
 use std::path::PathBuf;
@@ -1027,4 +1027,102 @@ fn u1_project_updates_maps_each_ledger_step_kind() {
         }
         other => panic!("expected ToolCallUpdate, got {other:?}"),
     }
+}
+
+/// A catalogue and nothing else. Separate from `CountingTransport` so the three
+/// permission tests above stay this slice's controls.
+struct CataloguedTransport(Vec<ToolSpec>);
+
+impl ToolTransport for CataloguedTransport {
+    fn call(&mut self, _call: &ToolCall) -> Result<ToolOutcome> {
+        panic!("this test never calls a tool")
+    }
+
+    fn list(&mut self) -> Result<Vec<ToolSpec>> {
+        Ok(self.0.clone())
+    }
+}
+
+/// Drives `AcpPermissionTransport::list` directly against a real ACP client
+/// that counts anything it is asked — so the test can assert that enumerating a
+/// catalogue asks the human nothing.
+async fn list_through_permission(asked: Arc<AtomicUsize>) -> Result<Vec<ToolSpec>> {
+    let (agent_side, client_side) = tokio::io::duplex(65536);
+    let (agent_read, agent_write) = tokio::io::split(agent_side);
+    let (client_read, client_write) = tokio::io::split(client_side);
+
+    let counter = asked.clone();
+    let client = tokio::spawn(async move {
+        Client
+            .builder()
+            .on_receive_request(
+                async move |_request: RequestPermissionRequest, responder, _cx| {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    responder.respond(RequestPermissionResponse::new(
+                        RequestPermissionOutcome::Cancelled,
+                    ))
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .connect_to(ByteStreams::new(
+                client_write.compat_write(),
+                client_read.compat(),
+            ))
+            .await
+    });
+
+    let result = Agent
+        .builder()
+        .connect_with(
+            ByteStreams::new(agent_write.compat_write(), agent_read.compat()),
+            async |cx: ConnectionTo<Client>| {
+                let (tx, rx) = std::sync::mpsc::channel();
+                std::thread::spawn(move || {
+                    let mut transport = skein_acp::AcpPermissionTransport::new(
+                        CataloguedTransport(vec![
+                            ToolSpec::new("fs_read", "read a file", serde_json::json!({})),
+                            ToolSpec::new("fs_list", "list a directory", serde_json::json!({})),
+                        ]),
+                        cx,
+                        SessionId::new("unit"),
+                    );
+                    let _ = tx.send(transport.list());
+                });
+                Ok(
+                    tokio::task::spawn_blocking(move || rx.recv().expect("answered"))
+                        .await
+                        .expect("join"),
+                )
+            },
+        )
+        .await
+        .expect("the agent side ran");
+
+    client.abort();
+    result
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn p4_the_permission_decorator_forwards_the_catalogue_it_wraps() {
+    // The slice's highest-risk line, and the reason it gets a test of its own.
+    // `ToolTransport::list` is defaulted to an empty catalogue, so a decorator
+    // that forgot to override it would leave `skein acp-agent` silently
+    // advertising nothing while `skein chat` worked — and nothing would fail to
+    // compile.
+    let asked = Arc::new(AtomicUsize::new(0));
+
+    let advertised = list_through_permission(asked.clone())
+        .await
+        .expect("enumerating a catalogue is not a governed call");
+
+    assert_eq!(
+        advertised.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
+        vec!["fs_read", "fs_list"],
+        "the inner transport's catalogue, in its own order"
+    );
+    assert_eq!(
+        asked.load(Ordering::SeqCst),
+        0,
+        "permission is asked per call; enumerating what exists is not a call"
+    );
 }
