@@ -337,3 +337,32 @@ the AppContainer. The `skein ledger show` output for that step is the evidence t
 
 If the model declines to call the tool, that is a model-selection finding and not a defect — slice
 019's live section says so and this one inherits the wording.
+
+**Performed**, after merge to `dev` at `df32492`, on the same Windows machine:
+
+```
+test a_live_model_calls_a_real_proc_run ... ok
+test a_live_model_runs_a_real_toolchain_binary ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 91.71s
+```
+
+The model chose `proc_run` with exactly `{"command":"cargo","args":["--version"]}` — the bare name,
+picked up by the advertisement's appended sentence naming the allowlisted directory (D9). The chain,
+read back in a second process:
+
+```
+$ skein ledger verify --root $env:TEMP\skein-live-020 --silo live020
+run-live-020    ok      12 steps
+
+$ skein ledger show --root $env:TEMP\skein-live-020 --silo live020 3b0b50605c884ea9650139f70137869cb9720fc86510e72fd6f5d6cd3eebe2a5
+id      3b0b50605c884ea9650139f70137869cb9720fc86510e72fd6f5d6cd3eebe2a5
+parent  55e6137c3365136d10f3fde20030d80073dac7fa675ccb07d06d5a0611f3ea83
+run     run-live-020
+seq     6
+kind    tool_result
+payload {"tool":"proc_run","content":"{\"content\":[{\"type\":\"text\",\"text\":\"exit 0\\n--- stdout ---\\ncargo 1.97.1 (c980f4866 2026-06-30)\\n--- stderr ---\\n\"}],\"isError\":false}"}
+```
+
+`cargo 1.97.1 (c980f4866 2026-06-30)` is the real toolchain's real version string, produced by a real
+`CreateProcessW` inside the AppContainer against the operator-named run directory, exactly as this
+section's pass condition names. The model's final answer quoted it back verbatim.
