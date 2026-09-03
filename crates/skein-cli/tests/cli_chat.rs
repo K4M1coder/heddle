@@ -9,11 +9,13 @@
 //!
 //! No test here needs a running Ollama.
 
-use skein_silo::Silo;
+use skein_core::SecretRef;
+use skein_silo::{OsKeychain, Silo};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::atomic::{AtomicU32, Ordering};
 use tempfile::TempDir;
 
 /// A local provider answering a fixed script, one connection per turn.
@@ -440,5 +442,149 @@ fn the_base_url_falls_back_to_the_environment_and_the_local_default() {
         stderr(&defaulted).contains("http://localhost:11434/v1"),
         "the default endpoint must be named, got:\n{}",
         stderr(&defaulted)
+    );
+}
+
+// ---- redaction (spec 014) ----
+
+/// The value `--redact` is pointed at. Long and distinctive so a substring
+/// assertion cannot pass by accident.
+const REDACTED_VALUE: &str = "sk-cli-test-SECRET-abc123";
+
+/// A credential unique to this process and this test, removed on every exit
+/// path including a panic — `cli_secret.rs`'s pattern, for the same reason.
+struct TestRef {
+    keychain: OsKeychain,
+    reference: SecretRef,
+}
+
+impl TestRef {
+    fn holding(value: &str) -> TestRef {
+        static NEXT: AtomicU32 = AtomicU32::new(0);
+        let service = format!(
+            "skein-cli-redact-test-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::SeqCst)
+        );
+        let held = TestRef {
+            keychain: OsKeychain::new().expect("the platform credential store opens"),
+            reference: SecretRef(format!("keychain://{service}/cli")),
+        };
+        held.keychain
+            .store(&held.reference, value)
+            .expect("the value is stored for the run to redact");
+        held
+    }
+
+    fn uri(&self) -> &str {
+        &self.reference.0
+    }
+}
+
+impl Drop for TestRef {
+    fn drop(&mut self) {
+        let _ = self.keychain.delete(&self.reference);
+    }
+}
+
+fn payloads(root: &Path, silo: &str, run_id: &str) -> Vec<String> {
+    Silo::open(root, silo)
+        .expect("a silo path")
+        .ledger()
+        .expect("the chain opens")
+        .log(run_id)
+        .iter()
+        .map(|s| s.payload.clone())
+        .collect()
+}
+
+#[test]
+fn chat_redacts_a_configured_secret_from_the_chain_but_not_from_stdout() {
+    let held = TestRef::holding(REDACTED_VALUE);
+    let provider = StubProvider::serving(vec![reply(
+        &format!("your key is {REDACTED_VALUE}"),
+        "stop",
+        11,
+    )]);
+    let (_dir, root) = temp_root();
+
+    let out = skein(&[
+        "chat",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "theta",
+        "--model",
+        "llama3.1",
+        "--base-url",
+        &provider.base_url,
+        "--redact",
+        held.uri(),
+        "--prompt",
+        "what is my key?",
+    ]);
+
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr:
+{}",
+        stderr(&out)
+    );
+    assert_eq!(
+        stdout(&out),
+        format!(
+            "your key is {REDACTED_VALUE}
+"
+        ),
+        "the operator still gets the real answer: redaction is about the record"
+    );
+
+    let payloads = payloads(&root, "theta", &reported_run_id(&out));
+    assert!(
+        payloads.iter().all(|p| !p.contains(REDACTED_VALUE)),
+        "no payload of the run may contain the configured secret: {payloads:?}"
+    );
+    assert!(payloads.iter().any(|p| p.contains("***")), "{payloads:?}");
+}
+
+#[test]
+fn chat_refuses_an_unresolvable_redaction_reference_before_opening_a_chain() {
+    let (_dir, root) = temp_root();
+    let missing = format!("keychain://skein-cli-absent-{}/cli", std::process::id());
+
+    let out = skein(&[
+        "chat",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "iota",
+        "--model",
+        "llama3.1",
+        "--base-url",
+        &dead_loopback_url(),
+        "--redact",
+        &missing,
+        "--prompt",
+        "should never be sent",
+    ]);
+
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(stdout(&out), "");
+    assert!(
+        stderr(&out).contains(&missing),
+        "stderr must name the reference that could not be resolved, got:
+{}",
+        stderr(&out)
+    );
+    // A redactor that scrubs nothing is worse than no redactor, so the run is
+    // refused before a chain exists to hold it — the ordering
+    // `chat_refuses_a_non_loopback_base_url` pins for the endpoint guard.
+    assert!(
+        !Silo::open(&root, "iota")
+            .expect("a silo path")
+            .ledger_path()
+            .exists(),
+        "an unresolvable reference must not open a chain"
     );
 }

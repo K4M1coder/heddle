@@ -47,7 +47,7 @@ branch `014-ledger-redaction` cut from `dev` after slice 013 merged.
 - [x] **T6** GREEN — `SkeinSession::new` clones the injected redactor into both collaborators
 - [x] **T7** RED→GREEN — one test in `crates/skein-acp/tests/acp_session.rs` proving a session's
       chain is redacted and pinning the `project_updates` consequence
-- [ ] **T8** RED→GREEN — `wiring::RedactArgs`, flattened into `ChatArgs` and `AcpAgent`, resolved in
+- [x] **T8** RED→GREEN — `wiring::RedactArgs`, flattened into `ChatArgs` and `AcpAgent`, resolved in
       `chat.rs` and `acp.rs` after the endpoint guard and before `Silo::open`
 - [ ] **T9** gates, control diff, dependency drift, close-out
 
@@ -107,6 +107,19 @@ All on 2026-09-03.
     "{\"run_id\":\"skein-1#1\",…\"my key is sk-SECRET-abc123\"…}",
     "{…\"your key sk-SECRET-abc123 is fine\"…}", "1", "FinalOutput"]`
   - Green after T6: **15 passed** in that target where 14 had passed, the fourteen unchanged.
+
+- **T8** the three new CLI tests, written before the flag existed:
+  - `cargo test -p skein-cli --test cli_chat` — **2 failed, 6 passed**, both on
+    `error: unexpected argument '--redact' found`, clap's exit **2** where the tests want 0 and 1.
+  - `cargo test -p skein-cli --test cli_acp_agent` — **1 failed, 3 passed**:
+    `assertion left == right failed / left: Some(2) / right: Some(1)`, the same clap refusal.
+  - Green: `cli_chat` **6 → 8**, `cli_acp_agent` **3 → 4**, `cli_ledger` 8 and `cli_secret` 2
+    unchanged. `skein chat --help` and `skein acp-agent --help` both list
+    `--redact <REFERENCE>`.
+  - `Redactor::new(…)` no longer appears at either wiring site. The one remaining construction in
+    `crates/skein-cli/src` is inside `RedactArgs::redactor()` itself — the empty redactor for the
+    no-flag case, which is the whole point of that branch: with no `--redact`, the credential store
+    is never opened.
 
 ## Gate run (T9)
 

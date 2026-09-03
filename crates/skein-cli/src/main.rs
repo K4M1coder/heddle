@@ -63,6 +63,8 @@ enum Command {
         silo: SiloArgs,
         #[command(flatten)]
         model: wiring::ModelArgs,
+        #[command(flatten)]
+        redact: wiring::RedactArgs,
     },
 }
 
@@ -98,6 +100,8 @@ impl SiloArgs {
 pub struct ChatArgs {
     #[command(flatten)]
     model: wiring::ModelArgs,
+    #[command(flatten)]
+    redact: wiring::RedactArgs,
     /// The prompt. Omitted, it is read from stdin to EOF.
     #[arg(long, value_name = "TEXT")]
     prompt: Option<String>,
@@ -175,6 +179,10 @@ fn run(cli: Cli) -> Result<()> {
             SecretCommand::Delete { reference } => secret::delete(&reference),
         },
         Command::Chat { silo, chat } => chat::chat(&silo, &chat),
-        Command::AcpAgent { silo, model } => acp::serve(&silo, model),
+        Command::AcpAgent {
+            silo,
+            model,
+            redact,
+        } => acp::serve(&silo, model, &redact),
     }
 }

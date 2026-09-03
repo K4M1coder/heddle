@@ -8,9 +8,11 @@
 
 use clap::Args;
 use skein_core::{
-    LoopBudget, ProgressProbe, Result, SkeinError, ToolCall, ToolOutcome, ToolTransport,
+    LoopBudget, ProgressProbe, Redactor, Result, SecretRef, SkeinError, ToolCall, ToolOutcome,
+    ToolTransport,
 };
 use skein_gateway::{LocalEndpoint, OpenAiCompatClient};
+use skein_silo::OsKeychain;
 use std::time::Duration;
 
 /// Ollama's own OpenAI-compatible endpoint, which `scripts/bootstrap.ps1
@@ -69,6 +71,39 @@ impl ModelArgs {
 
     pub fn budget(&self) -> LoopBudget {
         LoopBudget::new(self.max_iters, self.max_tokens, self.no_progress_limit)
+    }
+}
+
+/// Which secrets this run must never write into its chain. References only:
+/// there is no `--redact-value`, for the reason `skein secret set` has no
+/// `--value` — a secret in a flag lands in shell history and in process
+/// listings.
+///
+/// Deliberately not part of [`ModelArgs`]: redaction is run-governance, not a
+/// model knob.
+#[derive(Args)]
+pub struct RedactArgs {
+    /// keychain://<service>/<account>. Repeatable.
+    #[arg(long = "redact", value_name = "REFERENCE")]
+    pub redact: Vec<String>,
+}
+
+impl RedactArgs {
+    /// Resolves every reference through the platform credential store.
+    ///
+    /// With no `--redact` the store is **not opened**: a run that configures no
+    /// secret must not acquire a runtime credential-store dependency.
+    ///
+    /// Call this **before** opening a silo, for the reason
+    /// [`ModelArgs::endpoint`] documents: `Redactor::resolve` is all-or-nothing,
+    /// so one bad reference stops the run, and a chain holding a one-step run
+    /// would be a misleading record of an attempt that never left the process.
+    pub fn redactor(&self) -> Result<Redactor> {
+        if self.redact.is_empty() {
+            return Ok(Redactor::new(Vec::new()));
+        }
+        let refs: Vec<SecretRef> = self.redact.iter().cloned().map(SecretRef).collect();
+        Redactor::resolve(&OsKeychain::new()?, &refs)
     }
 }
 

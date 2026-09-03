@@ -320,6 +320,46 @@ fn acp_agent_refuses_a_non_loopback_base_url_before_serving() {
 }
 
 #[test]
+fn acp_agent_refuses_an_unresolvable_redaction_reference_before_serving() {
+    let (_dir, root) = temp_root();
+    let missing = format!("keychain://skein-acp-absent-{}/cli", std::process::id());
+
+    // No ACP client: a redaction reference that resolves to nothing must stop
+    // the command before the handshake, exactly as a non-loopback base URL does.
+    let out = skein(&[
+        "acp-agent",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "kappa",
+        "--model",
+        "llama3.1",
+        "--redact",
+        &missing,
+    ]);
+
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        stdout(&out),
+        "",
+        "stdout is the protocol; nothing may go there"
+    );
+    assert!(
+        stderr(&out).contains(&missing),
+        "stderr:
+{}",
+        stderr(&out)
+    );
+    assert!(
+        !Silo::open(&root, "kappa")
+            .expect("a silo path")
+            .ledger_path()
+            .exists(),
+        "an unresolvable reference must not open a chain"
+    );
+}
+
+#[test]
 fn acp_agent_exits_zero_when_its_client_disconnects() {
     let (_dir, root) = temp_root();
 

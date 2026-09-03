@@ -13,8 +13,7 @@
 use crate::wiring::{NoGroundTruth, NoTools};
 use crate::{ChatArgs, SiloArgs};
 use skein_core::{
-    Exit, LoopController, Message, NativeLoop, Redactor, Result, SkeinError, ToolGateway,
-    ToolPolicy,
+    Exit, LoopController, Message, NativeLoop, Result, SkeinError, ToolGateway, ToolPolicy,
 };
 use skein_silo::Silo;
 use std::io::Read;
@@ -26,6 +25,9 @@ pub fn chat(silo: &SiloArgs, args: &ChatArgs) -> Result<()> {
     // a silo with a one-step run in it would be a misleading record of an
     // attempt that never left the process.
     let endpoint = args.model.endpoint()?;
+    // Before the silo for the same reason, and after the endpoint so the two
+    // refusals keep the order both commands document.
+    let redactor = args.redact.redactor()?;
     let prompt = prompt(args.prompt.as_deref())?;
 
     let run_id = match &args.run_id {
@@ -44,9 +46,11 @@ pub fn chat(silo: &SiloArgs, args: &ChatArgs) -> Result<()> {
             // first. `NoTools` is unreachable by construction rather than a
             // stub that pretends to work.
             ToolPolicy::new(vec![], vec![]),
-            Redactor::new(vec![]),
+            // The same secret set on both sides of the run: the gateway and the
+            // loop write into one chain.
+            redactor.clone(),
         ),
-        Redactor::new(vec![]),
+        redactor,
     );
 
     // Before the answer, so a run whose id the operator needs is named even

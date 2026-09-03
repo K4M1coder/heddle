@@ -10,16 +10,19 @@
 //! not obliged to drain the child's stderr, and a full pipe would block the
 //! agent.
 
-use crate::wiring::{ModelArgs, NoGroundTruth, NoTools};
+use crate::wiring::{ModelArgs, NoGroundTruth, NoTools, RedactArgs};
 use crate::SiloArgs;
 use skein_acp::{SessionParts, SkeinAgent};
-use skein_core::{Redactor, Result, ToolPolicy};
+use skein_core::{Result, ToolPolicy};
 use skein_silo::Silo;
 
-pub fn serve(silo: &SiloArgs, model: ModelArgs) -> Result<()> {
+pub fn serve(silo: &SiloArgs, model: ModelArgs, redact: &RedactArgs) -> Result<()> {
     // The Principle II guard first, so an off-machine `--base-url` opens no
     // chain and reaches no handshake — the same ordering `chat` documents.
     let endpoint = model.endpoint()?;
+    // Resolved once for the process, then cloned per session below: an
+    // unresolvable reference is an exit code before a single session exists.
+    let redactor = redact.redactor()?;
     let root = silo.root()?;
     let id = silo.silo.clone();
 
@@ -44,7 +47,7 @@ pub fn serve(silo: &SiloArgs, model: ModelArgs) -> Result<()> {
             // until tool advertisement exists — a model that invents a tool
             // call gets a denial the client sees as a failed tool call.
             policy: ToolPolicy::new(vec![], vec![]),
-            redactor: Redactor::new(vec![]),
+            redactor: redactor.clone(),
             budget: budget.clone(),
             // One chain per session, opened here rather than shared, because
             // `SessionParts.ledger` is a `Ledger` by value. This is the whole
