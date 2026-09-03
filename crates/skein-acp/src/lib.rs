@@ -67,10 +67,13 @@ type NativeLoop<C, P, T> =
 impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> SkeinSession<C, P, T> {
     fn new(id: SessionId, parts: SessionParts<C, P, T>, connection: ConnectionTo<Client>) -> Self {
         let cancelled = Arc::new(AtomicBool::new(false));
+        // Cloned rather than split: the gateway and the loop both write into
+        // this session's one chain, so they must scrub the one secret set the
+        // operator configured.
         let gateway = ToolGateway::new(
             AcpPermissionTransport::new(parts.transport, connection, id.clone()),
             parts.policy,
-            parts.redactor,
+            parts.redactor.clone(),
         );
         SkeinSession {
             id,
@@ -78,7 +81,7 @@ impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> SkeinSession<C, P, T> {
                 CancellableModel::new(parts.client, cancelled.clone()),
                 parts.probe,
                 gateway,
-                Redactor::new(Vec::new()),
+                parts.redactor,
             ),
             ledger: parts.ledger,
             budget: parts.budget,
@@ -148,8 +151,10 @@ pub fn project_updates(ledger: &Ledger, run_id: &str) -> Vec<SessionUpdate> {
                 let id = ToolCallId::new(step.id.clone());
                 current = Some(id.clone());
                 updates.push(SessionUpdate::ToolCall(
-                    // The name only: the arguments are the model's raw text and
-                    // the client's transcript is not governed by the Redactor.
+                    // The name only, and it comes off the chain, so it is
+                    // redacted for the same reason the content below is. The
+                    // arguments are the model's raw text and stay off the
+                    // transcript.
                     AcpToolCall::new(id, call.tool).kind(ToolKind::Other),
                 ));
             }

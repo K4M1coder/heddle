@@ -44,8 +44,8 @@ branch `014-ledger-redaction` cut from `dev` after slice 013 merged.
 - [x] **T4** RED (written before T3's green) — the three new tests in
       `crates/skein-core/tests/native_loop.rs`, plus the additive `ScriptedModel.seen` field
 - [x] **T5** RED→GREEN — the tool-name redaction in `ToolGateway::call_captured`
-- [ ] **T6** GREEN — `SkeinSession::new` clones the injected redactor into both collaborators
-- [ ] **T7** RED→GREEN — one test in `crates/skein-acp/tests/acp_session.rs` proving a session's
+- [x] **T6** GREEN — `SkeinSession::new` clones the injected redactor into both collaborators
+- [x] **T7** RED→GREEN — one test in `crates/skein-acp/tests/acp_session.rs` proving a session's
       chain is redacted and pinning the `project_updates` consequence
 - [ ] **T8** RED→GREEN — `wiring::RedactArgs`, flattened into `ChatArgs` and `AcpAgent`, resolved in
       `chat.rs` and `acp.rs` after the endpoint guard and before `Silo::open`
@@ -96,6 +96,17 @@ All on 2026-09-03.
     allowlist\"}"]` — both the `ToolCall` attempt and the `ApprovalRecord`, exactly the two the
     request's description did not mention and the plan added.
   - Green: **10 passed** in that target, with the nine unchanged.
+
+- **T7 was written and committed before T6**, inverting the plan's numbering. The plan says T6 is a
+  green "covered by T7's test", which would have left T6 with no red of its own; Constitution III
+  wants the red observed. So T3 handed `SkeinSession::new`'s loop an empty `Redactor` — the
+  behaviour of the tree before this slice, not a pretend one — T7's test failed on it, and T6 made
+  it pass.
+  - `cargo test -p skein-acp --test acp_session a10` before T6: **1 failed**, printing the whole
+    chain — `the redactor the operator injected governs the whole chain: ["1",
+    "{\"run_id\":\"skein-1#1\",…\"my key is sk-SECRET-abc123\"…}",
+    "{…\"your key sk-SECRET-abc123 is fine\"…}", "1", "FinalOutput"]`
+  - Green after T6: **15 passed** in that target where 14 had passed, the fourteen unchanged.
 
 ## Gate run (T9)
 
