@@ -576,6 +576,52 @@ fn acp_agent_documents_the_fs_root_flag() {
     );
 }
 
+/// The second opt-in (spec 019 SC-011), on `acp-agent` and **nowhere else**.
+///
+/// `skein chat` deliberately does not carry it: `proc_run` is `Mutating`, that
+/// command is non-interactive, and `wiring::ToolArgs::chat_policy` already
+/// records why a mutating tool that could only ever be denied should be
+/// *absent* rather than listed.
+#[test]
+fn acp_agent_documents_the_allow_run_flag_and_chat_does_not() {
+    let agent = skein(&["acp-agent", "--help"]);
+    let chat = skein(&["chat", "--help"]);
+
+    assert_eq!(
+        agent.status.code(),
+        Some(0),
+        "stderr:
+{}",
+        stderr(&agent)
+    );
+    assert!(
+        stdout(&agent).contains("--allow-run"),
+        "an opt-in capability an operator cannot discover is not opt-in, got:
+{}",
+        stdout(&agent)
+    );
+    assert!(
+        stdout(&agent).contains("Windows"),
+        "and the platform limit belongs where the operator meets the flag, got:
+{}",
+        stdout(&agent)
+    );
+
+    assert_eq!(
+        chat.status.code(),
+        Some(0),
+        "stderr:
+{}",
+        stderr(&chat)
+    );
+    assert!(
+        !stdout(&chat).contains("--allow-run"),
+        "`skein chat` has nobody to ask for permission and must not offer it, got:
+{}",
+        stdout(&chat)
+    );
+}
+
 // ---- the git connector (spec 017) ----
 
 #[test]
@@ -721,26 +767,44 @@ fn run_answering(
     base_url: &str,
     answer: PermissionOptionKind,
 ) -> Answered {
+    run_answering_with_args(root, silo, fs_root, base_url, answer, &[])
+}
+
+/// [`run_answering`] plus extra flags for the child, so slice 019 can pass
+/// `--allow-run` without editing either of slice 018's two call sites — which
+/// stay this slice's controls for the un-flagged behaviour.
+fn run_answering_with_args(
+    root: &Path,
+    silo: &str,
+    fs_root: &Path,
+    base_url: &str,
+    answer: PermissionOptionKind,
+    extra: &[&str],
+) -> Answered {
     let updates: Arc<Mutex<Vec<SessionUpdate>>> = Arc::default();
     let asked: Arc<Mutex<Vec<RequestPermissionRequest>>> = Arc::default();
     let collected = updates.clone();
     let recorded = asked.clone();
 
-    let transport = AcpAgent::new(AcpAgentConfig::new(env!("CARGO_BIN_EXE_skein")).args([
-        "acp-agent",
-        "--root",
-        &root_arg(root),
-        "--silo",
-        silo,
-        "--model",
-        "llama3.1",
-        "--base-url",
-        base_url,
-        "--fs-root",
-        &root_arg(fs_root),
-        "--timeout-secs",
-        "10",
-    ]));
+    let transport = AcpAgent::new(
+        AcpAgentConfig::new(env!("CARGO_BIN_EXE_skein"))
+            .args([
+                "acp-agent",
+                "--root",
+                &root_arg(root),
+                "--silo",
+                silo,
+                "--model",
+                "llama3.1",
+                "--base-url",
+                base_url,
+                "--fs-root",
+                &root_arg(fs_root),
+                "--timeout-secs",
+                "10",
+            ])
+            .args(extra.iter().copied()),
+    );
 
     let stop = run_with_timeout(move || {
         futures::executor::block_on(
@@ -1028,5 +1092,214 @@ fn an_acp_client_that_rejects_stops_the_fs_write_and_the_run_survives() {
                 if update.fields.status == Some(ToolCallStatus::Completed)
         )),
         "nothing ran, so nothing may be reported completed: {seen:?}"
+    );
+}
+
+// ---- the sandboxed process launcher (spec 019) ----
+
+/// The whole chain, end to end, on the one platform that has a launcher: the
+/// real binary, the real ACP protocol, a real human answer, a real process, and
+/// the chain read back in a second process (SC-009).
+///
+/// Slice 018's harness verbatim, plus `--allow-run`. `cmd.exe /c type seed.txt`
+/// because its output is a file's real bytes, so the assertion is about
+/// something that had to actually run rather than about a status string.
+#[cfg(windows)]
+#[test]
+fn an_acp_client_that_allows_lets_a_real_proc_run_execute() {
+    let provider = StubProvider::serving(vec![
+        tool_call_reply(
+            "proc_run",
+            serde_json::json!({"command": "cmd.exe", "args": ["/c", "type", "seed.txt"]}),
+        ),
+        reply("ran", "stop", 7),
+    ]);
+    let (_dir, root) = temp_root();
+    let files = TempDir::new().expect("a temp fs root");
+    std::fs::write(
+        files.path().join("seed.txt"),
+        "bytes only a real process could read",
+    )
+    .expect("a file for the sandboxed process to read");
+
+    let answered = run_answering_with_args(
+        &root,
+        "psi",
+        files.path(),
+        &provider.base_url,
+        PermissionOptionKind::AllowOnce,
+        &["--allow-run"],
+    );
+
+    assert_eq!(answered.stop, StopReason::EndTurn);
+
+    // The ask, off the wire, in the shape slice 018 pinned for `fs_write`.
+    assert_eq!(answered.asked.len(), 1, "{:?}", answered.asked);
+    let request = &answered.asked[0];
+    assert_eq!(request.session_id, SessionId::new("skein-1"));
+    assert_eq!(request.tool_call.tool_call_id, ToolCallId::new("proc_run"));
+    assert_eq!(request.tool_call.fields.title.as_deref(), Some("proc_run"));
+    assert_eq!(
+        request
+            .options
+            .iter()
+            .map(|o| (o.option_id.0.as_ref(), o.kind))
+            .collect::<Vec<_>>(),
+        vec![
+            ("skein.allow-once", PermissionOptionKind::AllowOnce),
+            ("skein.reject-once", PermissionOptionKind::RejectOnce),
+        ]
+    );
+
+    // The effect: a process really ran inside the sandbox, and what the model
+    // was told is the file's own bytes rather than a summary of them.
+    let _first = provider.request_body();
+    let told = last_message(&provider.request_body());
+    assert!(
+        told.starts_with("[tool_result tool=proc_run status=ok]")
+            && told.contains("exit 0")
+            && told.contains("bytes only a real process could read"),
+        "{told}"
+    );
+
+    assert_eq!(
+        logged_kinds(&root, "psi", "skein-1#1"),
+        vec![
+            "iteration_boundary",
+            "llm_request",
+            "llm_response",
+            "budget_spent",
+            "tool_call",
+            "approval",
+            "tool_result",
+            "iteration_boundary",
+            "llm_request",
+            "llm_response",
+            "budget_spent",
+            "exit"
+        ]
+    );
+    let verify = skein(&[
+        "ledger",
+        "verify",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "psi",
+        "--run",
+        "skein-1#1",
+    ]);
+    assert_eq!(
+        verify.status.code(),
+        Some(0),
+        "stderr:\n{}",
+        stderr(&verify)
+    );
+    assert_eq!(stdout(&verify), "skein-1#1\tok\t12 steps\n");
+}
+
+/// The same chain, refused (SC-010).
+///
+/// The command is chosen so its *effect* would be visible: the allow test above
+/// proves a sandboxed `cmd.exe` can read and write inside this root, so
+/// `planted.txt` not existing is the effect the launcher would have had.
+#[cfg(windows)]
+#[test]
+fn an_acp_client_that_rejects_stops_the_proc_run_and_the_run_survives() {
+    let provider = StubProvider::serving(vec![
+        tool_call_reply(
+            "proc_run",
+            serde_json::json!({"command": "cmd.exe", "args": ["/c", "copy", "seed.txt", "planted.txt"]}),
+        ),
+        reply("ran", "stop", 7),
+    ]);
+    let (_dir, root) = temp_root();
+    let files = TempDir::new().expect("a temp fs root");
+    std::fs::write(files.path().join("seed.txt"), "the source of the copy")
+        .expect("a file to copy");
+
+    let answered = run_answering_with_args(
+        &root,
+        "omega",
+        files.path(),
+        &provider.base_url,
+        PermissionOptionKind::RejectOnce,
+        &["--allow-run"],
+    );
+
+    // A refusal is still an ask, and it is the same ask.
+    assert_eq!(answered.asked.len(), 1, "{:?}", answered.asked);
+    let request = &answered.asked[0];
+    assert_eq!(request.tool_call.tool_call_id, ToolCallId::new("proc_run"));
+    assert_eq!(
+        request
+            .options
+            .iter()
+            .map(|o| (o.option_id.0.as_ref(), o.kind))
+            .collect::<Vec<_>>(),
+        vec![
+            ("skein.allow-once", PermissionOptionKind::AllowOnce),
+            ("skein.reject-once", PermissionOptionKind::RejectOnce),
+        ]
+    );
+
+    // Constitution VI, proven by an effect rather than by a counter — and this
+    // time the effect that did not happen is a whole process.
+    assert!(
+        !files.path().join("planted.txt").exists(),
+        "a client's refusal must mean no process ran at all"
+    );
+
+    let _first = provider.request_body();
+    let told = last_message(&provider.request_body());
+    assert!(
+        told.starts_with("[tool_result tool=proc_run status=denied]")
+            && told.contains("acp client declined permission")
+            && told.contains("skein.reject-once"),
+        "the model must be told plainly who refused and why, got: {told}"
+    );
+
+    // The same shape slice 018 pinned for a denied `fs_write`: the attempt and
+    // the verdict are on the chain and there is no `ToolResult`.
+    assert_eq!(
+        logged_kinds(&root, "omega", "skein-1#1"),
+        vec![
+            "iteration_boundary",
+            "llm_request",
+            "llm_response",
+            "budget_spent",
+            "tool_call",
+            "approval",
+            "iteration_boundary",
+            "llm_request",
+            "llm_response",
+            "budget_spent",
+            "exit"
+        ]
+    );
+    let verify = skein(&[
+        "ledger",
+        "verify",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "omega",
+        "--run",
+        "skein-1#1",
+    ]);
+    assert_eq!(
+        verify.status.code(),
+        Some(0),
+        "stderr:\n{}",
+        stderr(&verify)
+    );
+    assert_eq!(stdout(&verify), "skein-1#1\tok\t11 steps\n");
+
+    // A governed refusal is history the run survives, not an error.
+    assert_eq!(answered.stop, StopReason::EndTurn);
+    assert!(
+        chunks(&answered.updates).iter().any(|c| c == "ran"),
+        "the answer must still reach the client, got: {:?}",
+        chunks(&answered.updates)
     );
 }

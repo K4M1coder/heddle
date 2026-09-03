@@ -12,6 +12,7 @@
 
 use crate::wiring::NoGroundTruth;
 use crate::{ChatArgs, SiloArgs};
+use skein_connectors::RunAccess;
 use skein_core::{Exit, LoopController, Message, NativeLoop, Result, SkeinError, ToolGateway};
 use skein_silo::Silo;
 use std::io::Read;
@@ -30,7 +31,9 @@ pub fn chat(silo: &SiloArgs, args: &ChatArgs) -> Result<()> {
     // documents and `acp` mirrors: a `--fs-root` that does not exist is an exit
     // code before the silo is touched, so no chain holds a one-step run for an
     // attempt that never left the process.
-    let transport = args.tools.transport()?;
+    // `RunAccess::Denied`, always: this command has no `--allow-run` to
+    // resolve, so no sandbox is built and no directory's ACL is touched.
+    let transport = args.tools.transport(RunAccess::Denied)?;
     let prompt = prompt(args.prompt.as_deref())?;
 
     let run_id = match &args.run_id {

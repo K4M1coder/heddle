@@ -17,6 +17,10 @@
 //! families: the filesystem tools always, and the git tools when that
 //! directory is a git repository. The two commands allowlist **different**
 //! tools behind it: `wiring::ToolArgs` holds the reason.
+//!
+//! `skein acp-agent` alone takes a **second** opt-in, `--allow-run`, for a
+//! third family: one sandboxed process launcher, Windows-only in v0.
+//! `wiring::RunArgs` holds that reason too.
 
 mod acp;
 mod chat;
@@ -73,6 +77,11 @@ enum Command {
         redact: wiring::RedactArgs,
         #[command(flatten)]
         tools: wiring::ToolArgs,
+        /// Flattened here and into **no other** subcommand: `wiring::RunArgs`
+        /// holds the reason, and `skein chat` having nobody to ask for
+        /// permission is most of it.
+        #[command(flatten)]
+        run: wiring::RunArgs,
     },
 }
 
@@ -194,6 +203,7 @@ fn run(cli: Cli) -> Result<()> {
             model,
             redact,
             tools,
-        } => acp::serve(&silo, model, &redact, tools),
+            run,
+        } => acp::serve(&silo, model, &redact, tools, &run),
     }
 }

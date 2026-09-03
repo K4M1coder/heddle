@@ -10,7 +10,7 @@
 //! not obliged to drain the child's stderr, and a full pipe would block the
 //! agent.
 
-use crate::wiring::{ModelArgs, NoGroundTruth, RedactArgs, ToolArgs};
+use crate::wiring::{ModelArgs, NoGroundTruth, RedactArgs, RunArgs, ToolArgs};
 use crate::SiloArgs;
 use skein_acp::{SessionParts, SkeinAgent};
 use skein_core::Result;
@@ -21,6 +21,7 @@ pub fn serve(
     model: ModelArgs,
     redact: &RedactArgs,
     tools: ToolArgs,
+    run: &RunArgs,
 ) -> Result<()> {
     // The Principle II guard first, so an off-machine `--base-url` opens no
     // chain and reaches no handshake — the same ordering `chat` documents.
@@ -33,6 +34,11 @@ pub fn serve(
     // mistyped `--fs-root` would otherwise surface as a JSON-RPC error inside
     // an editor after a successful handshake instead of an exit code.
     tools.verify_root()?;
+    // Alongside `verify_root` and for its reason: `--allow-run` on a platform
+    // with no launcher must be an exit code and a message here, not a JSON-RPC
+    // error an operator only meets inside an editor after a handshake that
+    // already succeeded.
+    let run = run.resolve()?;
     let root = silo.root()?;
     let id = silo.silo.clone();
 
@@ -53,14 +59,14 @@ pub fn serve(
             // One embedded server per session, matching the one client per
             // session above. Built here, under `futures::executor::block_on`
             // rather than a tokio runtime, which is what makes it legal at all.
-            transport: tools.transport()?,
+            transport: tools.transport(run)?,
             // Without `--fs-root` this is an empty allowlist and nothing is
             // advertised. With one, `fs_write` is allowed **and** approved —
             // not a weakening but the only way to reach a human, because
             // `call_captured` consults the policy before the transport, so a
             // mutating tool the policy stops never becomes a permission request
             // for `AcpPermissionTransport` to ask.
-            policy: tools.agent_policy(),
+            policy: tools.agent_policy(run),
             redactor: redactor.clone(),
             budget: budget.clone(),
             // One chain per session, opened here rather than shared, because

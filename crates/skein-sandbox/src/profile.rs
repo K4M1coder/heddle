@@ -51,10 +51,14 @@ pub(crate) fn create(root: &Path) -> Result<Sandbox, String> {
             // The profile from an earlier run over this same root. Deriving the
             // SID from the name is the documented way back to it; failing here
             // would mean a second session over one workspace could not start.
-            Err(e) if e.code() == already_exists() => {
-                DeriveAppContainerSidFromAppContainerName(PCWSTR(wide_name.as_ptr()))
-                    .map_err(|e| format!("the app container profile {name} exists but its identity is unreadable: {e}"))?
-            }
+            Err(e) if e.code() == already_exists() => DeriveAppContainerSidFromAppContainerName(
+                PCWSTR(wide_name.as_ptr()),
+            )
+            .map_err(|e| {
+                format!(
+                    "the app container profile {name} exists but its identity is unreadable: {e}"
+                )
+            })?,
             Err(e) => {
                 return Err(format!(
                     "the app container profile {name} could not be created: {e}"

@@ -7,7 +7,9 @@
 //! talk to" — is NON-NEGOTIABLE, so there is exactly one.
 
 use clap::Args;
-use skein_connectors::{is_git_repository, local_connector, FsRoot, LocalConnector};
+use skein_connectors::{
+    is_git_repository, local_connector_with_run, FsRoot, LocalConnector, RunAccess,
+};
 use skein_core::{
     LoopBudget, ProgressProbe, Redactor, Result, SecretRef, SkeinError, ToolAccess, ToolCall,
     ToolOutcome, ToolPolicy, ToolSpec, ToolTransport,
@@ -177,10 +179,11 @@ impl ToolArgs {
     ///
     /// **Not callable from inside a tokio context**, per
     /// [`LocalConnector`]'s docstring.
-    pub fn transport(&self) -> Result<ConfiguredTools> {
+    pub fn transport(&self, run: RunAccess) -> Result<ConfiguredTools> {
         match &self.fs_root {
-            Some(path) => Ok(ConfiguredTools::Fs(Box::new(local_connector(
+            Some(path) => Ok(ConfiguredTools::Fs(Box::new(local_connector_with_run(
                 FsRoot::new(path)?,
+                run,
             )?))),
             None => Ok(ConfiguredTools::None),
         }
@@ -209,11 +212,21 @@ impl ToolArgs {
     /// `AcpPermissionTransport` and therefore never becomes a question for the
     /// human behind the editor. Approving it here is the only way to move the
     /// decision to where a human actually is.
-    pub fn agent_policy(&self) -> ToolPolicy {
+    /// `proc_run` joins on exactly the same terms as `fs_write`, and for the
+    /// same recorded reason — and it is omitted in exactly the case
+    /// [`EmbeddedServer::with_run`] disables the route, because an allowlisted
+    /// name with a disabled route is **fatal** where an unlisted name is a
+    /// survivable `denied`.
+    pub fn agent_policy(&self, run: RunAccess) -> ToolPolicy {
         let mut allowed = read_only();
         allowed.push(("fs_write".to_string(), ToolAccess::Mutating));
         allowed.extend(self.git_tools());
-        self.policy(allowed, vec!["fs_write".to_string()])
+        let mut approved = vec!["fs_write".to_string()];
+        if run == RunAccess::Allowed {
+            allowed.push(("proc_run".to_string(), ToolAccess::Mutating));
+            approved.push("proc_run".to_string());
+        }
+        self.policy(allowed, approved)
     }
 
     /// The two git tools when the configured root is a git repository, and
@@ -262,6 +275,56 @@ impl ToolArgs {
         match self.fs_root {
             Some(_) => ToolPolicy::new(allowed, approved),
             None => ToolPolicy::new(Vec::new(), Vec::new()),
+        }
+    }
+}
+
+/// Whether this run may launch a process, and the honest statement of what
+/// saying yes costs.
+///
+/// A **second** opt-in on top of `--fs-root`, deliberately: running a process
+/// is a larger capability than writing a file, and Constitution VI's
+/// deny-by-default is worth making structural rather than leaving to policy.
+/// Flattened into `skein acp-agent` and nowhere else — [`ToolArgs::chat_policy`]
+/// records why a mutating tool that could only ever be denied belongs *absent*
+/// from a non-interactive command rather than listed in it.
+#[derive(Args)]
+pub struct RunArgs {
+    /// Offer the sandboxed `proc_run` tool over --fs-root. **Windows only in
+    /// v0**, and elsewhere a refusal rather than a missing tool. Grants this
+    /// run's AppContainer identity an inheritable entry on that directory's
+    /// ACL, which is a real and lasting change to the directory's permissions.
+    #[arg(long)]
+    pub allow_run: bool,
+}
+
+impl RunArgs {
+    /// Resolves the flag against the platform, **loudly**.
+    ///
+    /// Call this **before** opening a silo, in the position
+    /// [`ToolArgs::verify_root`] already occupies and for the same documented
+    /// reason: an unsupported flag must be an exit code and a message, not a
+    /// JSON-RPC error an operator only meets inside an editor after a
+    /// successful handshake.
+    ///
+    /// The `#[cfg]` is here rather than deeper because this is the layer that
+    /// owns the *operator's* answer. Below it, `skein-sandbox` refuses on the
+    /// same platforms for the same reason — but by then a session exists.
+    pub fn resolve(&self) -> Result<RunAccess> {
+        if !self.allow_run {
+            return Ok(RunAccess::Denied);
+        }
+        #[cfg(windows)]
+        {
+            Ok(RunAccess::Allowed)
+        }
+        #[cfg(not(windows))]
+        {
+            Err(SkeinError::Tool(
+                "--allow-run needs a sandboxed process launcher, which has no backend on this \
+                 platform; shell tools are Windows-only in v0"
+                    .into(),
+            ))
         }
     }
 }
