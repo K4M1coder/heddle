@@ -66,8 +66,11 @@ pub(crate) fn run(
     let job = Job::create_with_limit_info(&limits)
         .map_err(|e| format!("the job object could not be created: {e}"))?;
 
-    let pipes = Pipes::create()?;
+    // The attribute list first, because it frees itself on failure and the
+    // pipes do not: built the other way round, a malformed SID would leak six
+    // handles per call in a session that lives for hours.
     let attributes = Attributes::with_app_container(&sandbox.sid)?;
+    let pipes = Pipes::create()?;
 
     let mut startup = STARTUPINFOEXW::default();
     startup.StartupInfo.cb = size_of::<STARTUPINFOEXW>() as u32;
@@ -78,7 +81,7 @@ pub(crate) fn run(
     startup.lpAttributeList = attributes.list;
 
     let mut process = PROCESS_INFORMATION::default();
-    unsafe {
+    let launched = unsafe {
         CreateProcessW(
             PCWSTR(exe_wide.as_ptr()),
             // `CreateProcessW` may write into this buffer, which is why it is
@@ -96,8 +99,14 @@ pub(crate) fn run(
             &startup.StartupInfo as *const _,
             &mut process,
         )
+    };
+    // The most model-reachable failure in this function — a `command` that
+    // resolved to something Windows will not execute — so the pipes are closed
+    // here rather than left to a process exit that may be hours away.
+    if let Err(e) = launched {
+        pipes.close();
+        return Err(format!("{} could not be launched: {e}", exe.display()));
     }
-    .map_err(|e| format!("{} could not be launched: {e}", exe.display()))?;
 
     // **Before the readers, and unconditionally.** The child holds its own
     // copies now; if the parent kept these open the read ends would never see
@@ -242,6 +251,26 @@ impl Pipes {
             stderr_read,
             stderr_write,
         })
+    }
+
+    /// All six ends, for the path where no child was ever created.
+    ///
+    /// Consuming `self` rather than a [`Drop`] impl, because the success path
+    /// hands four of these to somebody else — a destructor would have to be
+    /// suppressed there, which is more machinery than two call sites need.
+    fn close(self) {
+        unsafe {
+            for end in [
+                self.stdin_read,
+                self.stdin_write,
+                self.stdout_read,
+                self.stdout_write,
+                self.stderr_read,
+                self.stderr_write,
+            ] {
+                let _ = CloseHandle(end);
+            }
+        }
     }
 
     /// Closes every parent-side handle the child now owns and starts the two

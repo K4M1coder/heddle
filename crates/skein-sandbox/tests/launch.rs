@@ -87,3 +87,28 @@ fn a_sandboxed_process_starts_in_its_root() {
         .to_string();
     assert_eq!(run.stdout.text.trim(), expected, "{run:?}");
 }
+
+/// A file inside the root that Windows will not execute: the most
+/// model-reachable failure there is, and it must be a refusal rather than a
+/// hang or a leak.
+#[test]
+fn a_file_that_is_not_a_program_is_refused_rather_than_launched() {
+    let dir = TempDir::new().expect("a temp dir");
+    let not_a_program = dir.path().join("notes.txt");
+    std::fs::write(&not_a_program, "plain text, not a PE image").expect("a file in the root");
+    let sandbox = Sandbox::create(dir.path()).expect("the profile and the grant");
+
+    let refusal = sandbox
+        .run(
+            &not_a_program,
+            &args(&[]),
+            16 * 1024,
+            Duration::from_secs(30),
+        )
+        .expect_err("a text file is not launchable");
+
+    assert!(
+        refusal.contains("notes.txt") && refusal.contains("could not be launched"),
+        "the refusal must name the file and say what failed: {refusal}"
+    );
+}

@@ -230,14 +230,22 @@ On `019-shell-connector-windows`, Windows 11 Pro 10.0.26200, toolchain 1.97, 202
 - `cargo fmt --all --check` — clean, exit 0.
 - `cargo clippy --workspace --all-targets -- -D warnings` — clean, exit 0. **No `#[allow]` was added
   anywhere in this slice**, which for a first-`unsafe` crate is worth stating.
-- `cargo test --workspace` — **216 passed, 0 failed, 4 ignored**, against the T1 baseline of 193/0/3:
+- `cargo test --workspace` — **217 passed, 0 failed, 4 ignored**, against the T1 baseline of 193/0/3:
   `acp_session` 16, `cli_acp_agent` 13 (+3), `cli_chat` 12, `cli_ledger` 8, `cli_secret` 2,
   `connector` 8 (+2), `fs_root` 10, `fs_server` 7, `git_root` 5, `git_server` 13, `governed_fs_run`
   4 (+1 ignored), `governed_git_run` 4 (+1 ignored), `governed_proc_run` 0 (+1 ignored, **new**),
   `run_server` 7 (**new**), `core` 19, `native_loop` 25, `tool_gateway` 14, `governed_run` 2,
   `openai_compat` 15 (+1 ignored), `rmcp_gateway` 9, `skein_sandbox` unit 4 (**new**, the argv
-  module), `escape` 3 (**new**), `launch` 2 (**new**), `profile` 2 (**new**), `silo_ledger` 7,
-  `silo_secret` 5. **+23 passed, +1 ignored, and every pre-existing count unchanged.**
+  module), `escape` 3 (**new**), `launch` 3 (**new**), `profile` 2 (**new**), `silo_ledger` 7,
+  `silo_secret` 5. **+24 passed, +1 ignored, and every pre-existing count unchanged.**
+
+One test in `launch` is not in the plan and was added during T12's own review of the diff: a file
+inside the root that Windows will not execute. It is the most model-reachable failure in
+`Sandbox::run`, and it was leaking all six pipe handles per call — the `Pipes` struct has no `Drop`,
+because the success path gives four of its ends away. `CreateProcessW`'s error arm now closes them,
+and the attribute list is built *before* the pipes so a malformed SID cannot leak them either. In a
+long-lived ACP session a per-call six-handle leak on the commonest error path is a real defect, not
+a tidiness point.
 
 ## Dependency drift (T12), measured
 
