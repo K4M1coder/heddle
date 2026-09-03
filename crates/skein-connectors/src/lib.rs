@@ -6,5 +6,7 @@
 //! and never depends on this crate, exactly as it never depends on `skein-mcp`.
 
 mod fs;
+mod server;
 
 pub use fs::FsRoot;
+pub use server::{FsServer, ListParams, ReadParams, WriteParams, READ_BYTE_CAP};
