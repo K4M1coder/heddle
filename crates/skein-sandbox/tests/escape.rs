@@ -246,7 +246,7 @@ fn a_sandboxed_process_cannot_write_into_a_run_dir() {
                 "/c",
                 "copy",
                 "seed.txt",
-                &escaped.to_string_lossy().replace(r"\?\", ""),
+                &escaped.to_string_lossy().replace(r"\\?\", ""),
             ]),
             16 * 1024,
             Duration::from_secs(30),

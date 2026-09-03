@@ -338,3 +338,69 @@ fn there_is_no_launcher_and_no_proc_tool_off_windows() {
     );
     assert_eq!(advertised, vec!["fs_list", "fs_read", "fs_write"]);
 }
+
+/// The tool description is the **only** channel that reaches the model with
+/// this information (spec 020 SC-007).
+///
+/// `RmcpToolTransport::list` maps name, description and parameters into a
+/// `ToolSpec` and drops the server's `instructions`, so a model shown
+/// `proc_run` cannot otherwise tell a reachable `cargo` from an unreachable
+/// one. Leaving it to the refusal to teach costs a wasted turn and an `isError`
+/// round trip to learn something the operator already decided at launch.
+///
+/// With no run directory the advertisement must gain **nothing** — that is the
+/// half that keeps every assertion slice 019 pinned true.
+#[cfg(windows)]
+#[test]
+fn the_advertised_description_names_the_allowlisted_directories() {
+    use skein_connectors::{local_connector_with_run, RunAccess, RunDirs};
+
+    fn proc_run_description(connector: &mut LocalConnector) -> String {
+        connector
+            .list()
+            .expect("tools/list reaches the server")
+            .into_iter()
+            .find(|s| s.name == "proc_run")
+            .expect("proc_run is advertised")
+            .description
+    }
+
+    let dir = TempDir::new().expect("a temp dir");
+    let toolbin = TempDir::new().expect("a temp run directory");
+    let dirs = RunDirs::new(&[toolbin.path().to_path_buf()]).expect("a real directory");
+    let named = dirs.paths()[0].to_string_lossy().replace(r"\\?\", "");
+
+    let mut listed = local_connector_with_run(
+        FsRoot::new(dir.path()).expect("a canonicalizable root"),
+        RunAccess::Allowed(dirs),
+    )
+    .expect("the sandbox builds and the server serves");
+    let with_dirs = proc_run_description(&mut listed);
+
+    assert!(
+        with_dirs.contains(&named),
+        "a model cannot ask for what it is not told it can reach: {with_dirs}"
+    );
+    // The static string stays the single home of the rule and the caps; the
+    // appended sentence only enumerates.
+    assert!(
+        with_dirs.contains("PATH is not searched"),
+        "and the rule the operator did not change must survive the edit: {with_dirs}"
+    );
+
+    let mut bare = local_connector_with_run(
+        FsRoot::new(dir.path()).expect("a canonicalizable root"),
+        RunAccess::Allowed(RunDirs::none()),
+    )
+    .expect("a launcher with no run directory still serves");
+    let without_dirs = proc_run_description(&mut bare);
+
+    assert!(
+        !without_dirs.contains("also looked for in"),
+        "with nothing allowlisted there is nothing to enumerate: {without_dirs}"
+    );
+    assert!(
+        with_dirs.starts_with(&without_dirs),
+        "the appended sentence must be an addition and not a rewrite:\n{without_dirs}\n{with_dirs}"
+    );
+}

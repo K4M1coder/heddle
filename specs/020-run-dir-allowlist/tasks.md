@@ -140,6 +140,41 @@ test result: FAILED. 0 passed; 1 failed
 `profile.rs` reads the absent write bit off the descriptor; this reads it off the filesystem. Two
 independent proofs of one claim, which is what `escape.rs` already documents about itself.
 
+**T6** — `cargo test -p skein-connectors --test run_server`, the two new resolution tests:
+
+```
+thread 'a_bare_name_in_an_allowlisted_run_dir_resolves_and_runs' panicked at
+crates\skein-connectors\tests\run_server.rs:207:10:
+a bare name in a named run directory is not a refusal: "toolchain.exe is in neither
+C:\windows\System32 nor C:\windows; %PATH% is deliberately not searched, so name an executable in
+one of those two directories or a path relative to the configured root"
+test result: FAILED. 8 passed; 2 failed
+```
+
+The expected red: T2's `resolve_exe` ignores its `run_dirs` argument, so the message is still the
+two-directory one. `system32_still_wins_over_a_run_dir_that_shadows_it` passed in the same run and
+is a regression guard rather than a red — it asserts an order that already held and must keep
+holding.
+
+After the green, `a_command_that_resolves_nowhere_names_both_places_it_looked` still passes with its
+assertion text **byte-identical**: it pins `System32` and `PATH`, both of which the new enumerating
+message carries. FR-012's stop condition never fired.
+
+**T7** — `cargo test -p skein-connectors --test connector`:
+
+```
+thread 'the_advertised_description_names_the_allowlisted_directories' panicked at
+crates\skein-connectors\tests\connector.rs:380:5:
+a model cannot ask for what it is not told it can reach: Run one program inside a Windows sandbox
+over the configured root, … Each output stream is truncated at 16384 bytes with a note saying how
+much was dropped.
+test result: FAILED. 8 passed; 1 failed
+```
+
+The static `#[tool(description = …)]` string, reaching the model unchanged — which is the whole
+point of the step. rmcp 2.2.0's `ToolRouter::map` and `ToolRoute::attr` are `pub` as the plan's fact
+12 records, and mutating an already-registered route's description worked first time.
+
 ## Finding: the grant is not what makes a run directory launchable
 
 **This contradicts a premise the plan's D4 and D7 rest on, and a claim slice 019's `spec.md` already

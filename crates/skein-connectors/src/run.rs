@@ -88,7 +88,13 @@ pub(crate) fn resolve_exe(
 pub(crate) fn named(path: &Path) -> String {
     let rendered = path.to_string_lossy();
     match rendered.strip_prefix(VERBATIM) {
-        Some(rest) => rest.to_string(),
+        // A share, where dropping the whole prefix would leave the bare word
+        // `UNC` as the volume — the same case `skein-sandbox`'s own renderer
+        // records, and a `--run-dir` on a share is a legal thing to name.
+        Some(rest) => match rest.strip_prefix(r"UNC\") {
+            Some(share) => format!(r"\\{share}"),
+            None => rest.to_string(),
+        },
         None => rendered.into_owned(),
     }
 }

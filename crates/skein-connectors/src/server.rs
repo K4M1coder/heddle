@@ -238,6 +238,34 @@ impl EmbeddedServer {
         if sandbox.is_none() {
             tool_router.disable_route("proc_run");
         }
+        // The advertised description is the only channel this reaches a model
+        // through: `RmcpToolTransport::list` maps name, description and
+        // parameters into a `ToolSpec` and drops the server's `instructions`.
+        // Appended rather than rewritten, so the `#[tool]` attribute stays the
+        // single home of the rule and the caps and this only enumerates.
+        #[cfg(windows)]
+        if let Some(dirs) = sandbox
+            .as_ref()
+            .map(|sandbox| sandbox.run_dirs())
+            .filter(|dirs| !dirs.is_empty())
+        {
+            // rmcp 2.2's `ToolRouter::map` and `ToolRoute::attr` are `pub`;
+            // `#[non_exhaustive]` forbids constructing one of these outside the
+            // crate, not mutating a field of one its macro already built. A
+            // future minor that reorganises them is a compile error at this
+            // line, which is what the advertisement test exists to catch.
+            if let Some(route) = tool_router.map.get_mut("proc_run") {
+                let places: Vec<String> = dirs.iter().map(|dir| crate::run::named(dir)).collect();
+                let base = route.attr.description.take().unwrap_or_default();
+                route.attr.description = Some(
+                    format!(
+                        "{base} A bare name is also looked for in: {}.",
+                        places.join(", ")
+                    )
+                    .into(),
+                );
+            }
+        }
         EmbeddedServer {
             root: Arc::new(root),
             sandbox,

@@ -252,7 +252,7 @@ fn a_bare_name_in_a_directory_that_was_not_named_names_every_place_it_looked() {
     // binary.
     let enumerated = run(&named.server, "definitely-not-a-real-binary", &[])
         .expect_err("an unresolvable command is still refused");
-    let toolbin = named._toolbin.path().to_string_lossy().replace(r"\?\\", "");
+    let toolbin = named._toolbin.path().to_string_lossy().replace(r"\\?\", "");
     assert!(
         enumerated.contains(&toolbin),
         "the refusal must name every directory that was searched, including {toolbin}: {enumerated}"
