@@ -1,0 +1,12 @@
+[package]
+name = "skein-connectors"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+skein-core = { path = "../skein-core" }
+
+[dev-dependencies]
+tempfile.workspace = true
