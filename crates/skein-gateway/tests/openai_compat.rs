@@ -300,3 +300,104 @@ fn an_https_base_url_is_refused() {
         "https must be refused on the scheme, got: {message}"
     );
 }
+
+/// One turn against a stub, expecting the client to refuse. Returns the
+/// `SkeinError::Model` message, so a test asserts *why* it refused.
+fn turn_error(stub: &Stub, prompt: &str) -> String {
+    let mut model = client(stub.base_url(), "llama3.1");
+    match model.turn(&ask(vec![Message::user_text(prompt)])) {
+        Ok(response) => panic!("expected a refusal, got {response:?}"),
+        Err(SkeinError::Model(message)) => message,
+        Err(other) => panic!("expected SkeinError::Model, got {other:?}"),
+    }
+}
+
+#[test]
+fn turn_parses_a_realistic_response_into_a_turn_response() {
+    let stub = Stub::serving(vec![Reply::ok(provider_reply(
+        "42 is the answer.",
+        "stop",
+        23,
+    ))]);
+    let mut model = client(stub.base_url(), "llama3.1");
+
+    let response = model
+        .turn(&ask(vec![Message::user_text("what is the answer?")]))
+        .expect("the stub answers");
+
+    assert_eq!(
+        response.message,
+        Message::assistant_text("42 is the answer.")
+    );
+    assert!(
+        response.final_output,
+        "finish_reason 'stop' with no tool call"
+    );
+    assert!(response.tool_calls.is_empty());
+    // The provider's own number, not a constant: `provider_reply`'s
+    // prompt_tokens + completion_tokens is 18, so a client that summed instead
+    // of reading total_tokens would not produce 23.
+    assert_eq!(response.tokens_used, 23);
+}
+
+#[test]
+fn tokens_used_falls_back_to_prompt_plus_completion_when_total_is_absent() {
+    let stub = Stub::serving(vec![Reply::ok(
+        serde_json::json!({
+            "choices": [{
+                "message": {"role": "assistant", "content": "ok"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 31, "completion_tokens": 11}
+        })
+        .to_string(),
+    )]);
+    let mut model = client(stub.base_url(), "llama3.1");
+
+    let response = model
+        .turn(&ask(vec![Message::user_text("count me")]))
+        .expect("the stub answers");
+
+    assert_eq!(response.tokens_used, 42);
+}
+
+#[test]
+fn a_response_without_usage_is_refused_rather_than_metered_as_zero() {
+    // The guard Constitution VIII rests on. `LoopController::should_exit` stops
+    // on `tokens >= max_tokens`, so metering an unmetered turn as 0 would
+    // disable the token budget while looking like it worked. Refusing loudly is
+    // this project's established answer to "I cannot honestly produce this
+    // value".
+    let stub = Stub::serving(vec![Reply::ok(
+        serde_json::json!({
+            "choices": [{
+                "message": {"role": "assistant", "content": "unmetered"},
+                "finish_reason": "stop"
+            }]
+        })
+        .to_string(),
+    )]);
+
+    let message = turn_error(&stub, "how much did that cost?");
+    assert!(
+        message.contains("without token metering") && message.contains("token budget"),
+        "the refusal must name the missing metering, got: {message}"
+    );
+
+    // And a `usage` that is present but half-filled is refused too: a sum needs
+    // both halves.
+    let partial = Stub::serving(vec![Reply::ok(
+        serde_json::json!({
+            "choices": [{
+                "message": {"role": "assistant", "content": "half-metered"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 9}
+        })
+        .to_string(),
+    )]);
+    assert!(
+        turn_error(&partial, "and now?").contains("without token metering"),
+        "a half-filled usage object is not metering"
+    );
+}
