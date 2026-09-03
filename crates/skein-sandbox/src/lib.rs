@@ -36,6 +36,14 @@ mod profile;
 use std::path::Path;
 use std::time::Duration;
 
+/// The most arguments one launch may carry.
+///
+/// A bound on how much of a model's turn can become one command line, in the
+/// spirit of `skein-connectors`' own read and log caps. It lives here rather
+/// than beside them because the refusal is the launcher's: it is what
+/// `CreateProcessW` can be handed, not what a tool chooses to offer.
+pub const ARG_COUNT_CAP: usize = 64;
+
 /// One captured stream, and how much of it was thrown away.
 ///
 /// `dropped_bytes` is not an estimate: the reader keeps draining past the cap
@@ -98,7 +106,7 @@ fn win32_path(path: &Path) -> String {
 }
 
 #[cfg(not(windows))]
-const NO_BACKEND: &str ="a sandboxed process launcher has no backend on this platform; shell \
+const NO_BACKEND: &str = "a sandboxed process launcher has no backend on this platform; shell \
                           tools are Windows-only in v0";
 
 impl Sandbox {
@@ -150,7 +158,7 @@ impl Sandbox {
         stream_cap: usize,
         timeout: Duration,
     ) -> std::result::Result<Run, String> {
-        todo!("T4")
+        launch::run(self, exe, args, stream_cap, timeout)
     }
 
     /// Unreachable by construction: [`Sandbox`] is uninhabited on this

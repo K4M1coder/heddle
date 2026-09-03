@@ -103,8 +103,15 @@ touched. On Linux and macOS the flag is an exit code and a message, never a sile
 - **FR-007** One tool, `proc_run`, `#[cfg(windows)]`, on the existing `EmbeddedServer`. Named for
   what it does: `shell_run` would read to a model as an affordance for `|`, `>` and `&&`, every one
   of which this tool refuses. `RunParams { command: String, args: Vec<String> }` — no `cwd` (it is
-  the root), no `env` (a fixed minimal block), no `stdin` (the child's `hStdInput` is a closed pipe
-  read end), no per-call timeout.
+  the root), no `env` (a fixed minimal block), no `stdin` (the child's `hStdInput` is a pipe whose
+  write end is already gone, so a read on it is an immediate EOF), no per-call timeout. The fixed
+  block is five variables — `LOCALAPPDATA`, `PATH`, `PATHEXT`, `SystemRoot`, `windir` — sorted
+  case-insensitively. `PATH` is the two directories the executable resolution searches and never the
+  operator's ambient `PATH`. `LOCALAPPDATA` is **not optional**: an AppContainer's per-package state
+  lives under `%LOCALAPPDATA%\Packages\<profile name>\` and process creation resolves that path from
+  the child's own block, so omitting it fails the launch with `ERROR_ENVVAR_NOT_FOUND`. There is
+  deliberately no `TEMP`, so a tool needing scratch space fails loudly rather than littering the
+  workspace.
 - **FR-008** `RUN_TIMEOUT = 30s`, justified against `ModelArgs::timeout_secs`'s 120-second whole-turn
   default: a tool that can eat the entire turn budget makes `LoopBudget` meaningless. A timeout is an
   `Err(String)` — a tool error `NativeLoop::mediate` survives.
@@ -216,6 +223,13 @@ touched. On Linux and macOS the flag is an exit code and a message, never a sile
 - **SC-004 proves *a* real network denial hermetically and does not separately prove internet
   denial**, because no hermetic test can. The code-level fact behind that is `CapabilityCount: 0`,
   which `run_server.rs` asserts directly.
+- **One inheritable ACE on the root is enough; no ancestor needs a traverse ACE.** The plan named
+  the opposite as this slice's one stop condition, on the theory that an AppContainer token might not
+  retain `SeChangeNotifyPrivilege`. Measured at T4: a sandboxed `cmd.exe` read a file inside a
+  `TempDir` under the user profile with no ACE anywhere above the root. D7 stands unamended.
+- **Captured output is decoded as UTF-8, lossily.** A console program writes the OEM code page, so a
+  run whose output contains non-ASCII bytes reaches the model with replacement characters rather
+  than as an encoding error. Losing the run entirely would be worse than rendering it imperfectly.
 - **Slice 016's TOCTOU residual is inherited unchanged.** A directory swapped between `FsRoot::new`'s
   `canonicalize` and `Sandbox::create`'s `SetNamedSecurityInfoW` escapes the root.
 - **`windows = "0.61"`, not 0.62.2.** `win32job` 2.0.3 depends on `windows ^0.61`; pinning 0.61 keeps

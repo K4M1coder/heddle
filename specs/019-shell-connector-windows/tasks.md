@@ -90,3 +90,38 @@ ACL or a Win32 one. That distinction is the whole reason T2 exists as its own st
 took two compile errors in the *test's* own Win32 helper, both fixed before the red was recorded:
 `HLOCAL` implements neither `From<*mut u16>` nor `From<*mut c_void>` in windows 0.61, so the frees
 are written `HLOCAL(text.0 as *mut c_void)` rather than `.into()`.
+
+**T4** — `cargo test -p skein-sandbox --test launch`, both tests:
+
+```
+thread 'a_sandboxed_process_reads_a_file_in_its_granted_root' panicked at
+crates\skein-sandbox\src\lib.rs:153:9:
+not yet implemented: T4
+test result: FAILED. 0 passed; 2 failed
+```
+
+The plan makes this step's red the slice's one stop condition — *"if this step is red for an ACL or
+traversal reason rather than an unwritten-code reason, stop and fix the model"*. It was the
+`todo!("T4")`, so the model stood and the fallback (a traverse-only `FILE_TRAVERSE`/`NO_INHERITANCE`
+ACE on each ancestor) was **not needed**: an AppContainer token retains
+`SeChangeNotifyPrivilege`, so one inheritable ACE on the root is enough to reach a file inside a
+`TempDir` under the user profile. D7 stands as written.
+
+Three genuine code defects surfaced between that red and green, each measured rather than reasoned
+about, and each recorded because the failure mode names nothing like the cause:
+
+1. **`ERROR_INVALID_PARAMETER` (0x80070057).** `HANDLE_FLAG_INHERIT` had been cleared on all three
+   pipe *read* ends, but `stdin_read` is the end the **child** needs — and `CreateProcessW` refuses a
+   launch outright when a handle named by `STARTF_USESTDHANDLES` is not inheritable. `Pipes` is now
+   split by *who ends up owning each end* rather than by which direction it points, and the three the
+   parent keeps (`stdin_write`, `stdout_read`, `stderr_read`) are the three made private.
+2. **`ERROR_INVALID_PARAMETER` again, after that fix.** `UpdateProcThreadAttribute` **stores the
+   pointer it is given and does not copy the value**, so the stack-local `SECURITY_CAPABILITIES` was
+   dangling by the time `CreateProcessW` read it. It is now a `Box` held by `Attributes`, so moving
+   that struct — which happens as soon as it is returned — does not move the memory the list points
+   at.
+3. **`ERROR_ENVVAR_NOT_FOUND` (0x800700CB).** Bisected against the parent environment: the launch
+   needs **`LOCALAPPDATA`** in the block handed to the child, because an AppContainer's per-package
+   state lives under `%LOCALAPPDATA%\Packages\<profile name>\` and process creation resolves that
+   path from the child's own environment. Sorting the block case-insensitively is required too — a
+   block is searched, not scanned. Neither is in the plan; both are now in the code's own comments.
