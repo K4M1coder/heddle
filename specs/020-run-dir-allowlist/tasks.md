@@ -11,9 +11,12 @@ TDD (red→green), branch `020-run-dir-allowlist` cut from `dev` at `09d61f8`.
   passes `CapabilityCount: 0`, so WFP has no permit filter to match on. A run directory is granted
   read and execute; nothing about the network changes, and slice 019's loopback gate with its
   unsandboxed positive control still passes
-- III Test-First ✅ every step's red was observed and recorded verbatim under `## Observed red`
-  before its green. T2 is deliberately a compile-and-green refactor with a stop condition rather
-  than a red, for the reason its entry states
+- III Test-First ✅ every step's outcome is recorded verbatim under `## Observed red`, and where a
+  step had **no** red the entry says so and why rather than dressing one up. T3, T6, T7 and T8 are
+  genuine reds. T2 is deliberately a compile-and-green refactor with a stop condition. T4 and T5
+  had none because T3's green is the mechanism they exercise, so each carries an **in-test
+  ungranted control** plus a measured counterfactual instead — which is a stronger guarantee than a
+  red, because it keeps working after the fact
 - IV Inverted coupling ✅ `skein-core` gains nothing and depends on nothing new. `skein-sandbox`
   remains a leaf depending on no Skein crate; `skein-connectors` still reaches it through one
   `#[cfg]`-gated module with no type of the dependency in any public signature. `RunDirs` lives in
@@ -55,7 +58,7 @@ TDD (red→green), branch `020-run-dir-allowlist` cut from `dev` at `09d61f8`.
 - [x] **T6** RED→GREEN — resolution, ordering and the refusal (`tests/run_server.rs`)
 - [x] **T7** RED→GREEN — the advertisement (`tests/connector.rs`)
 - [x] **T8** RED→GREEN — the CLI (`cli_acp_agent.rs`, `fs_root.rs`)
-- [x] **T9** the live test, gates and close-out
+- [x] **T9** the live test (`tests/governed_proc_run.rs`), gates, dependency drift, control diff
 - [ ] **T10** hand-verification against live Ollama — **not part of this run.** See
       `## Live verification (T10)` below for the recorded command and pass condition.
 
@@ -269,6 +272,38 @@ wider grant would change it.
   at all, or grant only on request, is a decision this run does not take.
 - Slice 019's `spec.md` point 5 carries the false half of this and is left for its own record to
   correct — amending a shipped slice's spec is outside this one's scope.
+
+## Close-out (T9)
+
+On `020-run-dir-allowlist`, working tree clean:
+
+- `cargo fmt --all --check` — clean, no output, exit 0.
+- `cargo clippy --workspace --all-targets -- -D warnings` — clean, no diagnostic, exit 0.
+- `cargo test --workspace` — **228 passed, 0 failed, 5 ignored**. Against T1's 217/4 that is
+  **+11 tests and +1 ignored**, which is exactly this slice's additions and nothing else:
+  `a_run_dir_is_granted_read_and_execute_and_the_root_is_not`,
+  `a_binary_in_an_allowlisted_run_dir_executes_and_its_stdout_comes_back`,
+  `a_sandboxed_process_cannot_write_into_a_run_dir`,
+  `a_bare_name_in_an_allowlisted_run_dir_resolves_and_runs`,
+  `a_bare_name_in_a_directory_that_was_not_named_names_every_place_it_looked`,
+  `system32_still_wins_over_a_run_dir_that_shadows_it`,
+  `the_advertised_description_names_the_allowlisted_directories`,
+  `a_run_dir_that_is_not_a_directory_is_a_loud_refusal`,
+  `acp_agent_documents_the_run_dir_flag_and_chat_does_not`,
+  `run_dir_without_allow_run_is_an_exit_code_naming_both_flags`,
+  `acp_agent_refuses_a_run_dir_that_does_not_exist_before_serving`, and the `#[ignore]`d
+  `a_live_model_runs_a_real_toolchain_binary`.
+- **No pre-existing assertion's text changed.** FR-012's stop condition never fired. Only
+  constructor spellings moved, at T2.
+- **Control diff empty** for `crates/skein-silo/`, `crates/skein-core/`, `crates/skein-gateway/`,
+  `crates/skein-mcp/`, `spikes/`, `.github/` and `rust-toolchain.toml` — verified with
+  `git diff --stat 09d61f8 -- …`, which produces no output.
+- **`Cargo.lock` is untouched.** Two manifests changed, both dev-only and both stated:
+  `crates/skein-connectors/Cargo.toml` gains `skein-silo` under `[dev-dependencies]` (the plan's one
+  named exception), and `crates/skein-sandbox/Cargo.toml` adds the `Win32_Storage_FileSystem`
+  feature to its existing dev-only `windows` entry (T3's recorded deviation). **No product
+  dependency and no product feature changed anywhere**, and no new `unsafe` block was added — the
+  mask parameter reuses `grant`'s existing one.
 
 ## Live verification (T10)
 

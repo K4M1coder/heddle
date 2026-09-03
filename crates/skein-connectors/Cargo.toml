@@ -46,3 +46,9 @@ git2.workspace = true
 # Declared again for the reason directly above: `tests/run_server.rs` names
 # `ARG_COUNT_CAP`, which is the launcher's cap and not this crate's.
 skein-sandbox = { path = "../skein-sandbox" }
+# Only `tests/governed_proc_run.rs`'s `#[ignore]`d live test names this, and
+# only to persist a hand-verification's chain to a real silo when
+# $SKEIN_LIVE_SILO_ROOT is set — so `skein ledger show` can read the evidence
+# back in a second process. `cargo test --workspace` stays hermetic and offline:
+# without that variable the test falls back to an in-memory `Ledger`.
+skein-silo = { path = "../skein-silo" }
