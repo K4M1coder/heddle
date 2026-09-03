@@ -310,6 +310,7 @@ fn s7_a_full_governed_run_persists_and_reverifies() {
             ToolPolicy::new(vec![("read_file".into(), ToolAccess::ReadOnly)], Vec::new()),
             Redactor::new(Vec::new()),
         ),
+        Redactor::new(Vec::new()),
     );
 
     let mut led = silo.ledger().unwrap();

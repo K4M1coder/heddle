@@ -166,6 +166,7 @@ fn an_end_to_end_run_against_a_stub_provider_lands_on_the_chain() {
             ToolPolicy::new(vec![], vec![]),
             Redactor::new(vec![]),
         ),
+        Redactor::new(vec![]),
     );
     let mut ledger = Ledger::new();
     let mut controller = LoopController::new(LoopBudget::new(4, 1_000, 4));
@@ -263,6 +264,7 @@ fn a_provider_failure_ends_the_run_with_the_request_already_on_the_chain() {
             ToolPolicy::new(vec![], vec![]),
             Redactor::new(vec![]),
         ),
+        Redactor::new(vec![]),
     );
     let mut ledger = Ledger::new();
     let mut controller = LoopController::new(LoopBudget::new(4, 1_000, 4));

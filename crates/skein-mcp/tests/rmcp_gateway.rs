@@ -271,7 +271,12 @@ fn c6_native_loop_calls_a_live_mcp_tool_mid_run() {
         ],
         calls: 0,
     };
-    let mut lp = NativeLoop::new(model, ScriptedProbe, gateway);
+    let mut lp = NativeLoop::new(
+        model,
+        ScriptedProbe,
+        gateway,
+        Redactor::new(vec![SECRET.into()]),
+    );
     let mut led = Ledger::new();
     let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 10));
 

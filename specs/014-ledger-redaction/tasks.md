@@ -39,7 +39,7 @@ branch `014-ledger-redaction` cut from `dev` after slice 013 merged.
 - [x] **T1** control baseline: `cargo test --workspace` before any edit — **110 passed, 1 ignored**
 - [x] **T2** RED→GREEN — `Redactor::redact_json` and `impl Clone for Redactor`, with their tests in
       `crates/skein-core/tests/core.rs`. First because nothing else compiles without them
-- [ ] **T3** RED→GREEN — `NativeLoop`'s fourth constructor argument and the two `redact_json` calls
+- [x] **T3** RED→GREEN — `NativeLoop`'s fourth constructor argument and the two `redact_json` calls
       in `run`, with all 26 call sites updated in the same atomic commit. Its red is T4's tests
 - [x] **T4** RED (written before T3's green) — the three new tests in
       `crates/skein-core/tests/native_loop.rs`, plus the additive `ScriptedModel.seen` field
@@ -81,6 +81,13 @@ All on 2026-09-03.
     `crates/skein-core/src/native_loop.rs:40`
   - `error: could not compile skein-core (test "native_loop") due to 3 previous errors`
   - Committed red, the way slice 013 committed `cli_acp_agent.rs` before its subcommand existed.
+
+- **T3's green** turned T4's three red tests green on the first run with no change to the test
+  file: `cargo test --workspace` went to **115 passed, 1 ignored** (110 baseline + 2 from T2 + 3
+  from T4). All twenty pre-existing `native_loop.rs` bodies are unchanged —
+  `git diff` on that file shows nine deleted lines, every one of them a single-line
+  `NativeLoop::new(model, probe, no_tools());` that rustfmt rewrapped once it grew a fourth
+  argument, and no deleted assertion anywhere.
 
 ## Gate run (T9)
 

@@ -191,7 +191,12 @@ fn loop_reaches_final_output_through_real_turns() {
         reply("still working", 10, false),
         reply("here is the answer", 10, true),
     ]);
-    let mut lp = NativeLoop::new(model, ScriptedProbe::new(vec![true]), no_tools());
+    let mut lp = NativeLoop::new(
+        model,
+        ScriptedProbe::new(vec![true]),
+        no_tools(),
+        Redactor::new(Vec::new()),
+    );
     let mut led = Ledger::new();
     let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 10));
 
@@ -213,7 +218,12 @@ fn loop_reaches_max_iters_through_real_turns() {
         reply("turn 2", 1, false),
         reply("turn 3", 1, false),
     ]);
-    let mut lp = NativeLoop::new(model, ScriptedProbe::new(vec![true]), no_tools());
+    let mut lp = NativeLoop::new(
+        model,
+        ScriptedProbe::new(vec![true]),
+        no_tools(),
+        Redactor::new(Vec::new()),
+    );
     let mut led = Ledger::new();
     let mut ctl = LoopController::new(LoopBudget::new(3, 1_000_000, 10));
 
@@ -231,7 +241,12 @@ fn loop_reaches_max_iters_through_real_turns() {
 #[test]
 fn loop_reaches_max_tokens_through_real_turns() {
     let model = ScriptedModel::new(vec![reply("expensive", 60, false)]);
-    let mut lp = NativeLoop::new(model, ScriptedProbe::new(vec![true]), no_tools());
+    let mut lp = NativeLoop::new(
+        model,
+        ScriptedProbe::new(vec![true]),
+        no_tools(),
+        Redactor::new(Vec::new()),
+    );
     let mut led = Ledger::new();
     let mut ctl = LoopController::new(LoopBudget::new(10, 50, 10));
 
@@ -257,7 +272,12 @@ fn loop_reaches_no_progress_on_external_ground_truth() {
         reply("great progress!", 1, false),
         reply("almost there!", 1, false),
     ]);
-    let mut lp = NativeLoop::new(model, ScriptedProbe::new(vec![false]), no_tools());
+    let mut lp = NativeLoop::new(
+        model,
+        ScriptedProbe::new(vec![false]),
+        no_tools(),
+        Redactor::new(Vec::new()),
+    );
     let mut led = Ledger::new();
     let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 2));
 
@@ -279,6 +299,7 @@ fn loop_reaches_no_progress_on_external_ground_truth() {
         model,
         ScriptedProbe::new(vec![false, true, false]),
         no_tools(),
+        Redactor::new(Vec::new()),
     );
     let mut led = Ledger::new();
     let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 2));
@@ -296,7 +317,12 @@ fn loop_reaches_no_progress_on_external_ground_truth() {
 #[test]
 fn every_turn_is_recorded_in_the_hash_chained_ledger() {
     let model = ScriptedModel::new(vec![reply("one", 5, false), reply("two", 5, true)]);
-    let mut lp = NativeLoop::new(model, ScriptedProbe::new(vec![true]), no_tools());
+    let mut lp = NativeLoop::new(
+        model,
+        ScriptedProbe::new(vec![true]),
+        no_tools(),
+        Redactor::new(Vec::new()),
+    );
     let mut led = Ledger::new();
     let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 10));
 
@@ -343,7 +369,12 @@ fn every_turn_is_recorded_in_the_hash_chained_ledger() {
 #[test]
 fn two_runs_on_one_ledger_stay_isolated() {
     let model = ScriptedModel::new(vec![reply("a", 1, true), reply("b", 1, true)]);
-    let mut lp = NativeLoop::new(model, ScriptedProbe::new(vec![true]), no_tools());
+    let mut lp = NativeLoop::new(
+        model,
+        ScriptedProbe::new(vec![true]),
+        no_tools(),
+        Redactor::new(Vec::new()),
+    );
     let mut led = Ledger::new();
 
     let mut ctl_a = LoopController::new(LoopBudget::new(10, 1_000_000, 10));
@@ -370,7 +401,12 @@ fn assistant_turn_is_fed_back_into_the_next_request() {
         reply("second reply", 1, false),
         reply("last reply", 1, true),
     ]);
-    let mut lp = NativeLoop::new(model, ScriptedProbe::new(vec![true]), no_tools());
+    let mut lp = NativeLoop::new(
+        model,
+        ScriptedProbe::new(vec![true]),
+        no_tools(),
+        Redactor::new(Vec::new()),
+    );
     let mut led = Ledger::new();
     let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 10));
 
@@ -402,7 +438,12 @@ fn assistant_turn_is_fed_back_into_the_next_request() {
 #[test]
 fn exhausted_budget_prevents_any_model_call() {
     let model = ScriptedModel::new(vec![reply("never sent", 1, true)]);
-    let mut lp = NativeLoop::new(model, ScriptedProbe::new(vec![true]), no_tools());
+    let mut lp = NativeLoop::new(
+        model,
+        ScriptedProbe::new(vec![true]),
+        no_tools(),
+        Redactor::new(Vec::new()),
+    );
     let mut led = Ledger::new();
     let mut ctl = LoopController::new(LoopBudget::new(0, 1_000_000, 10));
 
@@ -424,7 +465,12 @@ fn exhausted_budget_prevents_any_model_call() {
 #[test]
 fn provider_error_leaves_the_chain_verifiable() {
     let model = ScriptedModel::failing_at(vec![reply("turn 1 ok", 1, false)], 1);
-    let mut lp = NativeLoop::new(model, ScriptedProbe::new(vec![true]), no_tools());
+    let mut lp = NativeLoop::new(
+        model,
+        ScriptedProbe::new(vec![true]),
+        no_tools(),
+        Redactor::new(Vec::new()),
+    );
     let mut led = Ledger::new();
     let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 10));
 
@@ -458,6 +504,7 @@ fn model_requested_tool_reaches_the_gateway_and_its_transport() {
         model,
         ScriptedProbe::new(vec![true]),
         gateway(RecordingTransport::new("file contents"), &[]),
+        Redactor::new(vec![SECRET.into()]),
     );
     let mut led = Ledger::new();
     let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 10));
@@ -491,6 +538,7 @@ fn tool_result_is_fed_back_as_data_into_the_next_request() {
         model,
         ScriptedProbe::new(vec![true]),
         gateway(RecordingTransport::new("what the tool itself said"), &[]),
+        Redactor::new(vec![SECRET.into()]),
     );
     let mut led = Ledger::new();
     let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 10));
@@ -540,6 +588,7 @@ fn denied_tool_does_not_crash_the_loop_and_is_on_the_ledger() {
         model,
         ScriptedProbe::new(vec![true]),
         gateway(RecordingTransport::new("wrote file"), &[]),
+        Redactor::new(vec![SECRET.into()]),
     );
     let mut led = Ledger::new();
     let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 10));
@@ -588,6 +637,7 @@ fn a_tool_call_does_not_buy_an_extra_iteration() {
         model,
         ScriptedProbe::new(vec![true]),
         gateway(RecordingTransport::new("contents"), &[]),
+        Redactor::new(vec![SECRET.into()]),
     );
     let mut led = Ledger::new();
     let mut ctl = LoopController::new(LoopBudget::new(1, 1_000_000, 10));
@@ -612,6 +662,7 @@ fn a_tool_call_does_not_buy_an_extra_iteration() {
         model,
         ScriptedProbe::new(vec![true]),
         gateway(RecordingTransport::new("contents"), &[]),
+        Redactor::new(vec![SECRET.into()]),
     );
     let mut led = Ledger::new();
     let mut ctl = LoopController::new(LoopBudget::new(0, 1_000_000, 10));
@@ -641,6 +692,7 @@ fn interleaved_turn_and_tool_steps_verify_on_one_chain() {
         model,
         ScriptedProbe::new(vec![true]),
         gateway(RecordingTransport::new("contents"), &[]),
+        Redactor::new(vec![SECRET.into()]),
     );
     let mut led = Ledger::new();
     let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 10));
@@ -690,6 +742,7 @@ fn two_tool_calls_in_one_turn_run_in_declaration_order() {
         model,
         ScriptedProbe::new(vec![true]),
         gateway(RecordingTransport::new("contents"), &[]),
+        Redactor::new(vec![SECRET.into()]),
     );
     let mut led = Ledger::new();
     let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 10));
@@ -745,6 +798,7 @@ fn a_secret_from_a_tool_never_enters_the_chain_through_the_history() {
             RecordingTransport::new(&format!("config: api_key={SECRET}")),
             &[],
         ),
+        Redactor::new(vec![SECRET.into()]),
     );
     let mut led = Ledger::new();
     let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 10));
@@ -786,6 +840,7 @@ fn tool_transport_failure_propagates_and_leaves_the_chain_verifiable() {
         model,
         ScriptedProbe::new(vec![true]),
         gateway(RecordingTransport::failing(), &[]),
+        Redactor::new(vec![SECRET.into()]),
     );
     let mut led = Ledger::new();
     let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 10));
@@ -817,6 +872,7 @@ fn model_named_tool_outside_the_allowlist_never_reaches_the_transport() {
         model,
         ScriptedProbe::new(vec![true]),
         gateway(RecordingTransport::new("pwned"), &[]),
+        Redactor::new(vec![SECRET.into()]),
     );
     let mut led = Ledger::new();
     let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 10));

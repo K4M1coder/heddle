@@ -46,6 +46,7 @@ pub fn chat(silo: &SiloArgs, args: &ChatArgs) -> Result<()> {
             ToolPolicy::new(vec![], vec![]),
             Redactor::new(vec![]),
         ),
+        Redactor::new(vec![]),
     );
 
     // Before the answer, so a run whose id the operator needs is named even

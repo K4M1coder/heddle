@@ -78,6 +78,7 @@ impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> SkeinSession<C, P, T> {
                 CancellableModel::new(parts.client, cancelled.clone()),
                 parts.probe,
                 gateway,
+                Redactor::new(Vec::new()),
             ),
             ledger: parts.ledger,
             budget: parts.budget,

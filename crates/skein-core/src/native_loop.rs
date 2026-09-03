@@ -7,7 +7,7 @@ use crate::error::{Result, SkeinError};
 use crate::ledger::{Ledger, StepKind};
 use crate::loop_ctl::{Exit, LoopController};
 use crate::model::{ModelClient, TurnRequest};
-use crate::tool::{ToolCall, ToolGateway, ToolTransport};
+use crate::tool::{Redactor, ToolCall, ToolGateway, ToolTransport};
 
 /// The ground-truth progress signal (Constitution VIII(b)).
 /// Deliberately takes no model output: a probe that cannot see the model's words
@@ -30,18 +30,27 @@ pub struct LoopRun {
 /// The gateway is a concrete [`ToolGateway`], not a trait: the loop is generic
 /// over the transport so it never names a protocol (Constitution IV), while the
 /// governed step itself stays unsubstitutable (Constitution VI).
+///
+/// The redactor is private: unlike the other three it is not something a caller
+/// reads back, only something it configures.
 pub struct NativeLoop<C: ModelClient, P: ProgressProbe, T: ToolTransport> {
     pub client: C,
     pub probe: P,
     pub gateway: ToolGateway<T>,
+    redactor: Redactor,
 }
 
 impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> NativeLoop<C, P, T> {
-    pub fn new(client: C, probe: P, gateway: ToolGateway<T>) -> Self {
+    /// The redactor is a required argument rather than a builder step or a
+    /// `Default`, because Constitution VI is deny-by-default: an optional one
+    /// would make "this run records its conversation in cleartext" the silent
+    /// default, which is the bug this exists to prevent.
+    pub fn new(client: C, probe: P, gateway: ToolGateway<T>, redactor: Redactor) -> Self {
         NativeLoop {
             client,
             probe,
             gateway,
+            redactor,
         }
     }
 
@@ -74,11 +83,21 @@ impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> NativeLoop<C, P, T> {
                 messages: messages.clone(),
             };
             // Captured before the call, so a client that errors still leaves the
-            // exact request in the chain.
-            ledger.append(run_id, StepKind::LlmRequest, serde_json::to_string(&req)?)?;
+            // request in the chain. Scrubbed on the way in and nowhere else:
+            // `&req` below is the raw value, exactly as `ToolGateway` hands the
+            // raw call to its transport.
+            ledger.append(
+                run_id,
+                StepKind::LlmRequest,
+                self.redactor.redact_json(&req)?,
+            )?;
 
             let resp = self.client.turn(&req)?;
-            ledger.append(run_id, StepKind::LlmResponse, serde_json::to_string(&resp)?)?;
+            ledger.append(
+                run_id,
+                StepKind::LlmResponse,
+                self.redactor.redact_json(&resp)?,
+            )?;
             ledger.append(run_id, StepKind::BudgetSpent, resp.tokens_used.to_string())?;
 
             // Before the probe: design §4.14 names tool results as a ground-truth
