@@ -32,11 +32,11 @@ merged.
   not edited).
 
 ## Tasks
-- [ ] **T0** `specs/011-skein-cli/{spec.md,plan.md,tasks.md}`; branch `011-skein-cli` cut from
+- [x] **T0** `specs/011-skein-cli/{spec.md,plan.md,tasks.md}`; branch `011-skein-cli` cut from
       `dev` with slice 010 merged
 - [x] **T1** pinned the `clap` surface against the vendored `clap 4.6.6` source and a compiled probe,
       *before* any product code; measured, not copied — see below
-- [ ] **T2** control baseline: `cargo test --workspace` before any edit — **71**
+- [x] **T2** control baseline: `cargo test --workspace` before any edit — **71**
 - [ ] **T3** RED — `ledger_runs_lists_run_ids_in_first_append_order` in
       `crates/skein-core/tests/core.rs` against the not-yet-existing `Ledger::runs()`
 - [ ] **T4** GREEN — `Ledger::runs()` in `crates/skein-core/src/ledger.rs`
@@ -97,6 +97,13 @@ carried forward wrong.
   (`Running unittests src\main.rs … 0 passed`), so it does not inflate the suite count.
 
 ## Control baseline (T2)
+
+`cargo test --workspace` on `011-skein-cli` @ `76450ed` (identical to `dev`), working tree clean,
+2026-09-03, before any edit: **71 passing**, 0 failed, 0 ignored — `skein-acp/tests/acp_session.rs`
+13, `skein-core/tests/core.rs` 12, `tests/native_loop.rs` 18, `tests/tool_gateway.rs` 9,
+`skein-mcp/tests/rmcp_gateway.rs` 7, `skein-silo/tests/silo_ledger.rs` 7, `tests/silo_secret.rs` 5.
+The four `src/lib.rs` unit-test targets and the four doc-test targets each contribute `0 passed`.
+This is the number T9 diffs against.
 
 ## Observed red (Constitution III)
 
