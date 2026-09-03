@@ -31,6 +31,10 @@ pub enum SkeinError {
     /// The tool itself failed; it may already have had an effect.
     #[error("tool transport: {0}")]
     Tool(String),
+    /// A protocol adapter's transport failed: the ACP/MCP connection itself,
+    /// not the model behind it and not the tool behind it.
+    #[error("protocol: {0}")]
+    Protocol(String),
 }
 
 pub type Result<T> = std::result::Result<T, SkeinError>;

@@ -305,3 +305,17 @@ fn an_unfinished_run_names_the_run_and_the_exit_that_stopped_it() {
         "run chat-1756000000000-4242 ended without a final answer: MaxIters"
     );
 }
+
+// ---- a protocol adapter's transport has its own name ----
+
+#[test]
+fn a_protocol_failure_names_the_adapter_rather_than_the_model_or_the_tool() {
+    // The ACP or MCP connection itself failing is neither a provider decision
+    // nor a tool effect. `SkeinError::Model` would blame a model that was never
+    // reached, and `SkeinError::Tool` — which is what the ACP permission
+    // transport legitimately uses — would print `tool transport:` for a broken
+    // stdio pipe that carried no tool call at all.
+    let err = SkeinError::Protocol("acp stdio: connection reset".into());
+
+    assert_eq!(err.to_string(), "protocol: acp stdio: connection reset");
+}
