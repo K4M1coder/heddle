@@ -1,0 +1,119 @@
+# Tasks: a durable silo-backed Ledger (v0 slice)
+
+**Spec:** `specs/009-silo-ledger/spec.md` · TDD (red→green), product code in `crates/skein-core`
+and the new `crates/skein-silo`, branch `009-silo-ledger` cut from `dev`.
+
+## Constitution Check (ADR-0004 D1 solo-v0 bar)
+- I Headless core ✅ (library only; the silo is reachable through the existing headless API and,
+  via `SessionParts`, through the ACP boundary) · II Local-first ✅ **this slice is the one that
+  makes Principle II testable**: a local file, no network, no server, no external database;
+  isolation is a property of the storage shape and is proved by `s3`
+- III Test-First ✅ (T1 pins the `rusqlite` surface against the vendored source before any
+  product code; T3's red observed before T4, T5's before T6; `s3` is the dedicated isolation test
+  Principle III requires) · IV Inverted coupling ✅ (`LedgerStore` is the seam; `rusqlite` is
+  named in exactly one module of one crate and never in `skein-core`, whose direct dependency
+  list stays four)
+- V Traceability ✅ (**one** hash function, **one** chaining rule, **one** `verify_chain`, shared
+  by both storage shapes; append-only enforced by SQL triggers, not by convention; `s6` proves
+  row-level tamper-evidence)
+- VI Security n/a *(no secrets in this slice — 010's)*; silo ids are validated against path
+  traversal before any directory is created (`s4`)
+- VII Neutrality ✅ (one storage shape, one silo layout, two trait methods; no `Backend` trait,
+  no `Mode`, no RBAC, no retention policy, no `replay`/`revert`/`branch`)
+- VIII Loop discipline ✅ (`LoopController` and `ProgressProbe` untouched; per-step capture
+  unchanged except that a failed durable write now ends the run loudly instead of silently
+  dropping a step)
+- Cross-platform ✅ (`bundled` SQLite needs no system library; no `#[cfg]` in our code.
+  `core.yml`'s `paths:` already covers `crates/**` at 1.97 — confirmed by reading, not edited).
+
+## Tasks
+- [x] **T0** `specs/009-silo-ledger/{spec.md,plan.md,tasks.md}`; branch `009-silo-ledger` cut
+      from `dev`
+- [x] **T1** pinned the `rusqlite` surface against the vendored `0.40.2` source *before* writing
+      product code, and proved `bundled` builds on this Windows host. Two of the assumed
+      spellings were wrong; see below
+- [x] **T2** control baseline: `cargo test --workspace` on `dev` before any edit — **52**
+- [ ] **T3** RED — the three `// ---- ledger store seam ----` tests in
+      `crates/skein-core/tests/core.rs` against the not-yet-existing API; compiler errors
+      recorded below
+- [ ] **T4** GREEN — `LedgerStore`, `Ledger::open`, the `store` field, fallible `append`,
+      `SkeinError::Storage`, and the `?` churn across `native_loop.rs`, `tool.rs` and the three
+      `skein-core` test binaries
+- [ ] **T5** RED — `crates/skein-silo` with an empty `src/lib.rs` and the whole of
+      `tests/silo_ledger.rs` against the not-yet-existing `Silo`; red recorded below
+- [ ] **T6** GREEN — `SqliteLedgerStore` + `Silo`
+- [ ] **T7** `skein-acp` wiring: `SessionParts.ledger`, two test construction sites
+- [ ] **T8** gates: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D
+      warnings`, `cargo test --workspace`; new total recorded below
+- [ ] **T9** control diff: `git diff dev` empty on `crates/skein-mcp/`, `spikes/`, `.github/`
+      and `rust-toolchain.toml`
+- [ ] **T10** dependency drift recorded below
+- [ ] **T11** close out: split the "silo-backed durable Ledger (SQLite) + `SecretProvider`"
+      bullet in `specs/003-skein-core-foundation/tasks.md` into two, ticked the 009 half, set
+      this spec's Status, and populated the "Next slice" list
+
+## Control baseline (T2)
+
+`cargo test --workspace` on `009-silo-ledger` @ `1d351df` (identical to `dev`), working tree
+clean, 2026-09-03: **52 passing** — `skein-acp/tests/acp_session.rs` 12, `skein-core/tests/core.rs`
+6, `tests/native_loop.rs` 18, `tests/tool_gateway.rs` 9, `skein-mcp/tests/rmcp_gateway.rs` 7;
+0 failed, 0 ignored. This is the number T8 diffs against.
+
+## Pinned rusqlite surface (T1)
+
+Read from the vendored source of `rusqlite 0.40.2` in the local cargo registry, and exercised by
+a throwaway probe outside this repository before any product code was written. Every name below
+is used by `ledger_store.rs` exactly as spelled here.
+
+| Item | Pinned spelling |
+|---|---|
+| `Connection::open` | `pub fn open<P: AsRef<Path>>(path: P) -> Result<Connection>` (`src/lib.rs:437`) |
+| `Connection::execute_batch` | `pub fn execute_batch(&self, sql: &str) -> Result<()>` (`src/lib.rs:548`) — accepts a multi-statement script, which is how the schema is applied |
+| `Connection::execute` | `pub fn execute<P: Params>(&self, sql: &str, params: P) -> Result<usize>` |
+| `Connection::prepare` | `pub fn prepare(&self, sql: &str) -> Result<Statement<'_>>` (`src/lib.rs:781`) |
+| `Statement::query_map` | `pub fn query_map<T, P, F>(&mut self, params: P, f: F) -> Result<MappedRows<'_, F>>` where `F: FnMut(&Row<'_>) -> Result<T>` (`src/statement.rs:274`) — **`&mut self`**, so the statement is a `let mut` |
+| `Row::get` | `pub fn get<I: RowIndex, T: FromSql>(&self, idx: I) -> Result<T>` (`src/row.rs:285`) |
+| `params!` | `params![a, b] == &[&a as &dyn ToSql, …]` (`src/lib.rs:193`) |
+| `Connection::pragma_update` | `pragma_update(None, "synchronous", "FULL")` — `schema_name: Option<Name>` |
+| `Error` display | `SqliteFailure(_, Some(msg)) => write!(f, "{msg}")` (`src/error.rs:280`) — a trigger's `RAISE(ABORT, 'ledger is append-only')` surfaces as exactly that string |
+| features | `bundled = ["libsqlite3-sys?/bundled", "modern_sqlite"]`; `default = ["cache", "ffi-sqlite-wasm-rs"]`, both unwanted, so `default-features = false` |
+
+**Two of the assumed spellings were wrong, and T1 is why they never reached product code:**
+
+1. **`u64` implements neither `ToSql` nor `FromSql`.** `rusqlite` covers `i8..=i64` and
+   `u8..=u32`; `u64` needs the `fallible_uint` feature. `Step::seq` is `u64`, so the store casts
+   to `i64` on write and converts back on read, failing with `SkeinError::Storage` rather than
+   panicking if a stored value does not fit. Observed as
+   `error[E0277]: the trait bound u64: ToSql is not satisfied`.
+2. **`Row::get::<_, u64>` fails the same way** on `FromSql`.
+
+**Three facts were measured, not assumed** (throwaway probe, 2026-09-03, this Windows host):
+
+- `rusqlite 0.40.2` with `default-features = false, features = ["bundled"]` **compiles here**:
+  `libsqlite3-sys 0.38.2` builds the C amalgamation through `cc 1.4.4` with the MSVC toolchain
+  already on this machine. No system SQLite, no extra install step.
+- A **file-backed** connection reports `journal_mode = delete` and `synchronous = 2` (FULL) after
+  `pragma_update`, and the directory holds **exactly one file** — no `-wal`/`-shm` sidecars. This
+  is the measurement the one-file-per-silo isolation argument rests on. (An *in-memory*
+  connection reports `journal_mode = memory`, which is why the probe used a real file.)
+- The append-only triggers behave as designed: `UPDATE` and `DELETE` both fail with the bare
+  string `ledger is append-only`, and dropping the trigger with raw SQL then succeeds in forging
+  a row — which is precisely the tamper-*evidence*-not-tamper-*proofing* boundary `s6` asserts.
+
+## Next slice (not this feature)
+- [ ] `SecretProvider` (OS keychain) + JIT `Redactor` — spec 010, extending `crates/skein-silo`
+- [ ] `skein-cli` reference client and `skein ledger log|show|verify` — the first consumer that
+      opens a silo by name rather than by path
+- [ ] bounded / paged `Ledger` reads: today `Ledger::open` mirrors a silo's whole history in RAM.
+      The `LedgerStore` seam already admits a bounded read path when a caller needs one
+- [ ] `Ledger` append-observer + **streaming** ACP session updates (still item 1 of 008's list)
+- [ ] session persistence / `session/load` / resume on top of the durable ledger
+- [ ] the rest of design §4.11's `Ledger`: `replay(from)`, `revert(to)`, `branch(from)`, and the
+      `ts`/`principal`/`silo` fields on `Step` — none has a caller, and `principal` has no
+      producer until identity exists
+- [ ] SQLCipher / at-rest encryption of the silo file and per-silo keys, which becomes coherent
+      only once 010 exists
+- [ ] RBAC, team silos, `Mode` (Local/Server/Remote), the `Backend` trait and `ModeSupervisor`
+      (design §4.8/§5.5/§7.10) — 009 makes *one* silo invariant real; it does not build a silo
+      system
+- [ ] retention and egress policy over the journal (§7.9)
