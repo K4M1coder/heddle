@@ -26,9 +26,12 @@ use tempfile::TempDir;
 const BRANCH: &str = "work";
 
 struct Fixture {
-    dir: TempDir,
     repo: Repository,
     server: EmbeddedServer,
+    /// Declared **last**, for the reason `fs_root.rs`'s fixture records: both
+    /// `repo` and the server's root hold handles inside it, and fields drop in
+    /// declaration order.
+    dir: TempDir,
 }
 
 /// An empty repository on [`BRANCH`], with no commit yet.

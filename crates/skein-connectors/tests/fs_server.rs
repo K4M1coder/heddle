@@ -13,9 +13,12 @@ use skein_connectors::{
 use tempfile::TempDir;
 
 struct Fixture {
-    _dir: TempDir,
     outside: String,
     server: EmbeddedServer,
+    /// Declared **last**, for the reason `fs_root.rs`'s fixture records: the
+    /// server's root holds an open directory handle, and fields drop in
+    /// declaration order.
+    _dir: TempDir,
 }
 
 fn fixture() -> Fixture {

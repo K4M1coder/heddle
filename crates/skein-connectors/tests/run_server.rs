@@ -16,9 +16,12 @@ use std::path::PathBuf;
 use tempfile::TempDir;
 
 struct Fixture {
+    server: EmbeddedServer,
+    /// Declared **last**, for the reason `fs_root.rs`'s fixture records: the
+    /// server's root holds an open directory handle, and fields drop in
+    /// declaration order.
     _dir: TempDir,
     _toolbin: TempDir,
-    server: EmbeddedServer,
 }
 
 fn system32(name: &str) -> PathBuf {

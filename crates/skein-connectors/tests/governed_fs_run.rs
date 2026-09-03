@@ -178,9 +178,12 @@ fn chat_policy() -> ToolPolicy {
 }
 
 struct Harness {
-    _dir: TempDir,
     root: PathBuf,
     connector: LocalConnector,
+    /// Declared **last**, for the reason `fs_root.rs`'s fixture records: the
+    /// connector's root holds an open directory handle, and fields drop in
+    /// declaration order.
+    _dir: TempDir,
 }
 
 /// A root holding `files`, a sibling directory **outside** it holding

@@ -193,8 +193,11 @@ fn chat_policy() -> ToolPolicy {
 }
 
 struct Harness {
-    _dir: TempDir,
     connector: LocalConnector,
+    /// Declared **last**, for the reason `fs_root.rs`'s fixture records: the
+    /// connector's root holds an open directory handle, and fields drop in
+    /// declaration order.
+    _dir: TempDir,
 }
 
 /// A real repository at the root, on [`BRANCH`], with one commit per entry of

@@ -15,10 +15,14 @@ use tempfile::TempDir;
 /// *outside* the root holding `outside.txt` — the thing every escape test tries
 /// to reach.
 struct Fixture {
-    _dir: TempDir,
     root: FsRoot,
     outside_file: PathBuf,
     outside_dir: PathBuf,
+    /// Declared **last**: struct fields drop in declaration order, so a
+    /// `TempDir` declared first is removed while `root`'s directory handle is
+    /// still open. `TempDir::drop` ignores removal failure, so the only symptom
+    /// would be a temp directory leaked on every run.
+    _dir: TempDir,
 }
 
 fn fixture() -> Fixture {
