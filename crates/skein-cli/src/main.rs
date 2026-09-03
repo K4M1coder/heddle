@@ -6,14 +6,18 @@
 //! its own: each subcommand is a call onto `skein-core`/`skein-silo` plus a
 //! rendering of the result.
 //!
-//! v0 has no `chat` and no `acp-agent` because the workspace has no real
-//! `ModelClient` to put behind them; see `specs/011-skein-cli/spec.md`.
+//! `skein chat` is the one command that *runs* the loop rather than reading its
+//! record; it became possible in slice 012, which landed the first real
+//! network-backed `ModelClient` (`skein-gateway`). `skein acp-agent` is still
+//! absent, and now only for want of a stdio transport and an async runtime —
+//! see `specs/012-model-gateway/tasks.md`'s "Next slice".
 
+mod chat;
 mod ledger;
 mod secret;
 
 use clap::{Args, Parser, Subcommand};
-use skein_core::Result;
+use skein_core::{Result, SkeinError};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -43,9 +47,16 @@ enum Command {
         #[command(subcommand)]
         command: SecretCommand,
     },
+    /// Ask a local model one question, recording the run on the silo's chain.
+    Chat {
+        #[command(flatten)]
+        silo: SiloArgs,
+        #[command(flatten)]
+        chat: ChatArgs,
+    },
 }
 
-/// Which silo a ledger command reads. There is no config file in v0, so the
+/// Which silo a command reads or writes. There is no config file in v0, so the
 /// root is named on every invocation or in the environment.
 #[derive(Args)]
 pub struct SiloArgs {
@@ -55,6 +66,51 @@ pub struct SiloArgs {
     /// Silo id: one path component of [A-Za-z0-9._-].
     #[arg(long, value_name = "ID")]
     silo: String,
+}
+
+impl SiloArgs {
+    /// `--root`, else `$SKEIN_ROOT`, else a loud refusal. v0 has no config file
+    /// and no platform data directory, so guessing a root would put an agent's
+    /// journal somewhere the operator did not name.
+    pub fn root(&self) -> Result<PathBuf> {
+        self.root.clone().map(Ok).unwrap_or_else(|| {
+            std::env::var_os("SKEIN_ROOT")
+                .map(Into::into)
+                .ok_or_else(|| {
+                    SkeinError::Storage("no silo root: pass --root or set SKEIN_ROOT".into())
+                })
+        })
+    }
+}
+
+/// The knobs `skein chat` needs beyond the silo. Every budget flag maps onto one
+/// `LoopBudget` field, so the CLI names the engine's policy and does not invent
+/// its own.
+#[derive(Args)]
+pub struct ChatArgs {
+    /// Model name as the local provider knows it. Required: defaulting to a
+    /// model the machine may not have produces a 404 that looks like a bug.
+    #[arg(long, value_name = "NAME")]
+    model: String,
+    /// OpenAI-compatible base URL. Defaults to $SKEIN_MODEL_BASE_URL, else
+    /// http://localhost:11434/v1. Loopback only.
+    #[arg(long, value_name = "URL")]
+    base_url: Option<String>,
+    /// The prompt. Omitted, it is read from stdin to EOF.
+    #[arg(long, value_name = "TEXT")]
+    prompt: Option<String>,
+    /// Run id to record under. Defaults to chat-{unix_millis}-{pid}.
+    #[arg(long, value_name = "ID")]
+    run_id: Option<String>,
+    #[arg(long, value_name = "N", default_value_t = 8)]
+    max_iters: u32,
+    #[arg(long, value_name = "N", default_value_t = 100_000)]
+    max_tokens: u64,
+    #[arg(long, value_name = "N", default_value_t = 8)]
+    no_progress_limit: u32,
+    /// Whole-request budget for one turn.
+    #[arg(long, value_name = "S", default_value_t = 120)]
+    timeout_secs: u64,
 }
 
 #[derive(Subcommand)]
@@ -125,5 +181,6 @@ fn run(cli: Cli) -> Result<()> {
             SecretCommand::Set { reference } => secret::set(&reference),
             SecretCommand::Delete { reference } => secret::delete(&reference),
         },
+        Command::Chat { silo, chat } => chat::chat(&silo, &chat),
     }
 }

@@ -82,14 +82,7 @@ fn kind_name(kind: &StepKind) -> Result<String> {
 /// that into a loud failure; the empty directory left behind is an accepted
 /// wart, recorded in `specs/011-skein-cli/spec.md`.
 fn open_ledger(args: &SiloArgs) -> Result<Ledger> {
-    let root = args.root.clone().map(Ok).unwrap_or_else(|| {
-        std::env::var_os("SKEIN_ROOT")
-            .map(Into::into)
-            .ok_or_else(|| {
-                SkeinError::Storage("no silo root: pass --root or set SKEIN_ROOT".into())
-            })
-    })?;
-    let silo = Silo::open(&root, &args.silo)?;
+    let silo = Silo::open(args.root()?, &args.silo)?;
     let path = silo.ledger_path();
     if !path.exists() {
         return Err(SkeinError::NotFound(format!(
