@@ -46,9 +46,9 @@ merged.
 - [x] **T8** GREEN — `src/secret.rs`
 - [x] **T9** gates: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D
       warnings`, `cargo test --workspace`, `cargo build --workspace` + run `skein --help`
-- [ ] **T10** control diff: `git diff dev` empty on `crates/skein-mcp/`, `crates/skein-acp/`,
+- [x] **T10** control diff: `git diff dev` empty on `crates/skein-mcp/`, `crates/skein-acp/`,
       `crates/skein-silo/`, `spikes/`, `.github/` and `rust-toolchain.toml`
-- [ ] **T11** dependency drift recorded per target
+- [x] **T11** dependency drift recorded per target
 - [ ] **T12** close out: correct `docs/DEVELOPMENT.md`'s two stale lines, tick the two stale
       bullets in `specs/003-skein-core-foundation/tasks.md` and the first of spec 010's "Next
       slice", set this spec's Status
@@ -176,6 +176,67 @@ the macOS and Linux behaviour follows from `std`, not from a per-OS branch of ou
 
 ## Control diff (T10)
 
+`git diff dev --stat -- crates/skein-mcp/ crates/skein-acp/ crates/skein-silo/ spikes/ .github/
+rust-toolchain.toml` is **empty** (SC-004), so specs 005, 008, 009 and 010's suites — 32 of the 71
+baseline tests — are live controls run against this slice's `skein-core`.
+
+`git diff dev -- Cargo.toml` is **exactly one added `[workspace.dependencies]` line**, the `clap`
+entry (SC-005). `members = ["crates/*"]` already covered the new crate, and `core.yml`'s `paths:`
+already covered `crates/**` and `Cargo.toml` — both confirmed by reading, neither edited.
+
+`git diff dev --stat -- crates/skein-core/` is `src/ledger.rs | 17 +++` and `tests/core.rs |
+16 +++` — **one added method and one added test, 33 insertions and 0 deletions** (SC-006). No
+pre-existing test body changed, and no existing signature changed, so all 71 baseline tests stayed
+live controls on the core addition.
+
+`git diff dev --stat` over the whole branch is **1297 insertions, 0 deletions** across 12 files:
+the three spec files, the six files of the new crate, the two `skein-core` files, and the one root
+`Cargo.toml` line. **There is no deletion anywhere in the slice.** The two `docs/DEVELOPMENT.md`
+corrections and the `specs/003`/`specs/010` tick-throughs of T12 land after this measurement.
+
 ## Drift (T11)
+
+Measured against a detached worktree at the branch point (`76450ed`), so both sides come from a
+real resolution rather than from the previous slice's note. As in slice 010, a handful of
+package-versions differ between the two trees purely as resolution noise, because `Cargo.lock` is
+`.gitignore`d in this repository — here the direction is reversed from slice 010's: the freshly
+resolved *base* worktree picked up `serde`/`serde_core`/`serde_derive` 1.0.229, `serde_json`
+1.0.151, `proc-macro2` 1.0.107, `quote` 1.0.47 and `libc` 0.2.189, one or two patches ahead of the
+working tree's cached lock. Those seven are excluded below.
+
+- **`clap` adds exactly five external crates, and the same five on every target** —
+  `clap 4.6.6`, `clap_builder 4.6.6`, `clap_derive 4.6.4`, `clap_lex 1.1.0`, `anstyle 1.0.14` —
+  plus the new `skein-cli` workspace member itself. `cargo tree -e normal,build,dev [--target …]`:
+
+  | Target | before | after | added |
+  |---|---|---|---|
+  | `x86_64-pc-windows-msvc` (host) | 135 | 141 | the five above + `skein-cli` |
+  | `x86_64-unknown-linux-gnu` | 134 | 140 | the five above + `skein-cli` |
+  | `aarch64-apple-darwin` | 136 | 142 | the five above + `skein-cli` |
+
+  Nothing was removed on any target. There is no `#[cfg]` in the new crate and no target-gated
+  dependency, which is why the added set is identical on all three legs — unlike slice 010, whose
+  growth was per-OS.
+- **The advisory plan's `syn` risk is refuted, not merely accepted.** It predicted ("Certain,
+  minor") that `clap_derive` would introduce *a second `syn` major beside serde_derive's 2.x*.
+  Measured on the base worktree: **`syn 3.0.4` and `syn 2.0.119` already coexist on `dev`**, with
+  `syn 3.0.4` reached by `agent-client-protocol-derive 2.0.0`, `async-trait 0.1.92` and
+  `futures-macro 0.3.34`. `clap_derive` joins the existing `syn 3` node and adds no major. The
+  same holds for `heck 0.5.0`, which the T1 probe listed as part of clap's graph and which
+  `dev` already carries. So the real cost is five crates, not the seven-to-ten the probe's
+  standalone graph suggested — a standalone probe overstates cost, because it cannot see what the
+  workspace already resolves.
+- **No toolchain change.** The highest MSRV among the added crates is **1.85** (`clap`,
+  `clap_builder`, `clap_derive`, `clap_lex`; `anstyle` declares 1.66), all below the 1.97 pin. So
+  `rust-toolchain.toml` and `workspace.package.rust-version` are unchanged, and
+  `.github/workflows/core.yml` needs no edit.
+- **No new build prerequisite.** Every added crate is pure Rust: no `cc`, no C amalgamation, no
+  `pkg-config`. `docs/DEVELOPMENT.md`'s "Machine prerequisites" is unchanged by this slice; the
+  two corrections T12 makes to that file are to stale statements, not to requirements.
+- **`skein-cli` has four direct dependencies** — `skein-core`, `skein-silo`, `clap`, `serde_json`
+  — and two dev-dependencies, `tempfile` and `rusqlite`, both already in
+  `[workspace.dependencies]`. It depends on **neither** `skein-acp` nor `skein-mcp`: there is
+  nothing in either that v0 can call without a model, and an unused dependency is a Principle VII
+  violation. No `tokio`: every path is synchronous.
 
 ## Next slice (not this feature)
