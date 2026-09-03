@@ -230,6 +230,7 @@ fn factory(
         policy: ToolPolicy::new(allowed.clone(), approved.clone()),
         redactor: Redactor::new(Vec::new()),
         budget: LoopBudget::new(8, 10_000, 8),
+        ledger: Ledger::new(),
     }
 }
 
@@ -281,6 +282,62 @@ async fn a1_one_acp_session_drives_one_governed_turn_end_to_end() {
         .ledger()
         .verify_chain(&run_id)
         .expect("the run's chain verifies");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a8_the_session_runs_in_the_ledger_the_operator_injected() {
+    let observed = Observed::default();
+    // Seeded before the session exists, so a chain that lacks this step is a
+    // chain the facade made for itself.
+    let mut seeded = Ledger::new();
+    seeded
+        .append("prior-run", StepKind::LlmRequest, "from an earlier process")
+        .unwrap();
+    let mut once = Some(seeded);
+    let agent = SkeinAgent::new(move || SessionParts {
+        client: ScriptedModel {
+            script: vec![finishes("all done")],
+            calls: Arc::new(AtomicUsize::new(0)),
+            gate: None,
+            started: None,
+        },
+        probe: StaticProbe(true),
+        transport: CountingTransport {
+            calls: Arc::new(AtomicUsize::new(0)),
+            content: "unused".into(),
+        },
+        policy: ToolPolicy::new(Vec::new(), Vec::new()),
+        redactor: Redactor::new(Vec::new()),
+        budget: LoopBudget::new(8, 10_000, 8),
+        ledger: once.take().expect("one session only"),
+    });
+
+    let inspect = agent.clone();
+    let session_id = with_facade(
+        agent,
+        Answer::Allow,
+        observed.clone(),
+        async |cx: ConnectionTo<Agent>| {
+            let session_id = open_session(&cx).await?;
+            cx.send_request(prompt(&session_id, "go"))
+                .block_task()
+                .await?;
+            Ok(session_id)
+        },
+    )
+    .await;
+
+    let session = inspect.session(&session_id).expect("session is registered");
+    let session = session.lock().unwrap();
+    assert_eq!(
+        session.ledger().log("prior-run").len(),
+        1,
+        "the session adopted the injected chain rather than starting its own"
+    );
+    session
+        .ledger()
+        .verify_chain(&format!("{session_id}#1"))
+        .expect("the run landed in that same chain and verifies");
 }
 
 // ---------------------------------------------------------------------------
@@ -548,6 +605,7 @@ async fn a7_session_cancel_ends_the_run_and_reports_cancelled() {
             policy: ToolPolicy::new(read_only("read_file"), Vec::new()),
             redactor: Redactor::new(Vec::new()),
             budget: LoopBudget::new(8, 10_000, 8),
+            ledger: Ledger::new(),
         }
     });
 

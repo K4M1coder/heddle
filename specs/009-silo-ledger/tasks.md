@@ -42,7 +42,9 @@ and the new `crates/skein-silo`, branch `009-silo-ledger` cut from `dev`.
 - [x] **T5** RED — `crates/skein-silo` with an empty `src/lib.rs` and the whole of
       `tests/silo_ledger.rs` against the not-yet-existing `Silo`; red recorded below
 - [x] **T6** GREEN — `SqliteLedgerStore` + `Silo`
-- [ ] **T7** `skein-acp` wiring: `SessionParts.ledger`, two test construction sites
+- [x] **T7** `skein-acp` wiring: `SessionParts.ledger`, the two test construction sites, and one
+      new test (`a8`) — without it FR-011 would ship untested, because an unwired `Ledger::new()`
+      and a wired-but-empty injected ledger are indistinguishable to the existing twelve
 - [ ] **T8** gates: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D
       warnings`, `cargo test --workspace`; new total recorded below
 - [ ] **T9** control diff: `git diff dev` empty on `crates/skein-mcp/`, `spikes/`, `.github/`

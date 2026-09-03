@@ -96,7 +96,7 @@ As an auditor, an audit trail that drops a step is worse than one that refuses.
 
 ## Success Criteria
 - **SC-001**: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`
-  and `cargo test --workspace` all clean; the suite is 52 pre-existing + 10 new = **62** tests
+  and `cargo test --workspace` all clean; the suite is 52 pre-existing + 11 new = **63** tests
   (2026-09-03).
 - **SC-002**: The persistence acceptance closes a real connection and reopens a real file. No
   in-memory stand-in for the durable path.

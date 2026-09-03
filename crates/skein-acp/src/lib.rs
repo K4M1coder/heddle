@@ -34,6 +34,9 @@ use std::sync::{Arc, Mutex};
 /// The collaborators one ACP session runs with. The operator supplies the
 /// undecorated ports; the facade wraps them in [`CancellableModel`] and
 /// [`AcpPermissionTransport`] itself, so neither gate can be skipped by a caller.
+///
+/// The `Ledger` is injected like everything else, so a session can be given a
+/// silo-backed chain (`skein_silo::Silo::ledger`) instead of an in-memory one.
 pub struct SessionParts<C, P, T> {
     pub client: C,
     pub probe: P,
@@ -41,6 +44,7 @@ pub struct SessionParts<C, P, T> {
     pub policy: ToolPolicy,
     pub redactor: Redactor,
     pub budget: LoopBudget,
+    pub ledger: Ledger,
 }
 
 /// One ACP session: a governed loop, its chain, and its prompt counter.
@@ -75,7 +79,7 @@ impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> SkeinSession<C, P, T> {
                 parts.probe,
                 gateway,
             ),
-            ledger: Ledger::new(),
+            ledger: parts.ledger,
             budget: parts.budget,
             prompts: 0,
             cancelled,
