@@ -34,7 +34,7 @@ slice 009 merged.
       `keyring-core 1.0.0` and store-crate sources, and against a compiled probe, *before* any
       product code. **The advisory plan's whole dependency shape was wrong**; see below
 - [x] **T2** control baseline: `cargo test --workspace` before any edit — **63**
-- [ ] **T3** RED — the three `// ---- secrets (§7.13) ----` tests in
+- [x] **T3** RED — the three `// ---- secrets (§7.13) ----` tests in
       `crates/skein-core/tests/core.rs` against the not-yet-existing API; red recorded below
 - [ ] **T4** GREEN — `secret.rs`, `zeroize`, `Redactor`'s field + `Redactor::resolve`,
       `SkeinError::Secret`, re-exports, and the now-stale `Redactor` doc comment corrected
@@ -106,6 +106,17 @@ supports. Every name below is used by `crates/skein-silo/src/secret.rs` exactly 
 - **The Windows store accepts an empty service name without error.** Validation of
   `keychain://<service>/<account>` therefore has to be ours: an empty service or account is
   rejected by `SecretRef` parsing before the store is ever reached.
+
+## Observed red (Constitution III)
+
+- **T3** `cargo test -p skein-core --test core`, 2026-09-03:
+  - `error[E0432]: unresolved imports skein_core::SecretProvider, skein_core::SecretRef,
+    skein_core::SecretValue` — *"no `SecretProvider` in the root"*, *"no `SecretRef` in the
+    root"*, *"no `SecretValue` in the root"* (`crates/skein-core/tests/core.rs:5:11`)
+  - `error: could not compile skein-core (test "core") due to 1 previous error`
+  - As in slices 007–009, rustc abandons the crate once import resolution fails, so this one
+    diagnostic is the whole red: the `Redactor::resolve` and `SkeinError::Secret` errors
+    underneath it are never reached.
 
 ## Next slice (not this feature)
 - [ ] `skein-cli` reference client: `skein secret set|delete` (the second caller of

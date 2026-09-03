@@ -1,8 +1,8 @@
 //! skein-core v0 acceptance tests (TDD, ground-truth assertions).
 
 use skein_core::{
-    Content, Exit, Ledger, LedgerStore, LoopBudget, LoopController, Message, Role, SkeinError,
-    Step, StepKind,
+    Content, Exit, Ledger, LedgerStore, LoopBudget, LoopController, Message, Redactor, Result,
+    Role, SecretProvider, SecretRef, SecretValue, SkeinError, Step, StepKind,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -208,4 +208,65 @@ fn ledger_append_failure_leaves_the_chain_unmoved() {
     assert_eq!(step.seq, 0, "the failed append consumed no sequence number");
     assert_eq!(step.parent, None);
     led.verify_chain("run-f").unwrap();
+}
+
+// ---- secrets (§7.13) ----
+
+/// A provider double: the one reference it knows resolves, everything else is a
+/// miss. Standing in for an OS credential store, which `skein-silo` tests for
+/// real — here the point is the seam, not the backend.
+struct FakeProvider {
+    known: (SecretRef, String),
+}
+
+impl SecretProvider for FakeProvider {
+    fn resolve(&self, r: &SecretRef) -> Result<SecretValue> {
+        if r == &self.known.0 {
+            Ok(SecretValue::new(self.known.1.clone()))
+        } else {
+            Err(SkeinError::Secret(format!("no such secret: {}", r.0)))
+        }
+    }
+
+    fn requires_network(&self) -> bool {
+        false
+    }
+}
+
+#[test]
+fn secret_value_never_prints_itself() {
+    let v = SecretValue::new("hunter2");
+    assert_eq!(v.expose(), "hunter2", "the one explicit way to read it");
+    assert!(
+        !format!("{:?}", v).contains("hunter2"),
+        "a derived Debug on any struct holding one must not leak it"
+    );
+}
+
+#[test]
+fn redactor_resolves_from_a_provider() {
+    let r = SecretRef("keychain://skein/test".into());
+    let provider = FakeProvider {
+        known: (r.clone(), "hunter2".into()),
+    };
+
+    let redactor = Redactor::resolve(&provider, std::slice::from_ref(&r))
+        .expect("a known reference resolves");
+
+    assert_eq!(redactor.redact("token=hunter2"), "token=***");
+}
+
+#[test]
+fn redactor_resolve_propagates_a_provider_failure() {
+    let provider = FakeProvider {
+        known: (SecretRef("keychain://skein/test".into()), "hunter2".into()),
+    };
+
+    let err = Redactor::resolve(&provider, &[SecretRef("keychain://skein/absent".into())])
+        .expect_err("a misconfigured reference must fail loudly");
+
+    assert!(
+        matches!(err, SkeinError::Secret(_)),
+        "a redactor that scrubs nothing is worse than no redactor: {err}"
+    );
 }
