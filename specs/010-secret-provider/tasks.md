@@ -41,7 +41,7 @@ slice 009 merged.
 - [x] **T5** RED — `crates/skein-silo/tests/silo_secret.rs` against the not-yet-existing
       `OsKeychain`; red recorded below
 - [x] **T6** GREEN — `crates/skein-silo/src/secret.rs` and the per-OS `keyring-core` dependencies
-- [ ] **T7** gates: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D
+- [x] **T7** gates: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D
       warnings`, `cargo test --workspace`; new total recorded below
 - [ ] **T8** control diff: `git diff dev` empty on `crates/skein-mcp/`, `crates/skein-acp/`,
       `spikes/`, `.github/` and `rust-toolchain.toml`
@@ -123,6 +123,43 @@ supports. Every name below is used by `crates/skein-silo/src/secret.rs` exactly 
   - `error: could not compile skein-silo (test "silo_secret") due to 1 previous error`
   - Every name the slice adds comes through `OsKeychain`, so again one diagnostic is the whole
     red. `skein-core`'s `SecretRef`/`SecretProvider` already resolve, because T4 landed them.
+
+## Gate run (T7)
+
+2026-09-03, Windows leg observed locally; macOS and Linux legs unobserved until the repository has
+a remote (SC-001).
+
+- `cargo fmt --all -- --check` — clean.
+- `cargo clippy --workspace --all-targets -- -D warnings` — clean. It raised `err_expect` twice on
+  the new `skein-silo` tests; both are now `expect_err`, which works because `SecretValue`'s
+  hand-written `Debug` is `SecretValue(***)` — the redaction property is what makes the idiomatic
+  spelling available.
+- `cargo test --workspace` — **71 passing**, 0 failed, 0 ignored: 63 pre-existing + 3 core seam
+  tests + 5 `skein-silo` tests. Per binary: `acp_session` 13, `core` 12, `native_loop` 18,
+  `tool_gateway` 9, `rmcp_gateway` 7, `silo_ledger` 7, `silo_secret` 5.
+- The five `silo_secret` tests ran against the **real** Windows Credential Manager, under service
+  names unique per process and per test (`skein-test-<pid>-<n>`), each removed by a `Drop` guard.
+  `cmdkey /list` afterwards matches nothing containing `skein`, so the suite leaves the developer's
+  credential store as it found it.
+
+**The two unobserved legs were partially checked, not assumed.** `cargo check
+--target {x86_64-unknown-linux-gnu,aarch64-apple-darwin}` cannot run against this workspace —
+slice 009's `rusqlite` with `bundled` needs a *Linux/macOS* C compiler, which this host does not
+have. So the three `native_store` bodies were lifted verbatim into the T1 probe crate, which has
+no C dependency, and **all three type-check on their own target** under the pinned 1.97:
+`linux-keyutils-keyring-store 1.0.0` and `apple-native-keyring-store 1.0.2` (feature `keychain`)
+both compile with `Store::new()` coerced to `Arc<CredentialStore>` exactly as
+`crates/skein-silo/src/secret.rs` spells it. What remains unobserved is *runtime* behaviour on
+those two OSes, not the API surface.
+
+**The macOS leg is not `#[ignore]`d.** The escape hatch the advisory plan authorised was not
+taken: taking it on an unobserved platform would be a guess in the pessimistic direction, exactly
+as much as omitting it would be a guess in the optimistic one, and the optimistic guess is the one
+CI can refute. `apple-native-keyring-store`'s `keychain::Store` uses the running user's *login*
+keychain, which GitHub's `macos-latest` runner unlocks for the session. If the hosted leg proves
+otherwise once this repository has a remote, the correction is `#[ignore]` on `k1` and `k4` with
+the runner's error recorded here — never an in-memory provider standing in for the acceptance,
+which says *a real `SecretProvider`*.
 
 ## Next slice (not this feature)
 - [ ] `skein-cli` reference client: `skein secret set|delete` (the second caller of
