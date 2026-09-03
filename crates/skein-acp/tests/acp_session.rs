@@ -345,6 +345,69 @@ async fn a8_the_session_runs_in_the_ledger_the_operator_injected() {
         .expect("the run landed in that same chain and verifies");
 }
 
+/// The one secret this session is configured to keep out of its chain.
+const SECRET: &str = "sk-SECRET-abc123";
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a10_a_secret_is_redacted_from_a_sessions_chain_and_from_the_client_transcript() {
+    let observed = Observed::default();
+    let agent = SkeinAgent::new(move || {
+        Ok(SessionParts {
+            client: ScriptedModel {
+                script: vec![finishes(&format!("your key {SECRET} is fine"))],
+                calls: Arc::new(AtomicUsize::new(0)),
+                gate: None,
+                started: None,
+            },
+            probe: StaticProbe(true),
+            transport: CountingTransport {
+                calls: Arc::new(AtomicUsize::new(0)),
+                content: "unused".into(),
+            },
+            policy: ToolPolicy::new(Vec::new(), Vec::new()),
+            redactor: Redactor::new(vec![SECRET.into()]),
+            budget: LoopBudget::new(8, 10_000, 8),
+            ledger: Ledger::new(),
+        })
+    });
+
+    let inspect = agent.clone();
+    let session_id = with_facade(
+        agent,
+        Answer::Allow,
+        observed.clone(),
+        async |cx: ConnectionTo<Agent>| {
+            let session_id = open_session(&cx).await?;
+            cx.send_request(prompt(&session_id, &format!("my key is {SECRET}")))
+                .block_task()
+                .await?;
+            Ok(session_id)
+        },
+    )
+    .await;
+
+    let session = inspect.session(&session_id).expect("session is registered");
+    let session = session.lock().unwrap();
+    let payloads: Vec<String> = session
+        .ledger()
+        .log(&format!("{session_id}#1"))
+        .iter()
+        .map(|s| s.payload.clone())
+        .collect();
+    assert!(
+        payloads.iter().all(|p| !p.contains(SECRET)),
+        "the redactor the operator injected governs the whole chain: {payloads:?}"
+    );
+    assert!(payloads.iter().any(|p| p.contains("***")));
+
+    // The consequence of deriving the transcript from the chain, pinned as
+    // intended behaviour: an editor shows the operator *** where a configured
+    // secret was. `skein chat` is different on purpose - it prints the raw
+    // final message, not the payload.
+    let chunks = observed.chunks();
+    assert_eq!(chunks, vec!["your key *** is fine".to_string()]);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a9_a_factory_that_fails_makes_session_new_fail_and_leaves_the_connection_usable() {
     // The first real caller opens a silo per session, which is a SQLite file
