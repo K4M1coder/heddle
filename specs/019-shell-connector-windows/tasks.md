@@ -125,3 +125,34 @@ about, and each recorded because the failure mode names nothing like the cause:
    state lives under `%LOCALAPPDATA%\Packages\<profile name>\` and process creation resolves that
    path from the child's own environment. Sorting the block case-insensitively is required too — a
    block is searched, not scanned. Neither is in the plan; both are now in the code's own comments.
+
+**T5** — `cargo test -p skein-sandbox --test escape -- --test-threads=1`:
+
+```
+test a_sandboxed_process_cannot_reach_the_network ... ok
+test a_sandboxed_process_cannot_write_outside_its_root ... ok
+test the_job_object_kills_the_tree_when_the_clock_runs_out ... FAILED
+```
+
+**Stated plainly rather than dressed up: two of the three gates were green on their first run.** T4's
+green is what implements the mechanism they exercise, and the plan orders T4 before T5, so there was
+no unwritten code left for them to fail against. Their value is not a red — it is that each has its
+unsandboxed positive control passing in the same test, so neither can go green for the wrong reason
+later.
+
+The third was a real red, for a reason worth keeping:
+
+```
+a 60-second ping under a 2-second limit must be refused: Run { exit_code: 1,
+  stdout: "Impossible de contacter le pilote IP. Défaillance générale." }
+```
+
+**`ping.exe` inside an AppContainer fails immediately — ICMP is capability-gated exactly as TCP is.**
+So the plan's own V5 command exits in milliseconds instead of running for a minute, and its stated
+V2 fallback (*"swap V2's client to `ping.exe`"*) would have proven denial but never a timeout. The
+stopwatch is now a `cmd.exe`-launching-`cmd.exe` counting loop, which needs no network and puts a
+real grandchild in the job. `timeout.exe` was rejected for a different reason: it refuses to run with
+redirected input, and every stream here is a pipe.
+
+Verified separately that the kill is real and not merely fast: `tasklist /FI "IMAGENAME eq cmd.exe"`
+counts **16 before the suite and 16 after**, so no descendant outlives the job.
