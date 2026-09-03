@@ -180,19 +180,148 @@ them. `ToolArgs::git_tools` is what answers it, appended by both `chat_policy` a
 
 ## Gates (T12)
 
-*(filled in at close-out)*
+All four on 2026-09-03, Windows 11, `rustc 1.97.1` — the channel `rust-toolchain.toml` pins.
+
+- `cargo fmt --all --check` — clean, no output.
+- `cargo clippy --workspace --all-targets -- -D warnings` — clean, no warnings.
+- `cargo build --workspace` — succeeds. libgit2 1.9.7 is compiled from the vendored source by
+  `cc`; T2 proved this before any behaviour was written, and it has held on every run since.
+- `cargo test --workspace` — **191 passed, 0 failed, 3 ignored**, against the T1 baseline of
+  165/0/2. Per target: `acp_session` 16, `cli_acp_agent` 8, `cli_chat` 12, `cli_ledger` 8,
+  `cli_secret` 2, `connector` 6, `fs_root` 10, `fs_server` 7, `git_root` 5, `git_server` 13,
+  `governed_fs_run` 4 (+1 ignored), `governed_git_run` 4 (+1 ignored), `core` 19, `native_loop` 25,
+  `tool_gateway` 14, `governed_run` 2, `openai_compat` 15 (+1 ignored), `rmcp_gateway` 9,
+  `silo_ledger` 7, `silo_secret` 5.
+
+The +26 is accounted for exactly and adds nothing anywhere else: `git_root` 5, `git_server` 13,
+`governed_git_run` 4, `connector` +2 (4 → 6), `cli_chat` +1 (11 → 12), `cli_acp_agent` +1 (7 → 8).
+The +1 ignored is `a_live_model_calls_a_real_git_tool`. **Every other target's count is unchanged**,
+which is SC-012 stated as a number.
+
+The tri-OS caveat of slices 004–016 stands unamended: the Windows leg is observed locally, and the
+macOS and Linux legs remain unobserved until this repository has a remote. This is the first slice
+whose unobserved legs must compile C that was not already being compiled — see the correction under
+`## Drift`.
 
 ## Control diff (T12)
 
-*(filled in at close-out)*
+`git diff dev --stat -- crates/skein-silo/ spikes/ .github/ rust-toolchain.toml` — **empty**
+(SC-013). The same command over `crates/skein-core/ crates/skein-gateway/ crates/skein-acp/
+crates/skein-mcp/` is also empty, which is the stronger claim the plan's blast-radius table made:
+`skein-core` needed nothing, because slice 015 already built everything a second tool family
+requires.
+
+Everything the slice touched, `git diff dev --stat`:
+
+```
+ Cargo.toml                                        |   9 +
+ crates/skein-cli/Cargo.toml                       |   5 +
+ crates/skein-cli/src/main.rs                      |   8 +-
+ crates/skein-cli/src/wiring.rs                    |  59 +-
+ crates/skein-cli/tests/cli_acp_agent.rs           |  88 +++
+ crates/skein-cli/tests/cli_chat.rs                | 136 +++++
+ crates/skein-connectors/Cargo.toml                |  11 +
+ crates/skein-connectors/src/connector.rs          |   8 +-
+ crates/skein-connectors/src/fs.rs                 |   2 +-
+ crates/skein-connectors/src/git.rs                | 355 ++++++++++++
+ crates/skein-connectors/src/lib.rs                |   9 +-
+ crates/skein-connectors/src/server.rs             | 110 +++-
+ crates/skein-connectors/tests/connector.rs        | 120 +++-
+ crates/skein-connectors/tests/fs_server.rs        |  14 +-
+ crates/skein-connectors/tests/git_root.rs         | 216 ++++++++
+ crates/skein-connectors/tests/git_server.rs       | 455 ++++++++++++++++
+ crates/skein-connectors/tests/governed_fs_run.rs  |   6 +-
+ crates/skein-connectors/tests/governed_git_run.rs | 602 ++++++++++++++++++++
+ specs/017-git-connector/*.md                      | (this slice's own documents)
+ 21 files changed, 3261 insertions(+), 42 deletions(-)
+```
+
+The four small edits to pre-existing test files — `connector.rs` beyond its two new tests,
+`fs_server.rs`, `governed_fs_run.rs`, and the two CLI files beyond their new tests — are **import
+lines and docstrings only**. No assertion in the workspace was changed or removed (SC-012).
 
 ## Drift (T12)
 
-*(filled in at close-out)*
+Re-measured this session rather than quoted from the plan, with `cargo tree -p skein-cli -e normal`
+on both `dev` and this branch.
+
+**140 → 144 normal packages. Exactly four are new:**
+
+```
+git2 v0.21.0
+libgit2-sys v0.18.8+1.9.7
+libz-sys v1.1.29
+libc v0.2.186
+```
+
+`chrono 0.4.45` is a **new edge to a package that was already in the graph** (it arrives via `rmcp`
+and `schemars`), so it costs nothing; `bitflags`, `log` and `num-traits` were likewise already
+there. The comparison also surfaced six packages differing only by patch version
+(`serde`/`serde_core`/`serde_derive`/`serde_json`/`proc-macro2`/`quote`) — that is resolution noise,
+not drift: `Cargo.lock` is gitignored here (`.gitignore:13`), so the `dev` worktree resolved fresh
+while this branch used the local lock. It is recorded because it appeared in the measurement, not
+because the slice caused it.
+
+**No network transport is linked in.** `grep -iE "openssl|libssh2|ssh2|native-tls|rustls"` over the
+whole shipped normal graph returns nothing. git2 0.21's `default` is empty and `https`/`ssh` are
+left off, so this is a property of the build rather than of the code's restraint — the same
+guarantee `skein-gateway` makes about TLS (Constitution II, NON-NEGOTIABLE). It matters more here
+than anywhere: this repository has no remote, so its own tests **could not** have caught a remote
+call by accident.
+
+`cargo tree -e build` shows no additions in the `cc`/`jobserver`/`pkg-config`/`shlex` class,
+because they were already build dependencies of `libsqlite3-sys`.
+
+**Correcting slice 016.** `specs/016-fs-connector/spec.md:189` records `git2` as *"libgit2 C
+bindings, a tri-OS build burden"*. That judgment is **materially wrong today**, and it is now
+load-bearing in the wrong direction, so it is corrected here rather than inherited: `rusqlite` is
+pinned `features = ["bundled"]` in the root manifest and `libsqlite3-sys 0.38.2` is in
+`skein-cli`'s shipped graph, which means the bundled SQLite amalgamation is already compiled with
+`cc` on all three OSes. A C toolchain was a hard build prerequisite of this workspace before this
+slice existed. `vendored-libgit2` adds a second C library to that same existing burden, and pins
+one libgit2 (1.9.7) on every OS instead of linking whatever a runner happens to have — mirroring
+`rusqlite`'s own `bundled` choice. Slice 016's *conclusion* (do not add a git dependency yet) was
+still right for that slice on Principle VII grounds; only this one stated reason was wrong.
+
+Slice 016's spec is left as the historical record of what was believed then. This section is where
+the correction lives.
 
 ## Deviations from the plan
 
-*(filled in at close-out)*
+Four, all recorded rather than quietly absorbed.
+
+1. **`Sort::TIME` became `Sort::TIME | Sort::TOPOLOGICAL`.** The plan's step T4 named
+   `set_sorting(Sort::TIME)` literally. Measured: `TIME` alone is a date-ordered priority queue
+   whose tie-break among commits sharing a second is arbitrary, and three fixture commits written
+   in the same second came back parent-before-child — see the second red under `## Observed red`.
+   `TOPOLOGICAL` adds the constraint that a parent never precedes its child, which is what "newest
+   first" means to whoever reads the output. Real-world equivalents of the fixture are a rebase or
+   a scripted series of commits, so this was a shippable defect and not a test artifact.
+
+2. **The crafted-`count` refusal names the expected *type*, not the field.** The plan's test
+   sketch asserted the refusal names `count`. Measured, serde says
+   `invalid type: string "…", expected u32` and does not mention the field. The assertion pins
+   `expected u32` instead, because naming the type is what lets a model correct itself. The claim
+   SC-009 makes is unchanged.
+
+3. **Non-UTF-8 paths, branch names and commit summaries render lossily rather than being dropped.**
+   The plan's fact 13 listed `StatusEntry::path -> Result<&str, Error>`; git2 0.21 actually has
+   `path() -> Option<&str>` alongside `path_bytes() -> &[u8]`, and `Reference::shorthand() ->
+   Option<&str>` alongside `shorthand_bytes()`. Using the `Option`-returning forms would have
+   meant either a `filter_map` that silently omits a changed file from a status report — a wrong
+   answer in a right answer's shape — or an invented fallback string. The `_bytes` forms with
+   `String::from_utf8_lossy` say a file changed and say roughly which, with no fallback branch.
+
+4. **`git_status_names_a_detached_head` is a test the plan did not list.** The plan's output
+   specification for `git_status` includes a `## (detached HEAD at <7 hex>)` header, and nothing in
+   its test list exercised it. It is one test, over behaviour the plan already required.
+
+Two of the plan's steps landed **green on arrival** rather than red-then-green: T6/T7/T8's
+`governed_git_run.rs`, because T4 and T5 had already built everything it composes. They are
+labelled composition guards and each one's teeth were demonstrated by breaking exactly what it
+protects, with both failures recorded verbatim above. T1's baseline and T2's manifests were
+completed in earlier sessions of this branch; T3's red was recorded in its commit message and is
+backfilled above.
 
 ## Out of scope
 
@@ -210,7 +339,28 @@ Deliberately not done, so no one helpfully does it. Identical to the spec's list
 
 ## Next slice (not this feature)
 
-*(filled in at close-out)*
+- **A `shell` connector**, still deferred, and slice 016's reasoning stands unamended: shell's
+  blast radius is bounded by nothing this tree has, and an allowlist of command *names* is not an
+  allowlist of *effects*. This slice's rejection of a `git` subprocess is a narrower judgment about
+  one fixed argv and does **not** reopen that deferral — if anything the measured `core.fsmonitor`
+  finding strengthens it. ADR-0004 D3's connector item now closes for `fs` and `git` and remains
+  open for `shell` alone.
+- **`git diff`**, if it is ever wanted, needs its own output-cap design before it needs code: it is
+  the first unbounded-output git tool, and neither `git_status`'s labelled truncation nor
+  `git_log`'s refusal transfers to it unexamined.
+- Carried unchanged from slice 016: the ACP permission gate exercised end to end, the
+  `canonicalize`-to-open TOCTOU residual, `role: "tool"` / `tool_call_id` replay, raw wire-byte
+  capture, streaming (SSE), provider authentication, a config file, `--json` output, and the
+  slices-008-vs-014 `serde_json/preserve_order` reconciliation.
+- **Residuals this slice adds**, recorded rather than hidden: the connector trusts the system and
+  global git configuration the way `git` itself does, so a global `core.excludesFile` affects what
+  `git_status` reports; `.git/` stays readable through `fs_read` exactly as on `dev`, neither
+  widened nor narrowed; libgit2's owner-validation refuses a repository owned by another user and
+  that surfaces as an ordinary tool-level refusal, with
+  `git2::opts::set_verify_owner_validation` deliberately never called; and the entry cap bounds
+  `git_status`'s **output**, not its walk — `recurse_untracked_dirs(false)` and
+  `include_ignored(false)` bound the walk the way `git status --porcelain` bounds its own, and a
+  timeout belongs to a slice that has timeout machinery.
 
 ## Live verification (T13)
 
