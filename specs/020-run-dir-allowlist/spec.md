@@ -30,7 +30,7 @@ Without the flag **nothing changes at all**: the same two directories are search
 `PATH` is handed to the child, the same description is advertised, and no directory but the fs-root
 has its ACL touched.
 
-## Eight things a reader must know up front
+## Nine things a reader must know up front
 
 1. **The mask is `GENERIC_READ | GENERIC_EXECUTE`, and it is copied from what Windows itself does.**
    Measured on this machine (Windows 11 Pro 10.0.26200) with `Get-Acl`: `%SystemRoot%\System32` and
@@ -76,7 +76,21 @@ has its ACL touched.
    batch file. So a project-local `node_modules\.bin` is a **legal** `--run-dir` whose real `.exe`
    entries run and whose `tsc.cmd`, `eslint.cmd` and `npm.cmd` do not. Supporting a shim would mean
    building a command line for `cmd.exe /c`, which is shell syntax by another name.
-8. **This makes the toolchain reachable and launchable. It does not make `cargo build` work.**
+8. **The ACL grant is not what makes a run directory launchable, and saying otherwise would repeat
+   a false claim slice 019 already shipped.** `Sandbox::run` issues `CreateProcessW` from the
+   *parent* process, whose token is the ordinary user, so the image file is opened under the
+   parent's rights before the AppContainer token exists. Measured: with **no** run directory granted
+   and nothing's ACL touched, the sandbox launches the real `cargo.exe` and `node.exe` and gets
+   `cargo 1.97.1` and `v24.14.0` back — out of directories `icacls` confirms carry no
+   `ALL APPLICATION PACKAGES` or AppContainer ACE at all. What was really keeping `cargo` unreachable
+   was `resolve_exe`'s search list, which is what this slice extends. Slice 019's `spec.md` point 5 —
+   *"would not launch even if the search found them, for want of an `ALL APPLICATION PACKAGES` ACE"*
+   — is wrong, and is left for slice 019's own record to correct rather than amended from here.
+   The grant is **not** inert: everything the child does for itself needs it, measured as
+   `Accès refusé` for a child reading a file in an ungranted run directory and exit 0 for the same
+   read once granted. Whether that is worth a persistent ACE on a directory outside the workspace is
+   an open question this slice records rather than settles; see `tasks.md`'s `## Finding`.
+9. **This makes the toolchain reachable and launchable. It does not make `cargo build` work.**
    Whether a full build succeeds inside an AppContainer with no network, no `TEMP` and one writable
    directory is a separate slice's finding. `cargo --version` was measured to exit 0 under the
    sandbox's exact five-variable environment block; nothing beyond that is claimed. Relatedly, the
@@ -131,9 +145,10 @@ has its ACL touched.
   fs-root's carry `FILE_WRITE_DATA`.
   (`skein-sandbox/tests/profile.rs`)
 - **SC-002** A binary copied into a `TempDir` named as a run directory launches inside the
-  AppContainer and its real stdout comes back — a real ACE, a real `CreateProcessW`, real captured
-  bytes, on a directory carrying no `ALL APPLICATION PACKAGES` ACE.
-  (`skein-sandbox/tests/launch.rs`)
+  AppContainer and its real stdout comes back, **and** the child can read a file beside it — where
+  ungranted, the same read is refused. The two halves are separate on purpose: only the read is
+  attributable to the grant, for the reason point 8 gives, and the ungranted control is in the same
+  test so it cannot quietly stop proving anything. (`skein-sandbox/tests/launch.rs`)
 - **SC-003** A sandboxed `copy` into a run directory leaves **no file** there and exits nonzero,
   where the same copy into the fs-root lands. (`skein-sandbox/tests/escape.rs`)
 - **SC-004** A bare name resolves inside a named run directory and `proc_run` reports its real

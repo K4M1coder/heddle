@@ -106,6 +106,75 @@ argv oracle already needs. **No product dependency and no product feature change
 was hand-copied hex constants in a security test, which is exactly the kind of second source of
 truth this codebase refuses.
 
+**T4** — no unwritten-code red, and the reason is worth more than the red would have been.
+
+The plan orders T3 before T4, and T3's green *is* the mechanism T4 exercises, so there was nothing
+left unimplemented for it to fail against. Written as the plan specifies — copy `cmd.exe` to
+`<run dir>\toolchain.exe`, `Sandbox::create(root, &[toolbin])`, `sandbox.run(&tool, …)` — it passed
+on its first run. So the grant was removed from the fixture and it was run again:
+
+```
+test a_binary_in_an_allowlisted_run_dir_executes_and_its_stdout_comes_back ... ok
+```
+
+**It passes with no grant at all.** The plan's premise for that test — *"A `TempDir` carries no
+`ALL APPLICATION PACKAGES` ACE, so a pass is attributable to the new grant and nothing else"* — does
+not hold, and the reason generalises. See `## Finding: the grant is not what makes a run directory
+launchable` below. The test now asserts what is actually attributable, with its ungranted control in
+the same test, following `escape.rs`'s recorded discipline.
+
+## Finding: the grant is not what makes a run directory launchable
+
+**This contradicts a premise the plan's D4 and D7 rest on, and a claim slice 019's `spec.md` already
+shipped. It is reported rather than worked around, and the D4 question it opens is left open.**
+
+Measured on this machine, Windows 11 Pro 10.0.26200, with a scratch integration test since deleted.
+`icacls` confirms the plan's facts 15 and 16 exactly: neither
+`D:\Users\cthedrez\.rustup\toolchains\1.97-x86_64-pc-windows-msvc\bin` nor `C:\Program Files\nodejs`
+carries any `ALL APPLICATION PACKAGES` or AppContainer ACE. With
+`Sandbox::create(root, &[])` — no run directory granted, nothing's ACL touched:
+
+```
+RAN   D:\Users\cthedrez\.rustup\toolchains\1.97-…\bin\cargo.exe -> exit 0 stdout "cargo 1.97.1 (c980f4866 2026-06-30)\n"
+RAN   C:\Program Files\nodejs\node.exe                          -> exit 0 stdout "v24.14.0\r\n"
+```
+
+**The cause is structural, not machine-specific.** `Sandbox::run` calls `CreateProcessW` from the
+*parent* process, whose token is the ordinary user. The image file is opened under the parent's
+rights, before the AppContainer token exists. The AppContainer's DACL governs only what the child
+does for itself. So slice 019's `spec.md` point 5 — *"`cargo`, `node` and `python` … would not launch
+even if the search found them, for want of an `ALL APPLICATION PACKAGES` ACE"* — is false. What was
+really keeping them unreachable was `resolve_exe`'s search list alone.
+
+The grant is **not** inert, and that half is measured too. Everything the child does for itself does
+need it:
+
+```
+UNGRANTED  cmd /c type <run dir>\secret.txt  -> exit 1  "Accès refusé."
+GRANTED    cmd /c type <run dir>\secret.txt  -> exit 0  "UNGRANTED-BYTES"
+```
+
+A third measurement, recorded because it bounds what the grant can be claimed to do: a child
+spawning a sibling out of a directory by **absolute path** is refused with *access denied*
+regardless of the mask — with `GENERIC_READ|GENERIC_EXECUTE`, with `GENERIC_ALL`, and with
+`FILE_ALL_ACCESS` — and it is refused out of the **fs-root** too, which carries `GENERIC_ALL`. The
+same spawn by bare name out of the child's own cwd succeeds, as does one out of System32. So that
+failure is not about the run directory's mask and is not something a wider grant would fix.
+
+**What this does and does not change.**
+
+- D1, D2, D3, D5, D7, D8, D9 and D10 are untouched: `--run-dir`'s real user-visible effect is that
+  `resolve_exe` searches the directory, the child's `PATH` names it, and the advertisement
+  enumerates it. All of that stands, and it is what makes `cargo` reachable.
+- D4's **mask** stands and is proven by T3: whatever ACE is written, read-and-execute is the right
+  one and the read-back test would fail just as loudly if it were widened.
+- D4's **justification** does not stand. The grant was justified as necessary to launch; it is not.
+  What it buys is the child's own reads inside that directory. Whether that is worth writing a
+  **persistent ACE on a directory outside the workspace** — one that survives `git revert` and has
+  to be removed with `icacls` by hand — is a security trade-off this run does not decide.
+  `--run-dir` would work for the headline `cargo --version` case with no grant at all. The grant is
+  kept as the plan specifies it, and the decision is left to the operator.
+
 ## Live verification (T10)
 
 **Not performed in this run** — it was explicitly excluded from the implementation run's scope. The

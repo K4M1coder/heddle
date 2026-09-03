@@ -113,3 +113,96 @@ fn a_file_that_is_not_a_program_is_refused_rather_than_launched() {
         "the refusal must name the file and say what failed: {refusal}"
     );
 }
+
+/// What a named run directory actually buys, measured rather than assumed
+/// (spec 020 SC-002).
+///
+/// Two claims, and they are deliberately separated because only one of them is
+/// attributable to the grant.
+///
+/// The launch itself is **not**. `Sandbox::run` issues `CreateProcessW` from
+/// *this* process, whose token is the ordinary user, so the image file is
+/// opened under the parent's rights and the AppContainer's DACL never enters
+/// into it — measured: the same launch succeeds against a directory that was
+/// never granted, and against a real `cargo.exe` under `%USERPROFILE%` too. It
+/// is asserted here as a smoke test of the tool's own path and nothing more.
+///
+/// What the grant does buy is everything the **child** does for itself, and the
+/// ungranted control in this test is what proves it: without an ACE naming the
+/// AppContainer SID, a child reading a file out of the run directory is refused
+/// with *access denied*. That is what a toolchain needs — a linter reading its
+/// configuration, a compiler reading a library file next to the binary.
+///
+/// The binary is a copy of `cmd.exe` renamed to `toolchain.exe` deliberately:
+/// no such name exists in System32, so the resolution tests built on this later
+/// cannot succeed for the wrong reason.
+#[test]
+fn a_binary_in_an_allowlisted_run_dir_executes_and_its_stdout_comes_back() {
+    const MARKER: &str = "launched-from-the-run-dir";
+    const DATA: &str = "bytes-beside-the-toolchain";
+    let root = TempDir::new().expect("a temp root");
+    let toolbin = TempDir::new().expect("a temp run directory");
+    let tool = toolbin.path().join("toolchain.exe");
+    std::fs::copy(system32("cmd.exe"), &tool).expect("a real PE image in the run directory");
+    std::fs::write(toolbin.path().join("data.txt"), DATA).expect("a file beside it");
+    // The `\?\` prefix `TempDir` can carry is not a form `cmd.exe` accepts.
+    let data = toolbin
+        .path()
+        .join("data.txt")
+        .to_string_lossy()
+        .replace(r"\?\", "");
+
+    // The control first: ungranted, the child cannot read out of that directory.
+    let ungranted = Sandbox::create(root.path(), &[]).expect("the profile and the root's grant");
+    let refused = ungranted
+        .run(
+            &system32("cmd.exe"),
+            &args(&["/c", "type", &data]),
+            16 * 1024,
+            Duration::from_secs(30),
+        )
+        .expect("the launch itself succeeds; it is the read that must fail");
+    assert!(
+        !refused.stdout.text.contains(DATA),
+        "without the grant the child must not read the run directory, or the assertion below \
+         proves nothing: {refused:?}"
+    );
+
+    let sandbox = Sandbox::create(root.path(), &[toolbin.path().to_path_buf()])
+        .expect("the profile, the root's grant and the run directory's");
+
+    let read = sandbox
+        .run(
+            &system32("cmd.exe"),
+            &args(&["/c", "type", &data]),
+            16 * 1024,
+            Duration::from_secs(30),
+        )
+        .expect("the launch succeeds");
+    assert!(
+        read.stdout.text.contains(DATA),
+        "the grant must let the child read beside its toolchain, got {:?} / stderr {:?}",
+        read.stdout.text,
+        read.stderr.text
+    );
+
+    let run = sandbox
+        .run(
+            &tool,
+            &args(&["/c", "echo", MARKER]),
+            16 * 1024,
+            Duration::from_secs(30),
+        )
+        .expect("a binary in a named run directory launches inside the container");
+    assert_eq!(
+        run.exit_code, 0,
+        "the tool's own launch path must reach it; stderr was {:?}",
+        run.stderr.text
+    );
+    assert!(
+        run.stdout.text.contains(MARKER),
+        "and its real bytes must come back, got {:?} / stderr {:?}",
+        run.stdout.text,
+        run.stderr.text
+    );
+}
