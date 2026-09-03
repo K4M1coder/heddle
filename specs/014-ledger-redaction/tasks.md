@@ -36,7 +36,7 @@ branch `014-ledger-redaction` cut from `dev` after slice 013 merged.
 ## Tasks
 - [x] **T0** `specs/014-ledger-redaction/{spec.md,plan.md,tasks.md}`; branch `014-ledger-redaction`
       cut from `dev` with slice 013 merged
-- [ ] **T1** control baseline: `cargo test --workspace` before any edit
+- [x] **T1** control baseline: `cargo test --workspace` before any edit — **110 passed, 1 ignored**
 - [ ] **T2** RED→GREEN — `Redactor::redact_json` and `impl Clone for Redactor`, with their tests in
       `crates/skein-core/tests/core.rs`. First because nothing else compiles without them
 - [ ] **T3** RED→GREEN — `NativeLoop`'s fourth constructor argument and the two `redact_json` calls
@@ -53,7 +53,14 @@ branch `014-ledger-redaction` cut from `dev` after slice 013 merged.
 
 ## Control baseline (T1)
 
-_Recorded at T1._
+`cargo test --workspace` on `014-ledger-redaction` @ `03e1c22` (identical to `dev`), working tree
+clean apart from this slice's three spec files, 2026-09-03, before any code edit: **110 passed, 0
+failed, 1 ignored** — `acp_session` 14, `cli_acp_agent` 3, `cli_chat` 6, `cli_ledger` 8, `cli_secret`
+2, `core` 15, `native_loop` 18, `tool_gateway` 9, `governed_run` 2, `openai_compat` 14 (+1 ignored,
+the optional live-Ollama test), `rmcp_gateway` 7, `silo_ledger` 7, `silo_secret` 5. The five
+`src/lib.rs`/`src/main.rs` unit-test targets and the five doc-test targets each contribute
+`0 passed`. This matches slice 013's recorded gate figure exactly, and it is the number T9 diffs
+against.
 
 ## Observed red (Constitution III)
 
