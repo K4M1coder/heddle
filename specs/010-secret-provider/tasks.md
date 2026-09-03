@@ -33,7 +33,7 @@ slice 009 merged.
 - [x] **T1** pinned the credential-store surface against the vendored `keyring 4.2.0`,
       `keyring-core 1.0.0` and store-crate sources, and against a compiled probe, *before* any
       product code. **The advisory plan's whole dependency shape was wrong**; see below
-- [ ] **T2** control baseline: `cargo test --workspace` before any edit — **63**
+- [x] **T2** control baseline: `cargo test --workspace` before any edit — **63**
 - [ ] **T3** RED — the three `// ---- secrets (§7.13) ----` tests in
       `crates/skein-core/tests/core.rs` against the not-yet-existing API; red recorded below
 - [ ] **T4** GREEN — `secret.rs`, `zeroize`, `Redactor`'s field + `Redactor::resolve`,
@@ -48,6 +48,13 @@ slice 009 merged.
 - [ ] **T9** dependency drift recorded below
 - [ ] **T10** close out: tick the `SecretProvider` bullet in spec 009's "Next slice" list and in
       `specs/003-skein-core-foundation/tasks.md`, and set this spec's Status
+
+## Control baseline (T2)
+
+`cargo test --workspace` on `010-secret-provider` @ `25641a6` (identical to `dev`), working tree
+clean, 2026-09-03: **63 passing** — `skein-acp/tests/acp_session.rs` 13, `skein-core/tests/core.rs`
+9, `tests/native_loop.rs` 18, `tests/tool_gateway.rs` 9, `skein-mcp/tests/rmcp_gateway.rs` 7,
+`skein-silo/tests/silo_ledger.rs` 7; 0 failed, 0 ignored. This is the number T7 diffs against.
 
 ## Pinned credential-store surface (T1)
 
