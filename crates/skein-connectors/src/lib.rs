@@ -5,8 +5,10 @@
 //! `skein-core` reaches a connector through the `ToolTransport` port it defines
 //! and never depends on this crate, exactly as it never depends on `skein-mcp`.
 
+mod connector;
 mod fs;
 mod server;
 
+pub use connector::{fs_connector, LocalConnector};
 pub use fs::FsRoot;
 pub use server::{FsServer, ListParams, ReadParams, WriteParams, READ_BYTE_CAP};

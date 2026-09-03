@@ -10,9 +10,12 @@ skein-core = { path = "../skein-core" }
 # `server` + `macros` are product dependencies *here* and dev-dependencies in
 # `skein-mcp`, which is the whole reason this crate exists rather than the
 # server living there: that crate's rmcp features are deliberately client-only.
-rmcp = { workspace = true, features = ["server", "macros"] }
+skein-mcp = { path = "../skein-mcp" }
+rmcp = { workspace = true, features = ["server", "macros", "transport-async-rw"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "io-util"] }
 schemars.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
+serde_json.workspace = true
 tempfile.workspace = true
