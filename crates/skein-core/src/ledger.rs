@@ -124,6 +124,23 @@ impl Ledger {
         self.steps.iter().filter(|s| s.run_id == run_id).collect()
     }
 
+    /// Every distinct `run_id` in the chain, at the position of its first
+    /// append.
+    ///
+    /// [`Ledger::log`] needs a run id, so without this the CLI — the core's
+    /// authoritative client (Constitution I) — could only serve someone who
+    /// already knew one. Like `log` and `show`, it reads the mirror and never
+    /// touches the store.
+    pub fn runs(&self) -> Vec<&str> {
+        let mut seen: Vec<&str> = Vec::new();
+        for s in &self.steps {
+            if !seen.contains(&s.run_id.as_str()) {
+                seen.push(&s.run_id);
+            }
+        }
+        seen
+    }
+
     pub fn show(&self, id: &str) -> Result<&Step> {
         self.steps
             .iter()

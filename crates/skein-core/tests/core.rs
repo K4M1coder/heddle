@@ -271,3 +271,19 @@ fn redactor_resolve_propagates_a_provider_failure() {
         "a redactor that scrubs nothing is worse than no redactor: {err}"
     );
 }
+
+// ---- ledger run enumeration ----
+
+#[test]
+fn ledger_runs_lists_run_ids_in_first_append_order() {
+    let mut led = Ledger::new();
+    led.append("run-b", StepKind::LlmRequest, "first").unwrap();
+    led.append("run-a", StepKind::LlmRequest, "second").unwrap();
+    led.append("run-b", StepKind::LlmResponse, "third").unwrap();
+
+    assert_eq!(
+        led.runs(),
+        vec!["run-b", "run-a"],
+        "a run is listed once, at the position of its first append"
+    );
+}
