@@ -281,9 +281,8 @@ impl EmbeddedServer {
     pub fn fs_read(&self, params: Parameters<ReadParams>) -> Result<String, String> {
         let arg = params.0.path;
         let mut file = self.root.open_file(&arg)?;
-        // The size and the bytes come off the **same** open handle, so the file
-        // measured against the cap is provably the file returned. Two
-        // independent `std::fs` calls over one path never guaranteed that.
+        // The size and the bytes must come off the **same** open handle, or the
+        // file measured against the cap is not provably the file returned.
         let size = file.metadata().map_err(|e| format!("{arg}: {e}"))?.len();
         if size > READ_BYTE_CAP as u64 {
             return Err(format!(

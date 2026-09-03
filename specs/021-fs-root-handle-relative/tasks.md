@@ -80,7 +80,7 @@ before any edit:
 
 ## Close (T9)
 
-`cargo test --workspace` — **233 passed, 0 failed, 5 ignored**. The delta of **+5** is exactly this
+`cargo test --workspace` — **234 passed, 0 failed, 5 ignored**. The delta of **+6** is exactly this
 slice's new tests: `fs_root` 11 → 15 (impostor root, leaf symlink, reparse swap, `explain`'s two
 arms), `fs_server` 7 → 8 (reparse swap at tool level), `governed_fs_run` 4 → 5 (the governed
 refusal). Every other target is unchanged. `cargo fmt --all --check` and
