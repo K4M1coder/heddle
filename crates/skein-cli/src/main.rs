@@ -6,12 +6,13 @@
 //! its own: each subcommand is a call onto `skein-core`/`skein-silo` plus a
 //! rendering of the result.
 //!
-//! `skein chat` is the one command that *runs* the loop rather than reading its
-//! record; it became possible in slice 012, which landed the first real
-//! network-backed `ModelClient` (`skein-gateway`). `skein acp-agent` is still
-//! absent, and now only for want of a stdio transport and an async runtime —
-//! see `specs/012-model-gateway/tasks.md`'s "Next slice".
+//! Two commands *run* the loop rather than reading its record. `skein chat`
+//! takes one prompt and prints one answer; `skein acp-agent` serves slice 008's
+//! ACP facade on stdin/stdout so an editor can drive the same loop. Both reach
+//! the same loopback-only provider through the same `wiring::ModelArgs`, and
+//! both record every run on the silo's chain.
 
+mod acp;
 mod chat;
 mod ledger;
 mod secret;
@@ -54,6 +55,14 @@ enum Command {
         silo: SiloArgs,
         #[command(flatten)]
         chat: ChatArgs,
+    },
+    /// Serve the Agent Client Protocol on stdin/stdout, for an ACP-speaking
+    /// editor to drive. Every session's runs land on the silo's chain.
+    AcpAgent {
+        #[command(flatten)]
+        silo: SiloArgs,
+        #[command(flatten)]
+        model: wiring::ModelArgs,
     },
 }
 
@@ -166,5 +175,6 @@ fn run(cli: Cli) -> Result<()> {
             SecretCommand::Delete { reference } => secret::delete(&reference),
         },
         Command::Chat { silo, chat } => chat::chat(&silo, &chat),
+        Command::AcpAgent { silo, model } => acp::serve(&silo, model),
     }
 }
