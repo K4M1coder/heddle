@@ -1,9 +1,15 @@
 # ADR-0005: v0's `shell` connector is deferred pending a sandbox foundation; v0 closes without it
 
-**Status:** Accepted
+**Status:** Superseded by [ADR-0006](0006-shell-connector-windows-first-sandbox.md)
 **Date:** 2026-09-03
 **Decider:** Cédric Thedrez (`kamicoder`)
 **Supersedes/amends:** narrows ADR-0004 D3's "MCP tools (fs/git/shell)" item; does not reopen D3's other items.
+
+> **Superseded:** this ADR's research (no crate covers Windows+Linux+macOS process sandboxing at
+> once) still stands, but its conclusion — defer `shell` out of v0 entirely — was wrong to treat
+> cross-OS parity as required on day one. ADR-0006 ships `shell` Windows-first instead, gated off
+> on other OSes until each earns its own backend. Read ADR-0006 for the current decision; this
+> document is kept for its research and for the historical record.
 
 ## Context
 
