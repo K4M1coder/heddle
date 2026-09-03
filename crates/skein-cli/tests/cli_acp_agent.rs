@@ -12,8 +12,10 @@
 //! running Ollama and none needs an installed editor.
 
 use agent_client_protocol::schema::v1::{
-    ContentBlock, InitializeRequest, NewSessionRequest, PromptRequest, SessionId,
-    SessionNotification, SessionUpdate, StopReason, TextContent,
+    ContentBlock, InitializeRequest, NewSessionRequest, PermissionOptionKind, PromptRequest,
+    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
+    SelectedPermissionOutcome, SessionId, SessionNotification, SessionUpdate, StopReason,
+    TextContent, ToolCallId, ToolCallStatus,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{AcpAgent, AcpAgentConfig, Agent, Client, ConnectionTo};
@@ -658,5 +660,373 @@ fn acp_agent_over_a_git_repository_advertises_the_git_tools_too() {
     assert_eq!(
         advertised,
         vec!["fs_read", "fs_list", "fs_write", "git_status", "git_log"]
+    );
+}
+
+// ---- the ACP permission gate (spec 018) ----
+
+/// A model turn that asks for one tool call. Copied from `cli_chat.rs` for the
+/// reason this file's header already records.
+fn tool_call_reply(tool: &str, arguments: serde_json::Value) -> String {
+    serde_json::json!({
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": null,
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": tool, "arguments": arguments.to_string()}
+                }]
+            },
+            "finish_reason": "tool_calls"
+        }],
+        "usage": {"total_tokens": 12}
+    })
+    .to_string()
+}
+
+/// The last message of the request the child sent, which is what the model was
+/// told about the tool it asked for. Copied from `cli_chat.rs`.
+fn last_message(request: &serde_json::Value) -> String {
+    request["messages"]
+        .as_array()
+        .expect("a messages array")
+        .last()
+        .expect("at least one message")["content"]
+        .as_str()
+        .expect("text content")
+        .to_string()
+}
+
+/// What one answered session leaves behind: how the turn ended, every
+/// permission request the **client** actually saw, and the updates it was
+/// notified of.
+struct Answered {
+    stop: StopReason,
+    asked: Vec<RequestPermissionRequest>,
+    updates: Arc<Mutex<Vec<SessionUpdate>>>,
+}
+
+/// One prompt against the real binary, from a client that answers every
+/// permission request by selecting the offered option whose kind is `answer`.
+///
+/// Selecting an **offered** option rather than a hand-built id is what a real
+/// editor does, and it is the only way the two id constants
+/// `AcpPermissionTransport::call` matches on stay honestly under test.
+fn run_answering(
+    root: &Path,
+    silo: &str,
+    fs_root: &Path,
+    base_url: &str,
+    answer: PermissionOptionKind,
+) -> Answered {
+    let updates: Arc<Mutex<Vec<SessionUpdate>>> = Arc::default();
+    let asked: Arc<Mutex<Vec<RequestPermissionRequest>>> = Arc::default();
+    let collected = updates.clone();
+    let recorded = asked.clone();
+
+    let transport = AcpAgent::new(AcpAgentConfig::new(env!("CARGO_BIN_EXE_skein")).args([
+        "acp-agent",
+        "--root",
+        &root_arg(root),
+        "--silo",
+        silo,
+        "--model",
+        "llama3.1",
+        "--base-url",
+        base_url,
+        "--fs-root",
+        &root_arg(fs_root),
+        "--timeout-secs",
+        "10",
+    ]));
+
+    let stop = run_with_timeout(move || {
+        futures::executor::block_on(
+            Client
+                .builder()
+                .name("test-client")
+                .on_receive_notification(
+                    async move |notification: SessionNotification, _cx| {
+                        collected
+                            .lock()
+                            .expect("the update log")
+                            .push(notification.update);
+                        Ok(())
+                    },
+                    agent_client_protocol::on_receive_notification!(),
+                )
+                // Records and responds, and does nothing else. It runs *inside*
+                // the dispatch loop, which must stay free to deliver the answer
+                // the child's loop thread is blocked on — so it never calls
+                // `block_task()`. Without this handler the request goes
+                // unanswered and the child hangs forever on an untimed `recv()`.
+                .on_receive_request(
+                    async move |request: RequestPermissionRequest, responder, _cx| {
+                        recorded
+                            .lock()
+                            .expect("the permission log")
+                            .push(request.clone());
+                        let option = request
+                            .options
+                            .iter()
+                            .find(|o| o.kind == answer)
+                            .expect("the answered option kind is offered");
+                        responder.respond(RequestPermissionResponse::new(
+                            RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
+                                option.option_id.clone(),
+                            )),
+                        ))
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .connect_with(transport, async move |cx: ConnectionTo<Agent>| {
+                    cx.send_request(InitializeRequest::new(ProtocolVersion::V1))
+                        .block_task()
+                        .await?;
+                    let session = cx
+                        .send_request(NewSessionRequest::new(PathBuf::from(".")))
+                        .block_task()
+                        .await?;
+                    let response = cx
+                        .send_request(PromptRequest::new(
+                            session.session_id,
+                            vec![ContentBlock::Text(TextContent::new("plant a file for me"))],
+                        ))
+                        .block_task()
+                        .await?;
+                    Ok(response.stop_reason)
+                }),
+        )
+        .expect("the ACP client ran to completion")
+    });
+
+    let asked = asked.lock().expect("the permission log").clone();
+    Answered {
+        stop,
+        asked,
+        updates,
+    }
+}
+
+#[test]
+fn an_acp_client_that_allows_lets_a_real_fs_write_execute() {
+    let provider = StubProvider::serving(vec![
+        tool_call_reply(
+            "fs_write",
+            serde_json::json!({"path": "planted.txt", "content": "planted by the model"}),
+        ),
+        reply("written", "stop", 7),
+    ]);
+    let (_dir, root) = temp_root();
+    let files = TempDir::new().expect("a temp fs root");
+
+    let answered = run_answering(
+        &root,
+        "phi",
+        files.path(),
+        &provider.base_url,
+        PermissionOptionKind::AllowOnce,
+    );
+
+    assert_eq!(answered.stop, StopReason::EndTurn);
+    assert!(
+        chunks(&answered.updates).iter().any(|c| c == "written"),
+        "the answer must reach the client, got: {:?}",
+        chunks(&answered.updates)
+    );
+
+    // What the client was actually asked, off the wire. Nothing on `dev`
+    // asserts these two option ids, and they are the strings
+    // `AcpPermissionTransport::call` matches on: a typo in either would turn
+    // every Allow into a silent denial.
+    assert_eq!(answered.asked.len(), 1, "{:?}", answered.asked);
+    let request = &answered.asked[0];
+    assert_eq!(request.session_id, SessionId::new("skein-1"));
+    assert_eq!(request.tool_call.tool_call_id, ToolCallId::new("fs_write"));
+    assert_eq!(request.tool_call.fields.title.as_deref(), Some("fs_write"));
+    assert_eq!(
+        request
+            .options
+            .iter()
+            .map(|o| (o.option_id.0.as_ref(), o.kind))
+            .collect::<Vec<_>>(),
+        vec![
+            ("skein.allow-once", PermissionOptionKind::AllowOnce),
+            ("skein.reject-once", PermissionOptionKind::RejectOnce),
+        ]
+    );
+
+    // The effect itself: the real connector wrote the model's exact bytes
+    // through the real binary, because a human said yes.
+    assert_eq!(
+        std::fs::read_to_string(files.path().join("planted.txt")).expect("the planted file"),
+        "planted by the model"
+    );
+
+    // And the model was told the truth about it.
+    let _first = provider.request_body();
+    let told = last_message(&provider.request_body());
+    assert!(
+        told.starts_with("[tool_result tool=fs_write status=ok]")
+            && told.contains("wrote 20 bytes to planted.txt"),
+        "{told}"
+    );
+
+    assert_eq!(
+        logged_kinds(&root, "phi", "skein-1#1"),
+        vec![
+            "iteration_boundary",
+            "llm_request",
+            "llm_response",
+            "budget_spent",
+            "tool_call",
+            "approval",
+            "tool_result",
+            "iteration_boundary",
+            "llm_request",
+            "llm_response",
+            "budget_spent",
+            "exit"
+        ]
+    );
+    let verify = skein(&[
+        "ledger",
+        "verify",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "phi",
+        "--run",
+        "skein-1#1",
+    ]);
+    assert_eq!(
+        verify.status.code(),
+        Some(0),
+        "stderr:\n{}",
+        stderr(&verify)
+    );
+    assert_eq!(stdout(&verify), "skein-1#1\tok\t12 steps\n");
+}
+
+#[test]
+fn an_acp_client_that_rejects_stops_the_fs_write_and_the_run_survives() {
+    let provider = StubProvider::serving(vec![
+        tool_call_reply(
+            "fs_write",
+            serde_json::json!({"path": "planted.txt", "content": "planted by the model"}),
+        ),
+        reply("written", "stop", 7),
+    ]);
+    let (_dir, root) = temp_root();
+    let files = TempDir::new().expect("a temp fs root");
+
+    let answered = run_answering(
+        &root,
+        "chi",
+        files.path(),
+        &provider.base_url,
+        PermissionOptionKind::RejectOnce,
+    );
+
+    // A refusal is still an ask, and it is the same ask.
+    assert_eq!(answered.asked.len(), 1, "{:?}", answered.asked);
+    let request = &answered.asked[0];
+    assert_eq!(request.session_id, SessionId::new("skein-1"));
+    assert_eq!(request.tool_call.tool_call_id, ToolCallId::new("fs_write"));
+    assert_eq!(request.tool_call.fields.title.as_deref(), Some("fs_write"));
+    assert_eq!(
+        request
+            .options
+            .iter()
+            .map(|o| (o.option_id.0.as_ref(), o.kind))
+            .collect::<Vec<_>>(),
+        vec![
+            ("skein.allow-once", PermissionOptionKind::AllowOnce),
+            ("skein.reject-once", PermissionOptionKind::RejectOnce),
+        ]
+    );
+
+    // Constitution VI, proven by an effect rather than by a counter: the test
+    // above makes this exact call under this exact fixture create this exact
+    // file. Its absence here is the effect the server would have had.
+    assert!(
+        !files.path().join("planted.txt").exists(),
+        "a client's refusal must have had no effect whatsoever"
+    );
+
+    // The client's answer reaches the model verbatim, inside the payload the
+    // next `llm_request` step records.
+    let _first = provider.request_body();
+    let told = last_message(&provider.request_body());
+    assert!(
+        told.starts_with("[tool_result tool=fs_write status=denied]")
+            && told.contains("acp client declined permission")
+            && told.contains("skein.reject-once"),
+        "the model must be told plainly who refused and why, got: {told}"
+    );
+
+    // The same shape `an_unlisted_write_never_reaches_the_server` pins for a
+    // policy denial, at a different refusing layer: the attempt and the verdict
+    // are on the chain and there is no `ToolResult`, because nothing ran.
+    assert_eq!(
+        logged_kinds(&root, "chi", "skein-1#1"),
+        vec![
+            "iteration_boundary",
+            "llm_request",
+            "llm_response",
+            "budget_spent",
+            "tool_call",
+            "approval",
+            "iteration_boundary",
+            "llm_request",
+            "llm_response",
+            "budget_spent",
+            "exit"
+        ]
+    );
+    let verify = skein(&[
+        "ledger",
+        "verify",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "chi",
+        "--run",
+        "skein-1#1",
+    ]);
+    assert_eq!(
+        verify.status.code(),
+        Some(0),
+        "stderr:\n{}",
+        stderr(&verify)
+    );
+    assert_eq!(stdout(&verify), "skein-1#1\tok\t11 steps\n");
+
+    // A governed refusal is history the run survives, not an error.
+    assert_eq!(answered.stop, StopReason::EndTurn);
+    assert!(
+        chunks(&answered.updates).iter().any(|c| c == "written"),
+        "the run must go on to answer, got: {:?}",
+        chunks(&answered.updates)
+    );
+
+    // The client saw the tool call and was never told it completed. Only the
+    // absence is asserted: the projection leaves an ACP-denied call `Pending`
+    // forever, which is a recorded residual this slice does not endorse.
+    let seen = answered.updates.lock().expect("the update log");
+    assert!(
+        seen.iter()
+            .any(|u| matches!(u, SessionUpdate::ToolCall(call) if call.title == "fs_write")),
+        "the refused tool call must still be visible to the client: {seen:?}"
+    );
+    assert!(
+        !seen.iter().any(|u| matches!(
+            u,
+            SessionUpdate::ToolCallUpdate(update)
+                if update.fields.status == Some(ToolCallStatus::Completed)
+        )),
+        "nothing ran, so nothing may be reported completed: {seen:?}"
     );
 }
