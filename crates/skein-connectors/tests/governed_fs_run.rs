@@ -467,3 +467,57 @@ fn an_out_of_root_read_is_refused_by_the_server_and_the_run_survives() {
         .verify_chain("run-fs")
         .expect("a run holding a tool-level refusal verifies");
 }
+
+/// Long and distinctive, so a substring assertion cannot pass by accident.
+const SECRET_ON_DISK: &str = "sk-from-disk-SECRET-abc123";
+
+#[test]
+fn a_secret_in_a_files_contents_is_scrubbed_from_the_chain() {
+    let contents = format!("api_key={SECRET_ON_DISK}\nendpoint=http://localhost:11434");
+    let stub = Stub::serving(vec![
+        tool_call_reply("fs_read", serde_json::json!({"path": "config.txt"})),
+        final_reply("I read the config."),
+    ]);
+    let Harness {
+        _dir,
+        root,
+        connector,
+    } = harness(&[("config.txt", &contents)]);
+
+    // Constitution V, verified rather than assumed: `Redactor` has only ever
+    // been proven against a secret the *model* or a *stub tool* produced. Here
+    // it came off disk, through a real server, in a real tool result.
+    let ledger = governed_run(
+        &stub,
+        connector,
+        chat_policy(),
+        vec![SECRET_ON_DISK.to_string()],
+    );
+
+    assert!(
+        std::fs::read_to_string(root.join("config.txt"))
+            .expect("the file is still there")
+            .contains(SECRET_ON_DISK),
+        "sanity: the file really holds the secret, so only redaction can explain its absence below"
+    );
+    let payloads: Vec<String> = ledger
+        .log("run-fs")
+        .iter()
+        .map(|s| s.payload.clone())
+        .collect();
+    assert!(
+        payloads.iter().all(|p| !p.contains(SECRET_ON_DISK)),
+        "no payload of the run may carry a configured secret: {payloads:?}"
+    );
+    assert!(
+        payloads.iter().any(|p| p.contains("***")),
+        "the scrubbing must be visible rather than the secret merely absent: {payloads:?}"
+    );
+    // The unconfigured case is *not* covered, and the spec says so plainly: a
+    // credential in a file the operator never registered still lands here in
+    // cleartext. `endpoint=` proves the rest of the file did come through.
+    assert!(
+        payloads.iter().any(|p| p.contains("endpoint=")),
+        "only the configured value is scrubbed, not the file: {payloads:?}"
+    );
+}
