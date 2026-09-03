@@ -909,3 +909,124 @@ fn an_acp_client_that_allows_lets_a_real_fs_write_execute() {
     );
     assert_eq!(stdout(&verify), "skein-1#1\tok\t12 steps\n");
 }
+
+#[test]
+fn an_acp_client_that_rejects_stops_the_fs_write_and_the_run_survives() {
+    let provider = StubProvider::serving(vec![
+        tool_call_reply(
+            "fs_write",
+            serde_json::json!({"path": "planted.txt", "content": "planted by the model"}),
+        ),
+        reply("written", "stop", 7),
+    ]);
+    let (_dir, root) = temp_root();
+    let files = TempDir::new().expect("a temp fs root");
+
+    let answered = run_answering(
+        &root,
+        "chi",
+        files.path(),
+        &provider.base_url,
+        PermissionOptionKind::RejectOnce,
+    );
+
+    // A refusal is still an ask, and it is the same ask.
+    assert_eq!(answered.asked.len(), 1, "{:?}", answered.asked);
+    let request = &answered.asked[0];
+    assert_eq!(request.session_id, SessionId::new("skein-1"));
+    assert_eq!(request.tool_call.tool_call_id, ToolCallId::new("fs_write"));
+    assert_eq!(request.tool_call.fields.title.as_deref(), Some("fs_write"));
+    assert_eq!(
+        request
+            .options
+            .iter()
+            .map(|o| (o.option_id.0.as_ref(), o.kind))
+            .collect::<Vec<_>>(),
+        vec![
+            ("skein.allow-once", PermissionOptionKind::AllowOnce),
+            ("skein.reject-once", PermissionOptionKind::RejectOnce),
+        ]
+    );
+
+    // Constitution VI, proven by an effect rather than by a counter: the test
+    // above makes this exact call under this exact fixture create this exact
+    // file. Its absence here is the effect the server would have had.
+    assert!(
+        !files.path().join("planted.txt").exists(),
+        "a client's refusal must have had no effect whatsoever"
+    );
+
+    // The client's answer reaches the model verbatim, inside the payload the
+    // next `llm_request` step records.
+    let _first = provider.request_body();
+    let told = last_message(&provider.request_body());
+    assert!(
+        told.starts_with("[tool_result tool=fs_write status=denied]")
+            && told.contains("acp client declined permission")
+            && told.contains("skein.reject-once"),
+        "the model must be told plainly who refused and why, got: {told}"
+    );
+
+    // The same shape `an_unlisted_write_never_reaches_the_server` pins for a
+    // policy denial, at a different refusing layer: the attempt and the verdict
+    // are on the chain and there is no `ToolResult`, because nothing ran.
+    assert_eq!(
+        logged_kinds(&root, "chi", "skein-1#1"),
+        vec![
+            "iteration_boundary",
+            "llm_request",
+            "llm_response",
+            "budget_spent",
+            "tool_call",
+            "approval",
+            "iteration_boundary",
+            "llm_request",
+            "llm_response",
+            "budget_spent",
+            "exit"
+        ]
+    );
+    let verify = skein(&[
+        "ledger",
+        "verify",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "chi",
+        "--run",
+        "skein-1#1",
+    ]);
+    assert_eq!(
+        verify.status.code(),
+        Some(0),
+        "stderr:\n{}",
+        stderr(&verify)
+    );
+    assert_eq!(stdout(&verify), "skein-1#1\tok\t11 steps\n");
+
+    // A governed refusal is history the run survives, not an error.
+    assert_eq!(answered.stop, StopReason::EndTurn);
+    assert!(
+        chunks(&answered.updates).iter().any(|c| c == "written"),
+        "the run must go on to answer, got: {:?}",
+        chunks(&answered.updates)
+    );
+
+    // The client saw the tool call and was never told it completed. Only the
+    // absence is asserted: the projection leaves an ACP-denied call `Pending`
+    // forever, which is a recorded residual this slice does not endorse.
+    let seen = answered.updates.lock().expect("the update log");
+    assert!(
+        seen.iter()
+            .any(|u| matches!(u, SessionUpdate::ToolCall(call) if call.title == "fs_write")),
+        "the refused tool call must still be visible to the client: {seen:?}"
+    );
+    assert!(
+        !seen.iter().any(|u| matches!(
+            u,
+            SessionUpdate::ToolCallUpdate(update)
+                if update.fields.status == Some(ToolCallStatus::Completed)
+        )),
+        "nothing ran, so nothing may be reported completed: {seen:?}"
+    );
+}
