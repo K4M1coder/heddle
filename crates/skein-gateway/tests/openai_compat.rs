@@ -10,7 +10,7 @@
 //!
 //! No test here needs a running Ollama. The one that does is `#[ignore]`d.
 
-use skein_core::{Content, Message, ModelClient, Role, TurnRequest};
+use skein_core::{Content, Message, ModelClient, Role, SkeinError, TurnRequest};
 use skein_gateway::{LocalEndpoint, OpenAiCompatClient};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -234,5 +234,69 @@ fn a_conversation_history_is_sent_in_order() {
             {"role": "assistant", "content": "second"},
             {"role": "user", "content": "third"},
         ])
+    );
+}
+
+/// The message a refused base URL must carry, so a test asserts the refusal's
+/// reason and not merely that something failed.
+fn refusal(base_url: &str) -> String {
+    match LocalEndpoint::parse(base_url) {
+        Ok(endpoint) => panic!("{base_url} was accepted as {:?}", endpoint.base_url()),
+        Err(SkeinError::Model(message)) => message,
+        Err(other) => panic!("expected SkeinError::Model, got {other:?}"),
+    }
+}
+
+#[test]
+fn loopback_base_urls_are_accepted() {
+    for base_url in [
+        "http://127.0.0.1:11434/v1",
+        "http://[::1]:11434/v1",
+        "http://localhost:11434/v1",
+    ] {
+        let endpoint = LocalEndpoint::parse(base_url)
+            .unwrap_or_else(|e| panic!("{base_url} should be accepted: {e}"));
+        assert_eq!(endpoint.base_url(), base_url);
+    }
+    // A trailing slash is normalised, so the path is not doubled.
+    assert_eq!(
+        LocalEndpoint::parse("http://127.0.0.1:11434/v1/")
+            .expect("accepted")
+            .base_url(),
+        "http://127.0.0.1:11434/v1"
+    );
+}
+
+#[test]
+fn a_non_loopback_base_url_is_refused() {
+    // A host name other than `localhost` is refused *without* being resolved:
+    // resolving it would itself be egress, since the name would leave this
+    // machine in a DNS query. There is no socket and no DNS lookup to observe
+    // here precisely because the refusal happens first.
+    let named = refusal("http://ollama.example.com/v1");
+    assert!(
+        named.contains("without being resolved"),
+        "a foreign name must be refused unresolved, got: {named}"
+    );
+
+    // A private-LAN literal is a valid IP that is not loopback (ADR-0002 D4
+    // allows loopback, not the wider LAN).
+    let lan = refusal("http://192.168.1.10:11434/v1");
+    assert!(
+        lan.contains("192.168.1.10") && lan.contains("not a loopback address"),
+        "a LAN literal must be refused by address, got: {lan}"
+    );
+}
+
+#[test]
+fn an_https_base_url_is_refused() {
+    // Refused on the scheme, before any socket exists. `ureq` is compiled with
+    // no TLS backend, so `ureq::Error::TlsRequired` ("TLS required, but
+    // transport is unsecured") is the hard floor underneath this check if it
+    // were ever removed — the guard and the build are two independent locks.
+    let message = refusal("https://api.openai.com/v1");
+    assert!(
+        message.contains("\"https\"") && message.contains("no TLS backend is compiled in"),
+        "https must be refused on the scheme, got: {message}"
     );
 }
