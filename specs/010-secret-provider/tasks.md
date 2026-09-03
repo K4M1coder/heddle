@@ -36,7 +36,7 @@ slice 009 merged.
 - [x] **T2** control baseline: `cargo test --workspace` before any edit — **63**
 - [x] **T3** RED — the three `// ---- secrets (§7.13) ----` tests in
       `crates/skein-core/tests/core.rs` against the not-yet-existing API; red recorded below
-- [ ] **T4** GREEN — `secret.rs`, `zeroize`, `Redactor`'s field + `Redactor::resolve`,
+- [x] **T4** GREEN — `secret.rs`, `zeroize`, `Redactor`'s field + `Redactor::resolve`,
       `SkeinError::Secret`, re-exports, and the now-stale `Redactor` doc comment corrected
 - [ ] **T5** RED — `crates/skein-silo/tests/silo_secret.rs` against the not-yet-existing
       `OsKeychain`; red recorded below

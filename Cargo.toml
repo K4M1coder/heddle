@@ -20,3 +20,4 @@ agent-client-protocol = "2.0.0"
 tokio-util = "0.7"
 rusqlite = { version = "0.40", default-features = false, features = ["bundled"] }
 tempfile = "3"
+zeroize = { version = "1", default-features = false, features = ["alloc"] }

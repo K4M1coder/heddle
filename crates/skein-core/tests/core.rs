@@ -250,8 +250,8 @@ fn redactor_resolves_from_a_provider() {
         known: (r.clone(), "hunter2".into()),
     };
 
-    let redactor = Redactor::resolve(&provider, std::slice::from_ref(&r))
-        .expect("a known reference resolves");
+    let redactor =
+        Redactor::resolve(&provider, std::slice::from_ref(&r)).expect("a known reference resolves");
 
     assert_eq!(redactor.redact("token=hunter2"), "token=***");
 }
@@ -263,7 +263,8 @@ fn redactor_resolve_propagates_a_provider_failure() {
     };
 
     let err = Redactor::resolve(&provider, &[SecretRef("keychain://skein/absent".into())])
-        .expect_err("a misconfigured reference must fail loudly");
+        .err()
+        .expect("a misconfigured reference must fail loudly");
 
     assert!(
         matches!(err, SkeinError::Secret(_)),

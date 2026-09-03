@@ -13,6 +13,10 @@ pub enum SkeinError {
     Storage(String),
     #[error("not found: {0}")]
     NotFound(String),
+    /// A secret reference could not be resolved: unknown scheme, malformed URI,
+    /// or no such credential in the backing store.
+    #[error("secret: {0}")]
+    Secret(String),
     #[error("model provider: {0}")]
     Model(String),
     /// The governor refused: the transport was never reached.

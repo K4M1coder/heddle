@@ -5,6 +5,7 @@
 
 use crate::error::{Result, SkeinError};
 use crate::ledger::{Ledger, StepKind};
+use crate::secret::{SecretProvider, SecretRef, SecretValue};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -89,24 +90,49 @@ impl ToolPolicy {
 }
 
 /// Scrubs known secret values out of anything on its way into the Ledger
-/// (Constitution VI: a secret is never in the record by value). The values are
-/// configuration today; they will come from `SecretProvider::resolve`
-/// (design §7.13) once that lands.
+/// (Constitution VI: a secret is never in the record by value). Values reach it
+/// either literally, from a caller that already holds them, or — the shape a
+/// config should use — by resolving `SecretRef`s through a
+/// [`SecretProvider`](crate::secret::SecretProvider).
 pub struct Redactor {
-    secrets: Vec<String>,
+    secrets: Vec<SecretValue>,
 }
 
 impl Redactor {
     pub fn new(secrets: Vec<String>) -> Self {
+        Redactor::from_values(secrets.into_iter().map(SecretValue::new))
+    }
+
+    /// Resolves each reference through the provider — the moment
+    /// configuration-held *references* become in-memory values (design §7.13).
+    ///
+    /// One unresolvable reference fails the whole construction: a `Redactor`
+    /// built from a misconfigured reference would scrub nothing, and would do it
+    /// silently.
+    pub fn resolve(provider: &dyn SecretProvider, refs: &[SecretRef]) -> Result<Redactor> {
+        let values: Vec<SecretValue> = refs
+            .iter()
+            .map(|r| provider.resolve(r))
+            .collect::<Result<_>>()?;
+        Ok(Redactor::from_values(values))
+    }
+
+    /// An empty secret is dropped rather than stored: `str::replace` treats the
+    /// empty needle as matching everywhere, so keeping one would splice `***`
+    /// between every character of every payload.
+    fn from_values(values: impl IntoIterator<Item = SecretValue>) -> Self {
         Redactor {
-            secrets: secrets.into_iter().filter(|s| !s.is_empty()).collect(),
+            secrets: values
+                .into_iter()
+                .filter(|s| !s.expose().is_empty())
+                .collect(),
         }
     }
 
     pub fn redact(&self, text: &str) -> String {
         let mut out = text.to_string();
         for secret in &self.secrets {
-            out = out.replace(secret, "***");
+            out = out.replace(secret.expose(), "***");
         }
         out
     }
