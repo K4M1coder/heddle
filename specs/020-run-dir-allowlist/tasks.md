@@ -83,7 +83,7 @@ Slice 019's close records 193 at `b82f37a`, before its own tests landed; the del
 
 ```
 thread 'a_run_dir_is_granted_read_and_execute_and_the_root_is_not' panicked at
-crates\skein-sandbox	ests\profile.rs:185:5:
+crates\skein-sandbox\tests\profile.rs:185:5:
 the run directory's DACL must name the AppContainer SID at all, got
 [("S-1-5-21-1203453866-3760803099-1050353712-1008", 1245631),
  ("S-1-5-21-1411561155-2461164688-2535433281-4238526846", 1245631),
