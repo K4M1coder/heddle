@@ -5,6 +5,7 @@
 //! in [`crate::fs_connector`] — no socket, no child process (Constitution II).
 
 use crate::fs::FsRoot;
+use crate::git;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{ServerCapabilities, ServerInfo};
@@ -23,6 +24,23 @@ use std::sync::Arc;
 /// land on the chain as one.
 pub const READ_BYTE_CAP: usize = 64 * 1024;
 
+/// The most commits a single `git_log` may walk.
+///
+/// [`READ_BYTE_CAP`]'s reasoning, in commits: a log is prompt and it is a
+/// Ledger row. This one **refuses** rather than truncates, and that is not an
+/// inconsistency with `git_status` below — `git_log` takes a `count`, so a
+/// refusal naming the cap leaves the model a smaller call it can make.
+pub const LOG_COUNT_CAP: u32 = 50;
+
+/// The most entries a single `git_status` may list.
+///
+/// This one **truncates and says how many it dropped**, where every other cap
+/// in this file refuses. `git_status` takes no arguments, so there is no
+/// smaller call to fall back to and a refusal would leave a dirty repository
+/// permanently unreadable. A labelled truncation is a smaller answer; a silent
+/// one would be a wrong answer in a right answer's shape.
+pub const STATUS_ENTRY_CAP: usize = 200;
+
 /// `fs_read`'s arguments. Public because the schema `schemars` derives from
 /// this type **is** the contract the model is shown: [`crate::LocalConnector`]
 /// discovers it over `tools/list` and `skein-gateway` puts it on the wire. A
@@ -32,6 +50,20 @@ pub const READ_BYTE_CAP: usize = 64 * 1024;
 pub struct ReadParams {
     /// Path relative to the configured root.
     pub path: String,
+}
+
+/// `git_log`'s arguments, and the **only** model-supplied value anywhere in
+/// the git tools. Public for the reason [`ReadParams`] documents.
+///
+/// A `u32` and not a string, which is the whole injection story: there is no
+/// subprocess, no argument vector and no shell in the git path, and the one
+/// value a model does supply cannot carry text. A crafted `count` fails
+/// deserialization, which rmcp reports as `isError: true` — a refusal the
+/// model is told about and the run survives.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct LogParams {
+    /// How many of the most recent commits to return, newest first.
+    pub count: u32,
 }
 
 /// `fs_list`'s arguments. Public for the reason [`ReadParams`] documents.
@@ -128,6 +160,36 @@ impl FsServer {
         let path = self.root.resolve_new(&arg)?;
         std::fs::write(&path, &content).map_err(|e| format!("{arg}: {e}"))?;
         Ok(format!("wrote {} bytes to {arg}", content.len()))
+    }
+
+    #[tool(
+        description = "Report the state of the git repository at the configured root, in `git \
+                       status --porcelain -b` form: a `## <branch>` header, then one `XY<TAB>path` \
+                       line per change. Takes no arguments — the repository is the one the \
+                       operator named and no other. Rename detection is off, so a rename appears \
+                       as a delete plus an add."
+    )]
+    pub fn git_status(&self) -> Result<String, String> {
+        git::status(&self.root)
+    }
+
+    #[tool(
+        description = "Return the most recent commits of the git repository at the configured \
+                       root, newest first, one `<short oid><TAB><UTC date><TAB><author \
+                       name><TAB><summary>` line each. `count` names how many and must be between \
+                       1 and 50. Only each commit's summary line is returned, never its body."
+    )]
+    pub fn git_log(&self, params: Parameters<LogParams>) -> Result<String, String> {
+        let count = params.0.count;
+        if count == 0 {
+            return Err("name at least one commit to return".to_string());
+        }
+        if count > LOG_COUNT_CAP {
+            return Err(format!(
+                "{count} commits is over the {LOG_COUNT_CAP}-commit log cap; ask for fewer"
+            ));
+        }
+        git::log(&self.root, count)
     }
 }
 

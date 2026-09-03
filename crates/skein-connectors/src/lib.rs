@@ -13,4 +13,7 @@ mod server;
 pub use connector::{fs_connector, LocalConnector};
 pub use fs::FsRoot;
 pub use git::is_git_repository;
-pub use server::{FsServer, ListParams, ReadParams, WriteParams, READ_BYTE_CAP};
+pub use server::{
+    FsServer, ListParams, LogParams, ReadParams, WriteParams, LOG_COUNT_CAP, READ_BYTE_CAP,
+    STATUS_ENTRY_CAP,
+};

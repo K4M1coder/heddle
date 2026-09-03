@@ -79,7 +79,38 @@ commits later — and it is the number T12 diffs against.
 
 All on 2026-09-03. Recorded verbatim.
 
-*(filled in as each step's red is observed)*
+**T3** — `cargo test -p skein-connectors --test git_root` against a `git.rs` that did not exist:
+
+```
+error[E0432]: unresolved import `skein_connectors::is_git_repository`
+```
+
+**T4** — `cargo test -p skein-connectors --test git_server`:
+
+```
+error[E0432]: unresolved imports `skein_connectors::LogParams`, `skein_connectors::LOG_COUNT_CAP`,
+`skein_connectors::STATUS_ENTRY_CAP`
+  --> crates\skein-connectors\tests\git_server.rs:19:42
+error[E0599]: no method named `git_status` found for struct `FsServer` in the current scope
+  --> crates\skein-connectors\tests\git_server.rs:93:21
+error[E0599]: no method named `git_log` found for struct `FsServer` in the current scope
+  --> crates\skein-connectors\tests\git_server.rs:97:21
+error: could not compile `skein-connectors` (test "git_server") due to 6 previous errors
+```
+
+Then, with the tools written but `Sort::TIME` alone as the plan literally named it — a **second**
+red, and a real defect rather than a test accommodation:
+
+```
+assertion `left == right` failed: newest first:
+  left: ["the third commit", "add the tracked file", "the second commit"]
+ right: ["the third commit", "the second commit", "add the tracked file"]
+```
+
+`TIME` is a date-ordered priority queue whose tie-break among commits sharing a second is
+arbitrary, and three fixture commits are written in the same second — as are rebased or scripted
+commits in real life. `Sort::TIME | Sort::TOPOLOGICAL` adds the constraint that a parent never
+precedes its child. Recorded under `## Deviations from the plan`.
 
 ## Gates (T12)
 
