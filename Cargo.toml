@@ -26,3 +26,5 @@ keyring-core = "1"
 windows-native-keyring-store = "1"
 apple-native-keyring-store = { version = "1", features = ["keychain"] }
 linux-keyutils-keyring-store = "1"
+ureq = { version = "3", default-features = false }
+http = "1"

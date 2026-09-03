@@ -100,7 +100,9 @@ impl Stub {
     fn request(&self) -> String {
         match self.requests.recv_timeout(OBSERVE_TIMEOUT) {
             Ok(raw) => raw.replace('\r', ""),
-            Err(RecvTimeoutError::Timeout) => panic!("the client sent no request within {OBSERVE_TIMEOUT:?}"),
+            Err(RecvTimeoutError::Timeout) => {
+                panic!("the client sent no request within {OBSERVE_TIMEOUT:?}")
+            }
             Err(RecvTimeoutError::Disconnected) => {
                 panic!("the stub server stopped before a request arrived")
             }
@@ -116,7 +118,6 @@ impl Stub {
             .expect("headers and body separated by a blank line");
         serde_json::from_str(body).expect("a JSON request body")
     }
-
 }
 
 /// Reads one HTTP/1.1 request: the request line, the headers, and exactly
