@@ -1,8 +1,16 @@
-//! The embedded `fs` MCP server: three tools over one [`FsRoot`].
+//! The embedded MCP server: two families of tool over one [`FsRoot`] — the
+//! filesystem tools always, and the git tools when that root is a git
+//! repository.
 //!
 //! This is the only place in the product that names MCP as a **server**.
 //! `skein-mcp` names it as a client, and the two meet over an in-process duplex
-//! in [`crate::fs_connector`] — no socket, no child process (Constitution II).
+//! in [`crate::local_connector`] — no socket, no child process (Constitution
+//! II).
+//!
+//! rmcp serves exactly one `ServerHandler` per connection, which is why a
+//! second family is more `#[tool]` methods here rather than a second connector
+//! behind a fan-out transport: that would double the tokio runtimes per ACP
+//! session to add a multiplexer with one caller.
 
 use crate::fs::FsRoot;
 use crate::git;
@@ -86,7 +94,7 @@ pub struct WriteParams {
 /// the handler; the root is behind an [`Arc`] so every clone enforces the same
 /// containment rule rather than a copy of it.
 #[derive(Clone)]
-pub struct FsServer {
+pub struct EmbeddedServer {
     root: Arc<FsRoot>,
     tool_router: ToolRouter<Self>,
 }
@@ -100,11 +108,31 @@ pub struct FsServer {
 /// act on. The alternative — failing the transport — would end the run, which
 /// would make every governed conversation one wrong path away from over.
 #[tool_router]
-impl FsServer {
+impl EmbeddedServer {
+    /// Infallible, and the git routes are gated here rather than by refusing
+    /// to build: a root that is not a repository is an ordinary, supported
+    /// configuration — it is what `--fs-root` meant before this slice existed.
+    ///
+    /// Disabling the routes makes the server advertise what it can actually
+    /// do, which is all `tools/list` has ever been, and it is why every
+    /// pre-existing advertisement assertion in the workspace stays green: each
+    /// one's fixture root is a plain directory.
+    ///
+    /// This gate is **necessary and not sufficient**. A disabled route is not
+    /// found, which rmcp reports as a protocol error, `RmcpToolTransport` maps
+    /// to `SkeinError::Tool`, and `NativeLoop::mediate` treats as fatal — so
+    /// `skein-cli`'s allowlist must omit the same two names in the same case,
+    /// turning a model's invented `git_status` into a survivable `denied`
+    /// instead of the end of the run.
     pub fn new(root: FsRoot) -> Self {
-        FsServer {
+        let mut tool_router = Self::tool_router();
+        if !git::is_git_repository(&root) {
+            tool_router.disable_route("git_status");
+            tool_router.disable_route("git_log");
+        }
+        EmbeddedServer {
             root: Arc::new(root),
-            tool_router: Self::tool_router(),
+            tool_router,
         }
     }
 
@@ -194,11 +222,13 @@ impl FsServer {
 }
 
 #[tool_handler(router = self.tool_router)]
-impl ServerHandler for FsServer {
+impl ServerHandler for EmbeddedServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
-            "Skein's embedded filesystem connector. Every path is relative to one operator-named \
-             root and nothing outside it is reachable.",
+            "Skein's embedded connector over one operator-named root. Every filesystem path is \
+             relative to that root and nothing outside it is reachable. The git tools, when they \
+             are offered at all, report on the git repository at exactly that root and take no \
+             path arguments; when the root is not a repository they are not offered.",
         )
     }
 }

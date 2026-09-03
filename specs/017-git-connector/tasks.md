@@ -112,6 +112,27 @@ arbitrary, and three fixture commits are written in the same second — as are r
 commits in real life. `Sort::TIME | Sort::TOPOLOGICAL` adds the constraint that a parent never
 precedes its child. Recorded under `## Deviations from the plan`.
 
+**T5** — the gate's red arrived twice, and the second half is the one that matters. First the
+rename, from `cargo test -p skein-connectors --test connector`:
+
+```
+error[E0432]: unresolved import `skein_connectors::local_connector`
+  --> crates\skein-connectors\tests\connector.rs:10:24
+```
+
+And before it, from T4's own green: the **pre-existing** three-tool catalogue test failed, because
+the new tools were advertised unconditionally:
+
+```
+---- the_connector_lists_the_three_tools_with_their_derived_schemas stdout ----
+assertion `left == right` failed
+  left: ["fs_list", "fs_read", "fs_write", "git_log", "git_status"]
+ right: ["fs_list", "fs_read", "fs_write"]
+```
+
+That is exactly the failure SC-012 makes a stop condition, and the two `disable_route` calls are
+what answer it. Its assertions were **not** changed; only its import line moved.
+
 ## Gates (T12)
 
 *(filled in at close-out)*

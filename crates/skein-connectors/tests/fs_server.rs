@@ -7,13 +7,15 @@
 //! arrives that way is `governed_fs_run.rs`.
 
 use rmcp::handler::server::wrapper::Parameters;
-use skein_connectors::{FsRoot, FsServer, ListParams, ReadParams, WriteParams, READ_BYTE_CAP};
+use skein_connectors::{
+    EmbeddedServer, FsRoot, ListParams, ReadParams, WriteParams, READ_BYTE_CAP,
+};
 use tempfile::TempDir;
 
 struct Fixture {
     _dir: TempDir,
     outside: String,
-    server: FsServer,
+    server: EmbeddedServer,
 }
 
 fn fixture() -> Fixture {
@@ -27,7 +29,7 @@ fn fixture() -> Fixture {
     std::fs::write(dir.path().join("outside.txt"), "not yours").expect("a file outside the root");
 
     Fixture {
-        server: FsServer::new(FsRoot::new(&root_path).expect("a canonicalizable root")),
+        server: EmbeddedServer::new(FsRoot::new(&root_path).expect("a canonicalizable root")),
         outside: dir
             .path()
             .join("outside.txt")
@@ -38,19 +40,19 @@ fn fixture() -> Fixture {
     }
 }
 
-fn read(server: &FsServer, path: &str) -> Result<String, String> {
+fn read(server: &EmbeddedServer, path: &str) -> Result<String, String> {
     server.fs_read(Parameters(ReadParams {
         path: path.to_string(),
     }))
 }
 
-fn list(server: &FsServer, path: &str) -> Result<String, String> {
+fn list(server: &EmbeddedServer, path: &str) -> Result<String, String> {
     server.fs_list(Parameters(ListParams {
         path: path.to_string(),
     }))
 }
 
-fn write(server: &FsServer, path: &str, content: &str) -> Result<String, String> {
+fn write(server: &EmbeddedServer, path: &str, content: &str) -> Result<String, String> {
     server.fs_write(Parameters(WriteParams {
         path: path.to_string(),
         content: content.to_string(),

@@ -10,10 +10,10 @@ mod fs;
 mod git;
 mod server;
 
-pub use connector::{fs_connector, LocalConnector};
+pub use connector::{local_connector, LocalConnector};
 pub use fs::FsRoot;
 pub use git::is_git_repository;
 pub use server::{
-    FsServer, ListParams, LogParams, ReadParams, WriteParams, LOG_COUNT_CAP, READ_BYTE_CAP,
+    EmbeddedServer, ListParams, LogParams, ReadParams, WriteParams, LOG_COUNT_CAP, READ_BYTE_CAP,
     STATUS_ENTRY_CAP,
 };

@@ -8,7 +8,7 @@
 //! NON-NEGOTIABLE).
 
 use crate::fs::FsRoot;
-use crate::server::FsServer;
+use crate::server::EmbeddedServer;
 use rmcp::ServiceExt;
 use skein_core::{Result, SkeinError, ToolCall, ToolOutcome, ToolSpec, ToolTransport};
 use skein_mcp::RmcpToolTransport;
@@ -38,16 +38,16 @@ pub struct LocalConnector {
     _runtime: Runtime,
 }
 
-/// One [`FsServer`] over `root`, connected in-process.
+/// One [`EmbeddedServer`] over `root`, connected in-process.
 ///
 /// The server gets its **own** runtime rather than sharing the client's,
 /// because the client's is inside `RmcpToolTransport` and is occupied blocking
 /// on each call; a server task on it could not answer.
-pub fn fs_connector(root: FsRoot) -> Result<LocalConnector> {
+pub fn local_connector(root: FsRoot) -> Result<LocalConnector> {
     let runtime = Runtime::new().map_err(|e| SkeinError::Tool(e.to_string()))?;
     let (server_side, client_side) = runtime.block_on(async { tokio::io::duplex(DUPLEX_BUFFER) });
 
-    let server = FsServer::new(root);
+    let server = EmbeddedServer::new(root);
     runtime.spawn(async move {
         if let Ok(running) = server.serve(server_side).await {
             let _ = running.waiting().await;

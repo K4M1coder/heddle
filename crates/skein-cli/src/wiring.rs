@@ -7,7 +7,7 @@
 //! talk to" — is NON-NEGOTIABLE, so there is exactly one.
 
 use clap::Args;
-use skein_connectors::{fs_connector, FsRoot, LocalConnector};
+use skein_connectors::{local_connector, FsRoot, LocalConnector};
 use skein_core::{
     LoopBudget, ProgressProbe, Redactor, Result, SecretRef, SkeinError, ToolAccess, ToolCall,
     ToolOutcome, ToolPolicy, ToolSpec, ToolTransport,
@@ -178,9 +178,9 @@ impl ToolArgs {
     /// [`LocalConnector`]'s docstring.
     pub fn transport(&self) -> Result<ConfiguredTools> {
         match &self.fs_root {
-            Some(path) => Ok(ConfiguredTools::Fs(Box::new(fs_connector(FsRoot::new(
-                path,
-            )?)?))),
+            Some(path) => Ok(ConfiguredTools::Fs(Box::new(local_connector(
+                FsRoot::new(path)?,
+            )?))),
             None => Ok(ConfiguredTools::None),
         }
     }

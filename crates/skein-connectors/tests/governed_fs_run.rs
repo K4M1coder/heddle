@@ -5,13 +5,13 @@
 //! test and a test that needed Ollama could not run in CI. Everything else is
 //! the shipped article: a real socket serving OpenAI chat-completions bytes, the
 //! real `OpenAiCompatClient`, the real `NativeLoop`, the real `ToolGateway` with
-//! a real `ToolPolicy`, the real `LocalConnector`, and the real `FsServer`
+//! a real `ToolPolicy`, the real `LocalConnector`, and the real `EmbeddedServer`
 //! reading a real file off disk. This crate is the only one that can see all of
 //! them at once, which is why the test lives here.
 //!
 //! Plain `#[test]`: the connector owns a runtime and blocks on it.
 
-use skein_connectors::{fs_connector, FsRoot, LocalConnector};
+use skein_connectors::{local_connector, FsRoot, LocalConnector};
 use skein_core::{
     Ledger, LoopBudget, LoopController, Message, NativeLoop, ProgressProbe, Redactor, StepKind,
     ToolAccess, ToolGateway, ToolPolicy, TurnRequest,
@@ -199,7 +199,7 @@ fn harness(files: &[(&str, &str)]) -> Harness {
     }
 
     Harness {
-        connector: fs_connector(FsRoot::new(&root).expect("a canonicalizable root"))
+        connector: local_connector(FsRoot::new(&root).expect("a canonicalizable root"))
             .expect("the embedded server starts"),
         root,
         _dir: dir,

@@ -16,7 +16,7 @@
 use git2::{Repository, Signature};
 use rmcp::handler::server::wrapper::Parameters;
 use skein_connectors::{
-    is_git_repository, FsRoot, FsServer, LogParams, LOG_COUNT_CAP, STATUS_ENTRY_CAP,
+    is_git_repository, EmbeddedServer, FsRoot, LogParams, LOG_COUNT_CAP, STATUS_ENTRY_CAP,
 };
 use std::path::Path;
 use tempfile::TempDir;
@@ -28,7 +28,7 @@ const BRANCH: &str = "work";
 struct Fixture {
     dir: TempDir,
     repo: Repository,
-    server: FsServer,
+    server: EmbeddedServer,
 }
 
 /// An empty repository on [`BRANCH`], with no commit yet.
@@ -38,7 +38,7 @@ fn unborn() -> Fixture {
     repo.set_head(&format!("refs/heads/{BRANCH}"))
         .expect("HEAD names the fixture's branch");
     Fixture {
-        server: FsServer::new(FsRoot::new(dir.path()).expect("a canonicalizable root")),
+        server: EmbeddedServer::new(FsRoot::new(dir.path()).expect("a canonicalizable root")),
         repo,
         dir,
     }
@@ -362,7 +362,7 @@ fn a_root_inside_a_repository_is_refused_by_the_server_and_leaks_nothing() {
     let sub = repo_path.join("sub");
     std::fs::create_dir(&sub).expect("a subdirectory of the repository");
     let root = FsRoot::new(&sub).expect("a canonicalizable root");
-    let server = FsServer::new(root);
+    let server = EmbeddedServer::new(root);
 
     // The refusal happens at the layer the model reaches, not only at
     // `is_git_repository` — and the two must agree, because one is the server's
@@ -413,7 +413,7 @@ fn a_repository_whose_worktree_is_outside_the_root_is_refused_by_the_server() {
         .expect("the repository config opens")
         .set_str("core.worktree", target.trim_start_matches("//?/"))
         .expect("core.worktree is set");
-    let server = FsServer::new(FsRoot::new(&root_path).expect("a canonicalizable root"));
+    let server = EmbeddedServer::new(FsRoot::new(&root_path).expect("a canonicalizable root"));
 
     let refusal = server
         .git_status()

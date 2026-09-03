@@ -13,7 +13,7 @@ use std::path::{Component, Path, PathBuf};
 /// Every path a model asks for is resolved through this type, and a resolution
 /// either lands inside the root or is refused. The refusal is a `String`
 /// because it is told to the model: the far end turns it into a tool-level
-/// error rather than a transport failure (see [`crate::FsServer`]).
+/// error rather than a transport failure (see [`crate::EmbeddedServer`]).
 ///
 /// **Residual, recorded rather than hidden:** there is a TOCTOU window between
 /// the `canonicalize` below and the `File::open` that follows it — a symlink
