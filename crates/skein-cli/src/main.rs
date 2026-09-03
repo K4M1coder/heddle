@@ -15,6 +15,7 @@
 mod chat;
 mod ledger;
 mod secret;
+mod wiring;
 
 use clap::{Args, Parser, Subcommand};
 use skein_core::{Result, SkeinError};
@@ -83,34 +84,17 @@ impl SiloArgs {
     }
 }
 
-/// The knobs `skein chat` needs beyond the silo. Every budget flag maps onto one
-/// `LoopBudget` field, so the CLI names the engine's policy and does not invent
-/// its own.
+/// The knobs `skein chat` needs beyond the silo and the model.
 #[derive(Args)]
 pub struct ChatArgs {
-    /// Model name as the local provider knows it. Required: defaulting to a
-    /// model the machine may not have produces a 404 that looks like a bug.
-    #[arg(long, value_name = "NAME")]
-    model: String,
-    /// OpenAI-compatible base URL. Defaults to $SKEIN_MODEL_BASE_URL, else
-    /// http://localhost:11434/v1. Loopback only.
-    #[arg(long, value_name = "URL")]
-    base_url: Option<String>,
+    #[command(flatten)]
+    model: wiring::ModelArgs,
     /// The prompt. Omitted, it is read from stdin to EOF.
     #[arg(long, value_name = "TEXT")]
     prompt: Option<String>,
     /// Run id to record under. Defaults to chat-{unix_millis}-{pid}.
     #[arg(long, value_name = "ID")]
     run_id: Option<String>,
-    #[arg(long, value_name = "N", default_value_t = 8)]
-    max_iters: u32,
-    #[arg(long, value_name = "N", default_value_t = 100_000)]
-    max_tokens: u64,
-    #[arg(long, value_name = "N", default_value_t = 8)]
-    no_progress_limit: u32,
-    /// Whole-request budget for one turn.
-    #[arg(long, value_name = "S", default_value_t = 120)]
-    timeout_secs: u64,
 }
 
 #[derive(Subcommand)]

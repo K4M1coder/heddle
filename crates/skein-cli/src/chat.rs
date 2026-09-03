@@ -10,31 +10,22 @@
 //! a run the engine stopped prints nothing at all rather than an empty answer
 //! that looks like an answer.
 
+use crate::wiring::{NoGroundTruth, NoTools};
 use crate::{ChatArgs, SiloArgs};
 use skein_core::{
-    Exit, LoopBudget, LoopController, Message, NativeLoop, ProgressProbe, Redactor, Result,
-    SkeinError, ToolCall, ToolGateway, ToolOutcome, ToolPolicy, ToolTransport,
+    Exit, LoopController, Message, NativeLoop, Redactor, Result, SkeinError, ToolGateway,
+    ToolPolicy,
 };
-use skein_gateway::{LocalEndpoint, OpenAiCompatClient};
 use skein_silo::Silo;
 use std::io::Read;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-/// Ollama's own OpenAI-compatible endpoint, which `scripts/bootstrap.ps1
-/// -WithOllama` installs. A LiteLLM sidecar is a different `--base-url` and no
-/// code change.
-const DEFAULT_BASE_URL: &str = "http://localhost:11434/v1";
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn chat(silo: &SiloArgs, args: &ChatArgs) -> Result<()> {
     // Before the silo is touched, so a refused endpoint opens no chain: an
     // endpoint that cannot be built is an endpoint no socket was opened to, and
     // a silo with a one-step run in it would be a misleading record of an
     // attempt that never left the process.
-    let base_url = match &args.base_url {
-        Some(url) => url.clone(),
-        None => std::env::var("SKEIN_MODEL_BASE_URL").unwrap_or_else(|_| DEFAULT_BASE_URL.into()),
-    };
-    let endpoint = LocalEndpoint::parse(&base_url)?;
+    let endpoint = args.model.endpoint()?;
     let prompt = prompt(args.prompt.as_deref())?;
 
     let run_id = match &args.run_id {
@@ -42,17 +33,9 @@ pub fn chat(silo: &SiloArgs, args: &ChatArgs) -> Result<()> {
         None => minted_run_id(),
     };
     let mut ledger = Silo::open(silo.root()?, &silo.silo)?.ledger()?;
-    let mut controller = LoopController::new(LoopBudget::new(
-        args.max_iters,
-        args.max_tokens,
-        args.no_progress_limit,
-    ));
+    let mut controller = LoopController::new(args.model.budget());
     let mut loops = NativeLoop::new(
-        OpenAiCompatClient::new(
-            endpoint,
-            &args.model,
-            Duration::from_secs(args.timeout_secs),
-        ),
+        args.model.client(endpoint),
         NoGroundTruth,
         ToolGateway::new(
             NoTools,
@@ -115,33 +98,4 @@ fn minted_run_id() -> String {
         .map(|d| d.as_millis())
         .unwrap_or_default();
     format!("chat-{millis}-{}", std::process::id())
-}
-
-/// A chat with no tools has **no external ground truth**, and Constitution
-/// VIII(b) forbids substituting the model's own judgment for one. So every
-/// iteration is stale, and a model that never finishes is stopped by the
-/// no-progress budget.
-///
-/// In the normal case this never bites: `should_exit` checks `final_output`
-/// first, and a tool-less turn returns `finish_reason: "stop"` on iteration 1.
-struct NoGroundTruth;
-
-impl ProgressProbe for NoGroundTruth {
-    fn observe(&mut self) -> bool {
-        false
-    }
-}
-
-/// Unreachable by construction: paired with an empty [`ToolPolicy`], every tool
-/// name is refused before the transport is consulted. It exists because
-/// `NativeLoop` is generic over a transport, not because a tool could run.
-struct NoTools;
-
-impl ToolTransport for NoTools {
-    fn call(&mut self, call: &ToolCall) -> Result<ToolOutcome> {
-        Err(SkeinError::Tool(format!(
-            "no tool server is configured in `skein chat`: {} was not called",
-            call.tool
-        )))
-    }
 }
