@@ -9,6 +9,7 @@
 //!
 //! No test here needs a running Ollama.
 
+use git2::{Repository, Signature};
 use skein_core::SecretRef;
 use skein_silo::{OsKeychain, Silo};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -833,4 +834,139 @@ fn chat_refuses_an_fs_root_that_does_not_exist_before_opening_a_chain() {
             .exists(),
         "a refused fs root must not open a chain"
     );
+}
+
+/// A directory that **is** a git repository, with one commit and one untracked
+/// file, for `--fs-root` to be pointed at.
+///
+/// Built through `git2` rather than by shelling out, so no test depends on a
+/// `git` binary being on `PATH` — and `HEAD` names `work` before the first
+/// commit, so the `## <branch>` assertion does not silently depend on the
+/// machine's `init.defaultBranch`.
+fn fs_root_that_is_a_repository() -> (TempDir, String) {
+    let dir = TempDir::new().expect("a temp fs root");
+    let repo = Repository::init(dir.path()).expect("a repository is initialised");
+    repo.set_head("refs/heads/work")
+        .expect("HEAD names the fixture's branch");
+    std::fs::write(dir.path().join("tracked.txt"), "committed\n").expect("a file to commit");
+    let mut index = repo.index().expect("the index opens");
+    index
+        .add_path(Path::new("tracked.txt"))
+        .expect("the path is staged");
+    index.write().expect("the index is written");
+    let tree = repo
+        .find_tree(index.write_tree().expect("the index writes a tree"))
+        .expect("the tree is found");
+    let who = Signature::now("Fixture Author", "fixture@example.invalid").expect("a signature");
+    repo.commit(Some("HEAD"), &who, &who, "the only commit", &tree, &[])
+        .expect("the commit is written");
+    std::fs::write(dir.path().join("notes.txt"), "untracked\n").expect("an untracked file");
+
+    let path = dir.path().to_str().expect("a utf-8 temp path").to_string();
+    (dir, path)
+}
+
+#[test]
+fn chat_with_an_fs_root_that_is_a_git_repository_advertises_the_git_tools_and_reports_real_status()
+{
+    let provider = StubProvider::serving(vec![
+        tool_call_reply("git_status", serde_json::json!({})),
+        reply("notes.txt is untracked", "stop", 9),
+    ]);
+    let (_dir, root) = temp_root();
+    let (_repo, fs_root) = fs_root_that_is_a_repository();
+
+    let out = skein(&[
+        "chat",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "nu",
+        "--model",
+        "llama3.1",
+        "--base-url",
+        &provider.base_url,
+        "--fs-root",
+        &fs_root,
+        "--prompt",
+        "what has changed in this repository?",
+    ]);
+
+    assert_eq!(out.status.code(), Some(0), "stderr:\n{}", stderr(&out));
+    assert_eq!(stdout(&out), "notes.txt is untracked\n");
+
+    // Five names, in allowlist order, and only because the root is a
+    // repository — the pre-existing two-name assertion above uses a plain
+    // directory and is untouched.
+    let first = provider.request_body();
+    let advertised = first["tools"]
+        .as_array()
+        .unwrap_or_else(|| panic!("the first request must carry a tools array: {first}"));
+    assert_eq!(
+        advertised
+            .iter()
+            .map(|t| t["function"]["name"].as_str().expect("a tool name"))
+            .collect::<Vec<_>>(),
+        vec!["fs_read", "fs_list", "git_status", "git_log"]
+    );
+    assert_eq!(
+        advertised[2]["function"]["parameters"]["properties"],
+        serde_json::json!({}),
+        "`git_status` is advertised with nothing to fill in: {first}"
+    );
+
+    // And the repository really was read, by the shipped binary, off disk.
+    let second = provider.request_body();
+    let told = last_message(&second);
+    assert!(
+        told.starts_with("[tool_result tool=git_status status=ok]")
+            && told.contains("## work")
+            && told.contains("??\\tnotes.txt"),
+        "{told}"
+    );
+
+    let run_id = reported_run_id(&out);
+    let log = skein(&[
+        "ledger",
+        "log",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "nu",
+        "--run",
+        &run_id,
+    ]);
+    let kinds: Vec<String> = stdout(&log)
+        .lines()
+        .map(|l| l.split('\t').nth(2).expect("a kind column").to_string())
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![
+            "iteration_boundary",
+            "llm_request",
+            "llm_response",
+            "budget_spent",
+            "tool_call",
+            "approval",
+            "tool_result",
+            "iteration_boundary",
+            "llm_request",
+            "llm_response",
+            "budget_spent",
+            "exit"
+        ]
+    );
+
+    let verify = skein(&[
+        "ledger",
+        "verify",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "nu",
+        "--run",
+        &run_id,
+    ]);
+    assert_eq!(stdout(&verify), format!("{run_id}\tok\t12 steps\n"));
 }

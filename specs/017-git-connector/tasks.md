@@ -164,6 +164,20 @@ So the `isError: true` the test asserts is genuinely produced by the crafted val
 the typed boundary, and not by anything the harness would have said anyway. Both were restored
 verbatim afterwards and both are green.
 
+**T9, T10** — one red for both, because `skein-cli` has no `lib` target and its policies are only
+observable through the shipped binary. From `cargo test -p skein-cli --test cli_chat`:
+
+```
+---- chat_with_an_fs_root_that_is_a_git_repository_advertises_the_git_tools_and_reports_real_status
+stdout ----
+assertion `left == right` failed
+  left: ["fs_read", "fs_list"]
+ right: ["fs_read", "fs_list", "git_status", "git_log"]
+```
+
+The server was already offering both git tools over that root; the allowlist was what withheld
+them. `ToolArgs::git_tools` is what answers it, appended by both `chat_policy` and `agent_policy`.
+
 ## Gates (T12)
 
 *(filled in at close-out)*

@@ -17,6 +17,7 @@ use agent_client_protocol::schema::v1::{
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{AcpAgent, AcpAgentConfig, Agent, Client, ConnectionTo};
+use git2::{Repository, Signature};
 use skein_silo::Silo;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -570,5 +571,92 @@ fn acp_agent_documents_the_fs_root_flag() {
         stdout(&help).contains("--fs-root"),
         "an opt-in capability an operator cannot discover is not opt-in, got:\n{}",
         stdout(&help)
+    );
+}
+
+// ---- the git connector (spec 017) ----
+
+#[test]
+fn acp_agent_over_a_git_repository_advertises_the_git_tools_too() {
+    let provider = StubProvider::serving(vec![reply("nothing has changed", "stop", 11)]);
+    let (_dir, root) = temp_root();
+    let files = TempDir::new().expect("a temp fs root");
+    let repo = Repository::init(files.path()).expect("a repository is initialised");
+    std::fs::write(files.path().join("tracked.txt"), "committed\n").expect("a file to commit");
+    let mut index = repo.index().expect("the index opens");
+    index
+        .add_path(Path::new("tracked.txt"))
+        .expect("the path is staged");
+    index.write().expect("the index is written");
+    let tree = repo
+        .find_tree(index.write_tree().expect("the index writes a tree"))
+        .expect("the tree is found");
+    let who = Signature::now("Fixture Author", "fixture@example.invalid").expect("a signature");
+    repo.commit(Some("HEAD"), &who, &who, "the only commit", &tree, &[])
+        .expect("the commit is written");
+
+    let root_flag = root_arg(&root);
+    let fs_root_flag = root_arg(files.path());
+
+    // `skein-cli` has no `lib` target, so `agent_policy` is observable through
+    // nothing but the binary: this is the only way to prove the ACP command's
+    // allowlist gained the git names alongside `skein chat`'s.
+    let transport = AcpAgent::new(AcpAgentConfig::new(env!("CARGO_BIN_EXE_skein")).args([
+        "acp-agent",
+        "--root",
+        &root_flag,
+        "--silo",
+        "psi",
+        "--model",
+        "llama3.1",
+        "--base-url",
+        &provider.base_url,
+        "--fs-root",
+        &fs_root_flag,
+        "--timeout-secs",
+        "10",
+    ]));
+
+    let stop = run_with_timeout(move || {
+        futures::executor::block_on(Client.builder().name("test-client").connect_with(
+            transport,
+            async move |cx: ConnectionTo<Agent>| {
+                cx.send_request(InitializeRequest::new(ProtocolVersion::V1))
+                    .block_task()
+                    .await?;
+                let session = cx
+                    .send_request(NewSessionRequest::new(PathBuf::from(".")))
+                    .block_task()
+                    .await?;
+                let response = cx
+                    .send_request(PromptRequest::new(
+                        session.session_id,
+                        vec![ContentBlock::Text(TextContent::new(
+                            "what has changed in this repository?",
+                        ))],
+                    ))
+                    .block_task()
+                    .await?;
+                Ok(response.stop_reason)
+            },
+        ))
+        .expect("the ACP client ran to completion")
+    });
+
+    assert_eq!(stop, StopReason::EndTurn);
+
+    // `fs_write` keeps its place and the git names are appended: both tools are
+    // `ReadOnly`, so there is no `fs_write`-style approval asymmetry to make —
+    // this slice built nothing to confirm.
+    let body = provider.request_body();
+    let advertised: Vec<&str> = body["tools"]
+        .as_array()
+        .unwrap_or_else(|| panic!("the request must carry a tools array: {body}"))
+        .iter()
+        .map(|t| t["function"]["name"].as_str().expect("a tool name"))
+        .collect();
+    assert_eq!(
+        advertised,
+        vec!["fs_read", "fs_list", "fs_write", "git_status", "git_log"]
     );
 }

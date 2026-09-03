@@ -7,7 +7,7 @@
 //! talk to" — is NON-NEGOTIABLE, so there is exactly one.
 
 use clap::Args;
-use skein_connectors::{local_connector, FsRoot, LocalConnector};
+use skein_connectors::{is_git_repository, local_connector, FsRoot, LocalConnector};
 use skein_core::{
     LoopBudget, ProgressProbe, Redactor, Result, SecretRef, SkeinError, ToolAccess, ToolCall,
     ToolOutcome, ToolPolicy, ToolSpec, ToolTransport,
@@ -145,9 +145,10 @@ impl ToolTransport for NoTools {
 /// not: what an agent may touch is run-governance, not a model knob.
 #[derive(Args)]
 pub struct ToolArgs {
-    /// Directory the fs tools may work inside. Absent, the run has no tools at
-    /// all — every path outside it is unreachable, and so is every path when no
-    /// root is named.
+    /// The one directory an agent may work in: the filesystem tools always,
+    /// and the git tools when that directory is a git repository. Absent, the
+    /// run has no tools at all — every path outside it is unreachable, and so
+    /// is every path when no root is named.
     #[arg(long, value_name = "PATH")]
     pub fs_root: Option<PathBuf>,
 }
@@ -185,8 +186,7 @@ impl ToolArgs {
         }
     }
 
-    /// `skein chat`'s allowlist: the two read-only tools, and **not**
-    /// `fs_write`.
+    /// `skein chat`'s allowlist: the read-only tools, and **not** `fs_write`.
     ///
     /// The omission is the decision. Constitution VI requires confirmation for
     /// a destructive action and this command is non-interactive, so there is
@@ -195,7 +195,9 @@ impl ToolArgs {
     /// unlisted tool, refused by the policy before the transport is consulted
     /// and with a reason the model is told.
     pub fn chat_policy(&self) -> ToolPolicy {
-        self.policy(read_only(), Vec::new())
+        let mut allowed = read_only();
+        allowed.extend(self.git_tools());
+        self.policy(allowed, Vec::new())
     }
 
     /// `skein acp-agent`'s allowlist: the same two, plus `fs_write` — which is
@@ -209,7 +211,44 @@ impl ToolArgs {
     pub fn agent_policy(&self) -> ToolPolicy {
         let mut allowed = read_only();
         allowed.push(("fs_write".to_string(), ToolAccess::Mutating));
+        allowed.extend(self.git_tools());
         self.policy(allowed, vec!["fs_write".to_string()])
+    }
+
+    /// The two git tools when the configured root is a git repository, and
+    /// nothing otherwise.
+    ///
+    /// Both commands append the same pair: both tools are `ReadOnly` because
+    /// neither mutates anything, so there is no `fs_write`-style approval
+    /// asymmetry to make — this slice built nothing to confirm.
+    ///
+    /// **Omitting the names is what keeps a run alive, not what protects the
+    /// repository.** `EmbeddedServer` already disables both routes in exactly
+    /// this case, but a disabled route is *not found*, which rmcp reports as a
+    /// protocol error, `RmcpToolTransport` maps to `SkeinError::Tool`, and
+    /// `NativeLoop::mediate` treats as fatal. Leaving the names off the
+    /// allowlist turns a model's invented `git_status` into a survivable
+    /// `denied` with a reason, which is what [`ToolArgs::policy`] below already
+    /// demands for the no-root case.
+    ///
+    /// Swallowing a bad root here is safe and deliberate: `transport()` and
+    /// `verify_root()` have already failed loudly on a mistyped `--fs-root`
+    /// earlier in both commands' documented ordering, so this can never be the
+    /// thing that hides an operator's typo.
+    fn git_tools(&self) -> Vec<(String, ToolAccess)> {
+        let is_repository = self
+            .fs_root
+            .as_ref()
+            .and_then(|path| FsRoot::new(path).ok())
+            .is_some_and(|root| is_git_repository(&root));
+        if is_repository {
+            vec![
+                ("git_status".to_string(), ToolAccess::ReadOnly),
+                ("git_log".to_string(), ToolAccess::ReadOnly),
+            ]
+        } else {
+            Vec::new()
+        }
     }
 
     /// Deny-by-default when no root is configured, and this is **not**

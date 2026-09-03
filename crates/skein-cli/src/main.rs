@@ -12,9 +12,11 @@
 //! the same loopback-only provider through the same `wiring::ModelArgs`, and
 //! both record every run on the silo's chain.
 //!
-//! Both also take `--fs-root`, which is the only way either of them gains a
-//! tool. It is opt-in, and the two commands allowlist **different** tools
-//! behind it: `wiring::ToolArgs` holds the reason.
+//! Both also take `--fs-root` — the one directory an agent may work in, and the
+//! only way either command gains a tool. It is opt-in, and it names two
+//! families: the filesystem tools always, and the git tools when that
+//! directory is a git repository. The two commands allowlist **different**
+//! tools behind it: `wiring::ToolArgs` holds the reason.
 
 mod acp;
 mod chat;
