@@ -1,6 +1,8 @@
 //! Event-sourced Ledger (design §4.11): append-only, hash-chained steps that
 //! capture exact model I/O, tool calls, and state — inspectable & tamper-evident.
-//! v0 is in-memory; a durable silo-backed store lands with persistence.
+//! The chain is held in memory and, when a [`LedgerStore`] is supplied, written
+//! through to a durable silo backing it — one hash function and one chaining
+//! rule for both shapes.
 
 use crate::error::{Result, SkeinError};
 use serde::{Deserialize, Serialize};
@@ -43,18 +45,56 @@ fn hash(parent: Option<&str>, run_id: &str, seq: u64, kind: &StepKind, payload: 
     format!("{:x}", h.finalize())
 }
 
+/// A durable backing for the chain (design §4.8: the silo). The core never
+/// names a database: a store arrives already opened, so `skein-core` keeps its
+/// dependency list to four crates and Constitution IV holds by construction.
+///
+/// `Send` because a `Ledger` crosses to a worker thread — `skein-acp` runs each
+/// prompt on one.
+pub trait LedgerStore: Send {
+    /// Persist one already-hashed step. Must be append-only.
+    fn append(&mut self, step: &Step) -> Result<()>;
+    /// Every step this store holds, in original append order across all runs.
+    fn load(&self) -> Result<Vec<Step>>;
+}
+
 #[derive(Default)]
 pub struct Ledger {
+    /// The read model. Reads never touch the store, so `log`/`show` stay
+    /// infallible and borrow-returning whichever shape the chain has.
     steps: Vec<Step>,
+    store: Option<Box<dyn LedgerStore>>,
 }
 
 impl Ledger {
+    /// An in-memory chain with no durable backing.
     pub fn new() -> Self {
-        Ledger { steps: Vec::new() }
+        Ledger {
+            steps: Vec::new(),
+            store: None,
+        }
+    }
+
+    /// A chain backed by `store`, resuming whatever the store already holds.
+    pub fn open(store: Box<dyn LedgerStore>) -> Result<Self> {
+        Ok(Ledger {
+            steps: store.load()?,
+            store: Some(store),
+        })
     }
 
     /// Append a step for `run_id`; returns its content-chained id.
-    pub fn append(&mut self, run_id: &str, kind: StepKind, payload: impl Into<String>) -> String {
+    ///
+    /// The step is persisted *before* it is mirrored, and `seq`/`parent` are
+    /// derived from the mirror. So a store that refuses leaves the chain exactly
+    /// where it was: the next append recomputes the same step rather than
+    /// silently skipping a sequence number.
+    pub fn append(
+        &mut self,
+        run_id: &str,
+        kind: StepKind,
+        payload: impl Into<String>,
+    ) -> Result<String> {
         let payload = payload.into();
         let parent = self
             .steps
@@ -64,15 +104,19 @@ impl Ledger {
             .map(|s| s.id.clone());
         let seq = self.steps.iter().filter(|s| s.run_id == run_id).count() as u64;
         let id = hash(parent.as_deref(), run_id, seq, &kind, &payload);
-        self.steps.push(Step {
+        let step = Step {
             id: id.clone(),
             parent,
             seq,
             run_id: run_id.to_string(),
             kind,
             payload,
-        });
-        id
+        };
+        if let Some(store) = self.store.as_mut() {
+            store.append(&step)?;
+        }
+        self.steps.push(step);
+        Ok(id)
     }
 
     /// All steps of a run, in order.

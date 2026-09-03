@@ -757,33 +757,45 @@ fn x1_cancellable_model_stops_delegating_once_the_flag_is_set() {
 fn u1_project_updates_maps_each_ledger_step_kind() {
     let mut ledger = Ledger::new();
     let run_id = "s#1";
-    ledger.append(run_id, StepKind::IterationBoundary, "1");
-    ledger.append(
-        run_id,
-        StepKind::LlmResponse,
-        serde_json::to_string(&finishes("hello")).unwrap(),
-    );
-    ledger.append(
-        run_id,
-        StepKind::ToolCall,
-        serde_json::to_string(&ToolCall::new("read_file", serde_json::json!({}))).unwrap(),
-    );
-    ledger.append(
-        run_id,
-        StepKind::Approval,
-        serde_json::json!({"tool": "read_file", "decision": "allowed", "reason": "allowed, read-only"})
-            .to_string(),
-    );
-    ledger.append(
-        run_id,
-        StepKind::ToolResult,
-        serde_json::to_string(&CapturedResult {
-            tool: "read_file".into(),
-            content: "token ***".into(),
-        })
-        .unwrap(),
-    );
-    ledger.append(run_id, StepKind::Exit, "FinalOutput");
+    ledger
+        .append(run_id, StepKind::IterationBoundary, "1")
+        .unwrap();
+    ledger
+        .append(
+            run_id,
+            StepKind::LlmResponse,
+            serde_json::to_string(&finishes("hello")).unwrap(),
+        )
+        .unwrap();
+    ledger
+        .append(
+            run_id,
+            StepKind::ToolCall,
+            serde_json::to_string(&ToolCall::new("read_file", serde_json::json!({}))).unwrap(),
+        )
+        .unwrap();
+    ledger
+        .append(
+            run_id,
+            StepKind::Approval,
+            serde_json::json!({"tool": "read_file", "decision": "allowed", "reason": "allowed, read-only"})
+                .to_string(),
+        )
+        .unwrap();
+    ledger
+        .append(
+            run_id,
+            StepKind::ToolResult,
+            serde_json::to_string(&CapturedResult {
+                tool: "read_file".into(),
+                content: "token ***".into(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+    ledger
+        .append(run_id, StepKind::Exit, "FinalOutput")
+        .unwrap();
 
     let updates = project_updates(&ledger, run_id);
     assert_eq!(updates.len(), 4, "boundary and exit steps emit nothing");

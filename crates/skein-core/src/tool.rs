@@ -190,7 +190,7 @@ impl<T: ToolTransport> ToolGateway<T> {
             tool: call.tool.clone(),
             args: self.redactor.redact_value(&call.args),
         };
-        ledger.append(run_id, StepKind::ToolCall, serde_json::to_string(&attempt)?);
+        ledger.append(run_id, StepKind::ToolCall, serde_json::to_string(&attempt)?)?;
 
         let decision = self.policy.decide(&call.tool);
         let (verdict, reason) = match &decision {
@@ -202,7 +202,7 @@ impl<T: ToolTransport> ToolGateway<T> {
             decision: verdict.to_string(),
             reason: reason.clone(),
         };
-        ledger.append(run_id, StepKind::Approval, serde_json::to_string(&record)?);
+        ledger.append(run_id, StepKind::Approval, serde_json::to_string(&record)?)?;
 
         if let Decision::Deny { .. } = decision {
             return Err(SkeinError::ToolDenied {
@@ -222,7 +222,7 @@ impl<T: ToolTransport> ToolGateway<T> {
             run_id,
             StepKind::ToolResult,
             serde_json::to_string(&captured)?,
-        );
+        )?;
         Ok((outcome, captured))
     }
 }

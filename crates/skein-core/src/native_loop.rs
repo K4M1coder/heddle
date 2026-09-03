@@ -57,7 +57,7 @@ impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> NativeLoop<C, P, T> {
         // Checked before the first call, so "the budget is enforced before it is
         // spent" is structural rather than a matter of turn ordering.
         if let Some(exit) = ctl.should_exit(false) {
-            return Ok(terminate(ledger, run_id, exit, None));
+            return terminate(ledger, run_id, exit, None);
         }
 
         let mut messages = vec![prompt];
@@ -67,7 +67,7 @@ impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> NativeLoop<C, P, T> {
                 run_id,
                 StepKind::IterationBoundary,
                 (ctl.iters() + 1).to_string(),
-            );
+            )?;
 
             let req = TurnRequest {
                 run_id: run_id.to_string(),
@@ -75,11 +75,11 @@ impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> NativeLoop<C, P, T> {
             };
             // Captured before the call, so a client that errors still leaves the
             // exact request in the chain.
-            ledger.append(run_id, StepKind::LlmRequest, serde_json::to_string(&req)?);
+            ledger.append(run_id, StepKind::LlmRequest, serde_json::to_string(&req)?)?;
 
             let resp = self.client.turn(&req)?;
-            ledger.append(run_id, StepKind::LlmResponse, serde_json::to_string(&resp)?);
-            ledger.append(run_id, StepKind::BudgetSpent, resp.tokens_used.to_string());
+            ledger.append(run_id, StepKind::LlmResponse, serde_json::to_string(&resp)?)?;
+            ledger.append(run_id, StepKind::BudgetSpent, resp.tokens_used.to_string())?;
 
             // Before the probe: design §4.14 names tool results as a ground-truth
             // reflection anchor, so a probe that ran first could never see the
@@ -90,7 +90,7 @@ impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> NativeLoop<C, P, T> {
             ctl.record_iteration(resp.tokens_used, made_progress);
 
             if let Some(exit) = ctl.should_exit(resp.final_output) {
-                return Ok(terminate(ledger, run_id, exit, Some(resp.message)));
+                return terminate(ledger, run_id, exit, Some(resp.message));
             }
             messages.push(resp.message);
             messages.extend(feedback);
@@ -143,14 +143,14 @@ fn terminate(
     run_id: &str,
     exit: Exit,
     last_message: Option<Message>,
-) -> LoopRun {
-    ledger.append(run_id, StepKind::Exit, format!("{exit:?}"));
+) -> Result<LoopRun> {
+    ledger.append(run_id, StepKind::Exit, format!("{exit:?}"))?;
     let final_message = match exit {
         Exit::FinalOutput => last_message,
         _ => None,
     };
-    LoopRun {
+    Ok(LoopRun {
         exit,
         final_message,
-    }
+    })
 }

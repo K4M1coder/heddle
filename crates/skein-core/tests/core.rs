@@ -1,8 +1,8 @@
 //! skein-core v0 acceptance tests (TDD, ground-truth assertions).
 
 use skein_core::{
-    Content, Exit, Ledger, LedgerStore, LoopBudget, LoopController, Message, Role, SkeinError, Step,
-    StepKind,
+    Content, Exit, Ledger, LedgerStore, LoopBudget, LoopController, Message, Role, SkeinError,
+    Step, StepKind,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -25,9 +25,14 @@ fn message_roundtrips_and_reads_text() {
 #[test]
 fn ledger_appends_hash_chained_and_isolated_by_run() {
     let mut led = Ledger::new();
-    let a = led.append("run-a", StepKind::LlmRequest, "prompt exact");
-    let b = led.append("run-a", StepKind::LlmResponse, "raw response");
-    led.append("run-b", StepKind::LlmRequest, "other run");
+    let a = led
+        .append("run-a", StepKind::LlmRequest, "prompt exact")
+        .unwrap();
+    let b = led
+        .append("run-a", StepKind::LlmResponse, "raw response")
+        .unwrap();
+    led.append("run-b", StepKind::LlmRequest, "other run")
+        .unwrap();
 
     let log = led.log("run-a");
     assert_eq!(log.len(), 2, "run isolation: only run-a steps");
@@ -43,8 +48,9 @@ fn ledger_appends_hash_chained_and_isolated_by_run() {
 #[test]
 fn ledger_detects_tampering() {
     let mut led = Ledger::new();
-    led.append("run-t", StepKind::LlmRequest, "original");
-    led.append("run-t", StepKind::ToolCall, "call");
+    led.append("run-t", StepKind::LlmRequest, "original")
+        .unwrap();
+    led.append("run-t", StepKind::ToolCall, "call").unwrap();
     led.verify_chain("run-t").expect("intact chain verifies");
 
     // Mutate an earlier payload → the recomputed hash no longer matches.
@@ -152,13 +158,17 @@ fn ledger_open_replays_an_existing_store() {
     let log = reopened.log("run-p");
     assert_eq!(log.len(), 2, "both persisted steps are replayed");
     assert_eq!(log[1].id, second_id);
-    reopened.verify_chain("run-p").expect("replayed chain verifies");
+    reopened
+        .verify_chain("run-p")
+        .expect("replayed chain verifies");
 
     let third = reopened.append("run-p", StepKind::Exit, "done").unwrap();
     let step = reopened.show(&third).unwrap();
     assert_eq!(step.seq, 2, "the reopened chain continues");
     assert_eq!(step.parent.as_deref(), Some(second_id.as_str()));
-    reopened.verify_chain("run-p").expect("continued chain verifies");
+    reopened
+        .verify_chain("run-p")
+        .expect("continued chain verifies");
 }
 
 #[test]
@@ -170,7 +180,11 @@ fn ledger_append_writes_through_to_the_store() {
 
     let recorded = store.recorded();
     assert_eq!(recorded.len(), 1, "the append reached the store");
-    assert_eq!(&recorded[0], led.show(&id).unwrap(), "same step, both sides");
+    assert_eq!(
+        &recorded[0],
+        led.show(&id).unwrap(),
+        "same step, both sides"
+    );
 }
 
 #[test]

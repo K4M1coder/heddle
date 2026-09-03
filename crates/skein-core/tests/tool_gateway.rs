@@ -212,10 +212,12 @@ fn governed_calls_extend_one_hash_chain() {
         "run-t7",
         StepKind::LlmResponse,
         "the model asked for a tool",
-    );
+    )
+    .unwrap();
     gw.call("run-t7", &ToolCall::new("fs_write", json!({})), &mut led)
         .unwrap();
-    led.append("run-t7", StepKind::LlmResponse, "the model saw the result");
+    led.append("run-t7", StepKind::LlmResponse, "the model saw the result")
+        .unwrap();
     gw.call("run-t7", &ToolCall::new("read_secret", json!({})), &mut led)
         .unwrap();
 

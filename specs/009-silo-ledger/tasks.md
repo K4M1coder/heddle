@@ -36,7 +36,7 @@ and the new `crates/skein-silo`, branch `009-silo-ledger` cut from `dev`.
 - [x] **T3** RED — the three `// ---- ledger store seam ----` tests in
       `crates/skein-core/tests/core.rs` against the not-yet-existing API; compiler errors
       recorded below
-- [ ] **T4** GREEN — `LedgerStore`, `Ledger::open`, the `store` field, fallible `append`,
+- [x] **T4** GREEN — `LedgerStore`, `Ledger::open`, the `store` field, fallible `append`,
       `SkeinError::Storage`, and the `?` churn across `native_loop.rs`, `tool.rs` and the three
       `skein-core` test binaries
 - [ ] **T5** RED — `crates/skein-silo` with an empty `src/lib.rs` and the whole of

@@ -8,6 +8,9 @@ pub enum SkeinError {
     Json(#[from] serde_json::Error),
     #[error("ledger integrity broken at seq {seq}: {detail}")]
     LedgerIntegrity { seq: u64, detail: String },
+    /// A durable Ledger backing refused, or a silo could not be opened.
+    #[error("storage: {0}")]
+    Storage(String),
     #[error("not found: {0}")]
     NotFound(String),
     #[error("model provider: {0}")]
