@@ -38,3 +38,21 @@ apple-native-keyring-store = { version = "1", features = ["keychain"] }
 linux-keyutils-keyring-store = "1"
 ureq = { version = "3", default-features = false }
 http = "1"
+# Pinned to 0.61 and not the newer 0.62 on purpose: `win32job` below depends on
+# `windows ^0.61`, and one copy of a very large generated crate in the tree
+# beats two. Nothing `skein-sandbox` calls is 0.62-only, and `assign_process`
+# takes an `isize` rather than a `HANDLE`, so even a future split would not be
+# a type-safety problem — the pin is about footprint, the same discipline that
+# produced `git2`'s and `ureq`'s `default-features = false`.
+#
+# Both entries appear **only** in `[target.'cfg(windows)'.dependencies]` of
+# `skein-sandbox`, so `cargo tree` on Linux and macOS shows neither at all.
+windows = { version = "0.61", default-features = false, features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Security_Isolation",
+  "Win32_Security_Authorization",
+  "Win32_System_Threading",
+  "Win32_System_Pipes",
+] }
+win32job = "2.0"
