@@ -11,6 +11,10 @@
 //! ACP facade on stdin/stdout so an editor can drive the same loop. Both reach
 //! the same loopback-only provider through the same `wiring::ModelArgs`, and
 //! both record every run on the silo's chain.
+//!
+//! Both also take `--fs-root`, which is the only way either of them gains a
+//! tool. It is opt-in, and the two commands allowlist **different** tools
+//! behind it: `wiring::ToolArgs` holds the reason.
 
 mod acp;
 mod chat;

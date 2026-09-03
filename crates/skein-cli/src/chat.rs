@@ -23,7 +23,7 @@ pub fn chat(silo: &SiloArgs, args: &ChatArgs) -> Result<()> {
     // a silo with a one-step run in it would be a misleading record of an
     // attempt that never left the process.
     let endpoint = args.model.endpoint()?;
-    // Before the silo for the same reason, and after the endpoint so the two
+    // Before the silo for the same reason, and after the endpoint so the three
     // refusals keep the order both commands document.
     let redactor = args.redact.redactor()?;
     // Third and last of the pre-flight refusals, in the order this command
