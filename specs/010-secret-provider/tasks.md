@@ -45,7 +45,7 @@ slice 009 merged.
       warnings`, `cargo test --workspace`; new total recorded below
 - [x] **T8** control diff: `git diff dev` empty on `crates/skein-mcp/`, `crates/skein-acp/`,
       `spikes/`, `.github/` and `rust-toolchain.toml`
-- [ ] **T9** dependency drift recorded below
+- [x] **T9** dependency drift recorded below
 - [ ] **T10** close out: tick the `SecretProvider` bullet in spec 009's "Next slice" list and in
       `specs/003-skein-core-foundation/tasks.md`, and set this spec's Status
 
@@ -173,6 +173,42 @@ one new `SkeinError` variant, and new files under `specs/010-secret-provider/`. 
 anywhere in `git diff dev` outside the two new modules is `crates/skein-core/tests/core.rs`'s
 two-line `use` list, replaced to import the new names — **no pre-existing test body changed**
 (SC-006).
+
+## Drift (T9)
+
+Measured against a detached worktree at the branch point (`25641a6`), so both sides come from a
+real resolution rather than from the previous slice's note. Six package-versions differ between
+the two trees purely as resolution noise — the base worktree resolved `serde`, `serde_core`,
+`serde_derive`, `serde_json`, `proc-macro2`, `quote` and `libc` a patch or two ahead of the
+working tree's cached lock, because `Cargo.lock` is `.gitignore`d in this repository. Those are
+excluded below.
+
+- **Dependency growth is per-OS, because every store crate is target-gated.** `cargo tree -e
+  normal,build,dev [--target …]` resolves:
+
+  | Target | before | after | added |
+  |---|---|---|---|
+  | `x86_64-pc-windows-msvc` (host) | 126 | 135 | `keyring-core`, `log`, `zeroize`, `windows-native-keyring-store`, `byteorder`, `regex`, `regex-automata`, `regex-syntax`, `aho-corasick` |
+  | `x86_64-unknown-linux-gnu` | 129 | 134 | `keyring-core`, `log`, `zeroize`, `linux-keyutils-keyring-store`, `linux-keyutils` |
+  | `aarch64-apple-darwin` | 128 | 136 | `keyring-core`, `log`, `zeroize`, `apple-native-keyring-store`, `security-framework`, `security-framework-sys`, `core-foundation`, `core-foundation-sys` |
+
+  Nothing was removed on any target. Only three of the crates above are common to all three legs;
+  the Windows leg is the heaviest, because `windows-native-keyring-store` parses credential
+  attributes with `regex`. `memchr`, `bitflags` and the `windows-sys`/`windows-link` pair were
+  already in the graph via the rmcp/tokio stack, so the Windows store adds no second copy of them.
+- **`skein-core` goes from four direct dependencies to five** — `serde`, `serde_json`,
+  `thiserror`, `sha2`, `zeroize` — and still names no credential store, no OS API and no
+  `keyring` crate. `zeroize 1.9.0` has no dependencies of its own.
+- **No new build prerequisite.** Every added crate is pure Rust: no `cc`, no C amalgamation, no
+  `pkg-config`. `security-framework-sys` and `core-foundation-sys` emit link directives for
+  frameworks that the Xcode command-line tools already supply, which
+  `docs/DEVELOPMENT.md`'s "Machine prerequisites" already requires. Nothing was added to that
+  document this slice.
+- **No toolchain change.** The highest MSRV among the new crates is
+  `windows-native-keyring-store`'s **1.88**; `keyring-core`, `zeroize` and the macOS and Linux
+  stores declare 1.85. All are below the 1.97 pin, so `rust-toolchain.toml` and
+  `workspace.package.rust-version` are unchanged, and `.github/workflows/core.yml` needs no edit —
+  its `paths:` already covers `crates/**` and `Cargo.toml`, confirmed by reading.
 
 ## Next slice (not this feature)
 - [ ] `skein-cli` reference client: `skein secret set|delete` (the second caller of
