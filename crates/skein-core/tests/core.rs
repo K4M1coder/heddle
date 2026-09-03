@@ -2,7 +2,7 @@
 
 use skein_core::{
     Content, Exit, Ledger, LedgerStore, LoopBudget, LoopController, Message, Redactor, Result,
-    Role, SecretProvider, SecretRef, SecretValue, SkeinError, Step, StepKind,
+    Role, SecretProvider, SecretRef, SecretValue, SkeinError, Step, StepKind, ToolSpec,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -319,6 +319,35 @@ fn a_cloned_redactor_scrubs_what_the_original_scrubs() {
         copy.redact("token=hunter2"),
         "one run configures one secret set, however many collaborators hold it"
     );
+}
+
+// ---- tool advertisement (§4.3) ----
+
+#[test]
+fn tool_spec_roundtrips_through_a_ledger_payload() {
+    let spec = ToolSpec::new(
+        "fs_read",
+        "Read a UTF-8 text file under the configured root.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
+        }),
+    );
+    let mut led = Ledger::new();
+    led.append(
+        "run-spec",
+        StepKind::LlmRequest,
+        serde_json::to_string(&vec![spec.clone()]).unwrap(),
+    )
+    .unwrap();
+
+    let back: Vec<ToolSpec> = serde_json::from_str(&led.log("run-spec")[0].payload).unwrap();
+    assert_eq!(back, vec![spec]);
+    // The schema is the server's document, carried opaquely: a payload that lost
+    // `required` would still deserialize into a `ToolSpec`, so the assertion is
+    // on the schema itself rather than on the wrapper.
+    assert_eq!(back[0].parameters["required"], serde_json::json!(["path"]));
 }
 
 // ---- ledger run enumeration ----

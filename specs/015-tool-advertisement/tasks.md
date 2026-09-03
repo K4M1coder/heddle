@@ -38,7 +38,7 @@ branch `015-tool-advertisement` cut from `dev` after slice 014 merged.
 - [x] **T0** `specs/015-tool-advertisement/{spec.md,plan.md,tasks.md}`; branch
       `015-tool-advertisement` cut from `dev` with slice 014 merged
 - [x] **T1** control baseline: `cargo test --workspace` before any edit — **120 passed, 1 ignored**
-- [ ] **T2** RED→GREEN — `ToolSpec` in `crates/skein-core/src/tool.rs`, re-exported from `lib.rs`,
+- [x] **T2** RED→GREEN — `ToolSpec` in `crates/skein-core/src/tool.rs`, re-exported from `lib.rs`,
       with its round-trip test in `crates/skein-core/tests/core.rs`
 - [ ] **T3** RED→GREEN — `ToolTransport::list` with its defaulted body and the docstring arguing why
       *this* silent default is the safe one
@@ -65,3 +65,10 @@ against.
 ## Observed red (Constitution III)
 
 All on 2026-09-03.
+
+- **T2** `cargo test -p skein-core --test core` with the round-trip test written against a type that
+  did not exist — **1 compile error**, and the file did not build:
+  - `error[E0432]: unresolved import skein_core::ToolSpec` at `crates/skein-core/tests/core.rs:5:79`
+    — `no ToolSpec in the root`
+  - `error: could not compile skein-core (test "core") due to 1 previous error`
+  - Green: **18 passed** where 17 had passed, with the seventeen unchanged.

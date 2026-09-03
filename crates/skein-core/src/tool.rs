@@ -25,6 +25,30 @@ impl ToolCall {
     }
 }
 
+/// One tool as a model is told about it: the name it must use, what the tool is
+/// for, and the JSON Schema its arguments have to match.
+///
+/// `parameters` is an opaque [`Value`] rather than a typed schema. The schema is
+/// the server's document — derived from the real parameter type at the far end
+/// of the transport — and the core never interprets it, so a typed mirror here
+/// would be a second source of truth for something nothing in this crate reads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolSpec {
+    pub name: String,
+    pub description: String,
+    pub parameters: Value,
+}
+
+impl ToolSpec {
+    pub fn new(name: impl Into<String>, description: impl Into<String>, parameters: Value) -> Self {
+        ToolSpec {
+            name: name.into(),
+            description: description.into(),
+            parameters,
+        }
+    }
+}
+
 /// What a tool returned, serialized by the transport. Raw: it is handed back to
 /// the trusted caller, and redacted only on its way into the Ledger.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
