@@ -6,7 +6,7 @@
 //! run, and because two concurrent ACP sessions over one workspace must agree
 //! on who they are.
 
-use crate::{win32_path, Sandbox};
+use crate::{record, win32_path, Sandbox};
 use sha2::{Digest, Sha256};
 use std::ffi::c_void;
 use std::path::Path;
@@ -83,13 +83,25 @@ pub(crate) fn create(root: &Path, run_dirs: &[std::path::PathBuf]) -> Result<San
         }
     };
 
+    // Written **before** the first grant, and fatal if it fails, because the two
+    // failure shapes are not symmetric: a record naming a directory that was
+    // never granted is harmless — `prune` reads its DACL, finds nothing and says
+    // `clear` — while a granted directory no record names is an ACE nothing can
+    // ever find again. The record's only job is to make the second case
+    // impossible.
+    let recorded = {
+        let mut dirs = vec![root];
+        dirs.extend(run_dirs.iter().map(std::path::PathBuf::as_path));
+        record::append(&name, &dirs)
+    };
+
     // Every grant happens while the `PSID` is live, and the `FreeSid` below runs
     // on every path out — including the error ones, which is why none of these
     // uses `?` directly. The whole construction fails if any one grant does: a
     // sandbox that could not re-permission a directory the operator named must
     // be an exit code before a model is shown a tool, not a per-call surprise.
     let identity = unsafe {
-        string_sid(sid).and_then(|text| {
+        recorded.and_then(|()| string_sid(sid)).and_then(|text| {
             grant(root, sid, GENERIC_ALL.0)
                 .and_then(|()| {
                     run_dirs
@@ -103,6 +115,7 @@ pub(crate) fn create(root: &Path, run_dirs: &[std::path::PathBuf]) -> Result<San
 
     Ok(Sandbox {
         root: root.to_path_buf(),
+        profile: name,
         run_dirs: run_dirs.to_vec(),
         sid: identity?,
     })

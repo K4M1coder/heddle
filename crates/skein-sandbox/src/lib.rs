@@ -77,6 +77,11 @@ pub struct Run {
 #[cfg(windows)]
 pub struct Sandbox {
     root: std::path::PathBuf,
+    /// The AppContainer profile's name, `skein-` plus 16 hex characters of
+    /// `sha256(root)`. Kept rather than re-derived because it is what
+    /// [`prune`] selects on and what the record file is filed under, and one
+    /// derivation cannot disagree with itself.
+    profile: String,
     /// The **only** store of the operator's allowlist: executable resolution
     /// and the child's `PATH` both read it back out of here, so the
     /// directories that are searched and the directories that were granted an
@@ -271,6 +276,18 @@ impl Sandbox {
     #[cfg(windows)]
     pub fn string_sid(&self) -> &str {
         &self.sid
+    }
+
+    /// The name of the AppContainer profile this sandbox uses, which is also
+    /// the selector [`prune`] takes.
+    ///
+    /// Public for the reason [`Sandbox::string_sid`] is: a caller that has just
+    /// created a sandbox must be able to name the machine state it created —
+    /// which is what a test fixture's cleanup guard needs, and what an operator
+    /// reads out of `skein sandbox list`.
+    #[cfg(windows)]
+    pub fn profile(&self) -> &str {
+        &self.profile
     }
 
     /// The directories this sandbox actually granted, canonical and in the
