@@ -12,6 +12,8 @@ use crate::server::{EmbeddedServer, RunAccess};
 use rmcp::ServiceExt;
 use skein_core::{Result, SkeinError, ToolCall, ToolOutcome, ToolSpec, ToolTransport};
 use skein_mcp::RmcpToolTransport;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use tokio::runtime::Runtime;
 
 /// In-flight bytes between the two halves: a whole capped `fs_read` plus room
@@ -50,8 +52,15 @@ pub fn local_connector(root: FsRoot) -> Result<LocalConnector> {
 /// [`local_connector`] plus the process launcher, and fallible for the reason
 /// [`EmbeddedServer::with_run`] documents: a sandbox that cannot be built must
 /// be an exit code before a model is shown a tool.
-pub fn local_connector_with_run(root: FsRoot, run: RunAccess) -> Result<LocalConnector> {
-    serve(EmbeddedServer::with_run(root, run)?)
+///
+/// `cancelled` is passed straight through. It is the caller's — in the product,
+/// one ACP session's — and this crate neither resets it nor sets it.
+pub fn local_connector_with_run(
+    root: FsRoot,
+    run: RunAccess,
+    cancelled: Arc<AtomicBool>,
+) -> Result<LocalConnector> {
+    serve(EmbeddedServer::with_run(root, run, cancelled)?)
 }
 
 fn serve(server: EmbeddedServer) -> Result<LocalConnector> {

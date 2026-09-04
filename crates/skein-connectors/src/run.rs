@@ -13,6 +13,7 @@ use crate::fs::FsRoot;
 use crate::server::{RUN_OUTPUT_BYTE_CAP, RUN_TIMEOUT};
 use skein_sandbox::{Captured, Run, Sandbox};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 
 /// The executable a `command` names: System32, then `%SystemRoot%`, then each
 /// directory the operator named with `--run-dir`, then a path inside the
@@ -108,9 +109,10 @@ pub(crate) fn execute(
     root: &FsRoot,
     command: &str,
     args: &[String],
+    cancelled: &AtomicBool,
 ) -> Result<String, String> {
     let exe = resolve_exe(root, sandbox.run_dirs(), command)?;
-    let run = sandbox.run(&exe, args, RUN_OUTPUT_BYTE_CAP, RUN_TIMEOUT)?;
+    let run = sandbox.run(&exe, args, RUN_OUTPUT_BYTE_CAP, RUN_TIMEOUT, cancelled)?;
     Ok(report(&run))
 }
 

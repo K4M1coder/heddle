@@ -45,6 +45,13 @@ impl ProgressProbe for NoGroundTruth {
 /// `ToolArgs::agent_policy`'s shape under `RunAccess::Allowed`: allowed **and**
 /// approved, because `call_captured` consults the policy before the transport,
 /// so a `Mutating` tool absent from `approved` never reaches one.
+/// Nothing in this file cancels anything. A flag nobody keeps a second
+/// reference to is what "no cancel channel" looks like — the same thing
+/// `skein chat` passes.
+fn uncancelled() -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+    std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false))
+}
+
 fn agent_policy() -> ToolPolicy {
     ToolPolicy::new(
         vec![
@@ -72,6 +79,7 @@ fn a_live_model_calls_a_real_proc_run() {
     let connector = local_connector_with_run(
         FsRoot::new(dir.path()).expect("a canonicalizable root"),
         RunAccess::Allowed(RunDirs::none()),
+        uncancelled(),
     )
     .expect("the sandbox builds and the embedded server starts");
 
@@ -179,6 +187,7 @@ fn a_live_model_runs_a_real_toolchain_binary() {
     let connector = local_connector_with_run(
         FsRoot::new(dir.path()).expect("a canonicalizable root"),
         RunAccess::Allowed(run_dirs),
+        uncancelled(),
     )
     .unwrap_or_else(|e| panic!("the sandbox must build over {run_dir:?}: {e}"));
 

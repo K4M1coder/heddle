@@ -11,14 +11,21 @@ mod guard;
 
 use rmcp::handler::server::wrapper::Parameters;
 use skein_connectors::{
-    EmbeddedServer, FsRoot, RunAccess, RunDirs, RunParams, RUN_OUTPUT_BYTE_CAP,
+    EmbeddedServer, FsRoot, RunAccess, RunDirs, RunParams, RUN_OUTPUT_BYTE_CAP, RUN_TIMEOUT,
 };
 use skein_sandbox::ARG_COUNT_CAP;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tempfile::TempDir;
 
 struct Fixture {
     server: EmbeddedServer,
+    /// The same flag the server holds. Every test but the cancellation one
+    /// leaves it alone, which is what makes each of them a control for the
+    /// claim that an uncancelled run is unchanged.
+    cancelled: Arc<AtomicBool>,
     /// Between the server and the directories on purpose: it drops with the
     /// server's sandbox already gone and the root still on disk, so the revoke
     /// it performs is a real one.
@@ -69,9 +76,11 @@ fn built(name_the_run_dir: bool) -> Fixture {
     } else {
         RunDirs::none()
     };
+    let cancelled = Arc::new(AtomicBool::new(false));
     Fixture {
-        server: EmbeddedServer::with_run(root, RunAccess::Allowed(run_dirs))
+        server: EmbeddedServer::with_run(root, RunAccess::Allowed(run_dirs), cancelled.clone())
             .expect("the sandbox is built once, here"),
+        cancelled,
         _pruned: guard::PrunedOnDrop::of_root(&root_path),
         _toolbin: toolbin,
         _dir: dir,
@@ -295,4 +304,53 @@ fn system32_still_wins_over_a_run_dir_that_shadows_it() {
         "{report}"
     );
     assert!(report.contains("seeded bytes"), "{report}");
+}
+
+/// A grandchild that outlives `RUN_TIMEOUT` many times over — the one command
+/// `skein-sandbox`'s `tests/cancel.rs` measured as surviving an AppContainer
+/// with zero capability SIDs.
+fn forever() -> Vec<&'static str> {
+    vec![
+        "/c",
+        "cmd.exe",
+        "/c",
+        "for",
+        "/l",
+        "%i",
+        "in",
+        "(1,1,2000000000)",
+        "do",
+        "@rem",
+    ]
+}
+
+/// The flag reaches the child, through rmcp's `&self` handler and the `Arc` the
+/// server was built with.
+///
+/// The elapsed bound is the assertion that matters. Without the flag reaching
+/// the sandbox this still ends in an `Err` — thirty seconds later, saying it
+/// timed out — so a test that only checked for a refusal would pass on a
+/// server wired to nothing.
+#[test]
+fn a_flag_set_while_proc_run_is_executing_ends_it_with_a_named_refusal() {
+    let fixture = fixture();
+    let canceller = fixture.cancelled.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        canceller.store(true, Ordering::SeqCst);
+    });
+
+    let started = Instant::now();
+    let refusal = run(&fixture.server, "cmd.exe", &forever())
+        .expect_err("a cancelled run is a tool error, not a report of an exit code");
+    let elapsed = started.elapsed();
+
+    assert!(
+        refusal.contains("cancelled"),
+        "the model must be told which of the two bounds stopped it: {refusal}"
+    );
+    assert!(
+        elapsed < RUN_TIMEOUT / 2,
+        "the flag and not the clock must have ended it; the call took {elapsed:?}"
+    );
 }

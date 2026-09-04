@@ -23,6 +23,7 @@ use serde::Deserialize;
 use skein_core::SkeinError;
 use skein_sandbox::Sandbox;
 use std::io::{Read, Write};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -159,14 +160,31 @@ pub struct RunParams {
 #[derive(Clone)]
 pub struct EmbeddedServer {
     root: Arc<FsRoot>,
-    /// `Some` exactly when the `proc_run` route is enabled, and behind an
-    /// [`Arc`] for the reason the root is.
+    /// `Some` exactly when the `proc_run` route is enabled.
     ///
     /// Off Windows [`Sandbox`] is uninhabited, so this can only ever be `None`
     /// there — the platform gate needs no `#[cfg]` at this level because the
     /// type already carries it.
-    sandbox: Option<Arc<Sandbox>>,
+    launcher: Option<Launcher>,
     tool_router: ToolRouter<Self>,
+}
+
+/// What it takes to run a process and to stop one: the sandbox, and the flag
+/// whose owner can end what it launched.
+///
+/// One field rather than two, so a sandbox with no cancel channel and a cancel
+/// channel with nothing to launch are both unrepresentable — [`RunAccess`]'s
+/// own reasoning for carrying its allowlist *inside* the `Allowed` arm rather
+/// than beside it. Two parallel `Option`s that must agree would be an invariant
+/// kept right by hand.
+///
+/// Both halves are behind an [`Arc`] for the reason the root is: rmcp hands
+/// each request a clone of the handler, and every clone must reach the *same*
+/// sandbox and the *same* flag rather than a copy of either.
+#[derive(Clone)]
+struct Launcher {
+    sandbox: Arc<Sandbox>,
+    cancelled: Arc<AtomicBool>,
 }
 
 /// Every tool returns `Result<String, String>`, and that signature is the
@@ -215,19 +233,31 @@ impl EmbeddedServer {
     /// omit `proc_run` in exactly the cases this disables it, turning a model's
     /// invented `proc_run` into a survivable `denied` instead of the end of the
     /// run.
-    pub fn with_run(root: FsRoot, run: RunAccess) -> skein_core::Result<Self> {
-        let sandbox = match run {
+    ///
+    /// `cancelled` is the caller's handle on a run already in flight: setting
+    /// it ends the child `proc_run` launched, within 50 ms, rather than at the
+    /// tool's own timeout. It is taken here and not per call because rmcp's
+    /// handler is `&self` and a per-call channel would have nowhere to live.
+    pub fn with_run(
+        root: FsRoot,
+        run: RunAccess,
+        cancelled: Arc<AtomicBool>,
+    ) -> skein_core::Result<Self> {
+        let launcher = match run {
             RunAccess::Denied => None,
-            RunAccess::Allowed(dirs) => Some(Arc::new(
-                Sandbox::create(root.path(), dirs.paths()).map_err(SkeinError::Tool)?,
-            )),
+            RunAccess::Allowed(dirs) => Some(Launcher {
+                sandbox: Arc::new(
+                    Sandbox::create(root.path(), dirs.paths()).map_err(SkeinError::Tool)?,
+                ),
+                cancelled,
+            }),
         };
-        Ok(Self::build(root, sandbox))
+        Ok(Self::build(root, launcher))
     }
 
     /// The one place a route is gated, so the two constructors cannot disagree
     /// about what this server can actually do.
-    fn build(root: FsRoot, sandbox: Option<Arc<Sandbox>>) -> Self {
+    fn build(root: FsRoot, launcher: Option<Launcher>) -> Self {
         let mut tool_router = Self::tool_router();
         if !git::is_git_repository(&root) {
             tool_router.disable_route("git_status");
@@ -236,7 +266,7 @@ impl EmbeddedServer {
         // Only registered on Windows, so only disablable there. Everywhere
         // else there is no such route to advertise in the first place.
         #[cfg(windows)]
-        if sandbox.is_none() {
+        if launcher.is_none() {
             tool_router.disable_route("proc_run");
         }
         // The advertised description is the only channel this reaches a model
@@ -245,9 +275,9 @@ impl EmbeddedServer {
         // Appended rather than rewritten, so the `#[tool]` attribute stays the
         // single home of the rule and the caps and this only enumerates.
         #[cfg(windows)]
-        if let Some(dirs) = sandbox
+        if let Some(dirs) = launcher
             .as_ref()
-            .map(|sandbox| sandbox.run_dirs())
+            .map(|launcher| launcher.sandbox.run_dirs())
             .filter(|dirs| !dirs.is_empty())
         {
             // rmcp 2.2's `ToolRouter::map` and `ToolRoute::attr` are `pub`;
@@ -269,7 +299,7 @@ impl EmbeddedServer {
         }
         EmbeddedServer {
             root: Arc::new(root),
-            sandbox,
+            launcher,
             tool_router,
         }
     }
@@ -381,11 +411,17 @@ impl EmbeddedServer {
         // than an `expect` because a panic inside an rmcp handler would take
         // the session with it, where a tool error is something the model is
         // told and the run survives.
-        let sandbox = self
-            .sandbox
+        let launcher = self
+            .launcher
             .as_ref()
             .ok_or_else(|| "this run was not started with process launching enabled".to_string())?;
-        crate::run::execute(sandbox, &self.root, &command, &args)
+        crate::run::execute(
+            &launcher.sandbox,
+            &self.root,
+            &command,
+            &args,
+            &launcher.cancelled,
+        )
     }
 }
 

@@ -15,6 +15,13 @@ use skein_core::{ToolCall, ToolTransport};
 use std::path::Path;
 use tempfile::TempDir;
 
+/// Nothing in this file cancels anything. A flag nobody keeps a second
+/// reference to is what "no cancel channel" looks like — the same thing
+/// `skein chat` passes.
+fn uncancelled() -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+    std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false))
+}
+
 fn connector() -> (TempDir, LocalConnector) {
     let dir = TempDir::new().expect("a temp dir");
     std::fs::write(dir.path().join("notes.txt"), "in the root").expect("a file in the root");
@@ -233,7 +240,7 @@ fn the_connector_does_not_list_proc_run_unless_run_access_is_asked_for() {
 
     let dir = TempDir::new().expect("a temp dir");
     let root = FsRoot::new(dir.path()).expect("a canonicalizable root");
-    let mut denied = local_connector_with_run(root, RunAccess::Denied)
+    let mut denied = local_connector_with_run(root, RunAccess::Denied, uncancelled())
         .expect("a denied launcher still serves the other tools");
 
     assert_eq!(names(&mut denied), vec!["fs_list", "fs_read", "fs_write"]);
@@ -251,8 +258,9 @@ fn the_connector_lists_proc_run_with_its_caps_stated_when_run_access_is_allowed(
     let dir = TempDir::new().expect("a temp dir");
     let root = FsRoot::new(dir.path()).expect("a canonicalizable root");
     let _pruned = guard::PrunedOnDrop::of_root(dir.path());
-    let mut allowed = local_connector_with_run(root, RunAccess::Allowed(RunDirs::none()))
-        .expect("the sandbox builds and the server serves");
+    let mut allowed =
+        local_connector_with_run(root, RunAccess::Allowed(RunDirs::none()), uncancelled())
+            .expect("the sandbox builds and the server serves");
 
     assert_eq!(
         names(&mut allowed),
@@ -333,8 +341,8 @@ fn there_is_no_launcher_and_no_proc_tool_off_windows() {
     // Denied is still a perfectly ordinary configuration here, and it must
     // advertise the three tools this platform really does have.
     let root = FsRoot::new(dir.path()).expect("a canonicalizable root");
-    let mut denied =
-        local_connector_with_run(root, RunAccess::Denied).expect("a denied launcher still serves");
+    let mut denied = local_connector_with_run(root, RunAccess::Denied, uncancelled())
+        .expect("a denied launcher still serves");
     let advertised = names(&mut denied);
     assert!(
         !advertised.iter().any(|name| name.starts_with("proc_")),
@@ -378,6 +386,7 @@ fn the_advertised_description_names_the_allowlisted_directories() {
     let mut listed = local_connector_with_run(
         FsRoot::new(dir.path()).expect("a canonicalizable root"),
         RunAccess::Allowed(dirs),
+        uncancelled(),
     )
     .expect("the sandbox builds and the server serves");
     let with_dirs = proc_run_description(&mut listed);
@@ -396,6 +405,7 @@ fn the_advertised_description_names_the_allowlisted_directories() {
     let mut bare = local_connector_with_run(
         FsRoot::new(dir.path()).expect("a canonicalizable root"),
         RunAccess::Allowed(RunDirs::none()),
+        uncancelled(),
     )
     .expect("a launcher with no run directory still serves");
     let without_dirs = proc_run_description(&mut bare);
