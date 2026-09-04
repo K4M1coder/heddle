@@ -30,7 +30,7 @@ The scripts are **idempotent** (safe to re-run; each step checks before installi
 
 ## MCP connectors & their connections
 
-- **Embedded, default full-local** (design §4.3): `fs`/`git`/`shell` work offline out of the box; **network connectors (Atlassian Jira/Bitbucket/Confluence, M365 Outlook/SharePoint/Teams) ship disabled**.
+- **Embedded, default full-local** (design §4.3): `fs`/`git`/`shell` run in-process with no network egress — each is **opt-in per session**, never on by default. `--fs-root <PATH>` (on `skein chat` and `skein acp-agent`) is the only way either command gains a tool at all: it enables the `fs` tools always and the `git` tools when that directory is a git repository. `shell`'s sandboxed `proc_run` needs a second opt-in, `--allow-run` on `acp-agent` only (Windows-only in v0; `--run-dir` names the directories whose executables it may resolve by bare name). **Network connectors (Atlassian Jira/Bitbucket/Confluence, M365 Outlook/SharePoint/Teams) ship disabled**.
 - Enabling one is a **scope-owner authorization** resolved through the hierarchy Silo ▸ (Team) ▸ Project ▸ Conversation, under the egress boundary (ADR 0002 D3/D4).
 - For development, authenticate interactively: run `claude` in the repo and use `claude mcp` (OAuth flows). **Never** store tokens in files — secrets are references (`keychain://…`, design §7.13); put them in the OS keychain with `printf %s "$TOKEN" | skein secret set keychain://<service>/<account>`. The value is read from stdin only — there is no `--value` flag, because one would land in shell history and in process listings — and `skein` refuses to read a secret from an interactive terminal.
 
