@@ -308,6 +308,7 @@ fn factory(
             redactor: Redactor::new(Vec::new()),
             budget: LoopBudget::new(8, 10_000, 8),
             ledger: Ledger::new(),
+            cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         })
     }
 }
@@ -387,6 +388,7 @@ async fn a8_the_session_runs_in_the_ledger_the_operator_injected() {
             redactor: Redactor::new(Vec::new()),
             budget: LoopBudget::new(8, 10_000, 8),
             ledger: once.take().expect("one session only"),
+            cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         })
     });
 
@@ -446,6 +448,7 @@ fn streaming_agent(
             redactor: Redactor::new(secrets.clone()),
             budget: LoopBudget::new(8, 10_000, 8),
             ledger: Ledger::new(),
+            cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         })
     })
 }
@@ -535,6 +538,7 @@ async fn a10_a_secret_is_redacted_from_a_sessions_chain_and_from_the_client_tran
             redactor: Redactor::new(vec![SECRET.into()]),
             budget: LoopBudget::new(8, 10_000, 8),
             ledger: Ledger::new(),
+            cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         })
     });
 
@@ -603,6 +607,7 @@ async fn a9_a_factory_that_fails_makes_session_new_fail_and_leaves_the_connectio
             redactor: Redactor::new(Vec::new()),
             budget: LoopBudget::new(8, 10_000, 8),
             ledger: Ledger::new(),
+            cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         })
     });
 
@@ -911,6 +916,7 @@ async fn a7_session_cancel_ends_the_run_and_reports_cancelled() {
             redactor: Redactor::new(Vec::new()),
             budget: LoopBudget::new(8, 10_000, 8),
             ledger: Ledger::new(),
+            cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         })
     });
 
@@ -1339,5 +1345,87 @@ async fn p4_the_permission_decorator_forwards_the_catalogue_it_wraps() {
         asked.load(Ordering::SeqCst),
         0,
         "permission is asked per call; enumerating what exists is not a call"
+    );
+}
+
+/// The flag the **caller** holds is the flag the session obeys.
+///
+/// `a7_…` proves the notification path end to end; it cannot notice a session
+/// that mints its own flag, because `session/cancel` reaches whatever flag
+/// `Registered` was given. This one never sends a notification: it sets the
+/// `Arc` it put into `SessionParts` and requires the run to end.
+///
+/// That is the property slice 027 needs, and it is what lets one flag reach a
+/// running child process: the tool transport is built by the same caller, from
+/// the same `Arc`, long before a session exists.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a14_a_session_obeys_the_cancellation_flag_its_caller_supplied() {
+    let model_calls = Arc::new(AtomicUsize::new(0));
+    let observed = Observed::default();
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (gate_tx, gate_rx) = std::sync::mpsc::channel();
+
+    let script = vec![
+        asks_for("read_file"),
+        asks_for("read_file"),
+        asks_for("read_file"),
+        finishes("never reached"),
+    ];
+    let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let supplied = cancelled.clone();
+    let calls = model_calls.clone();
+    let mut once = Some((started_tx, gate_rx));
+    let agent = SkeinAgent::new(move || {
+        let (started, gate) = once.take().expect("one session only");
+        Ok(SessionParts {
+            client: ScriptedModel {
+                gate: Some(gate),
+                started: Some(started),
+                ..ScriptedModel::playing(script.clone(), calls.clone())
+            },
+            probe: StaticProbe(true),
+            transport: CountingTransport {
+                calls: Arc::new(AtomicUsize::new(0)),
+                content: "file contents".into(),
+            },
+            policy: ToolPolicy::new(read_only("read_file"), Vec::new()),
+            redactor: Redactor::new(Vec::new()),
+            budget: LoopBudget::new(8, 10_000, 8),
+            ledger: Ledger::new(),
+            cancelled: supplied.clone(),
+        })
+    });
+
+    let started_rx = Arc::new(Mutex::new(started_rx));
+    let (_session_id, stop) = with_facade(
+        agent,
+        Answer::Allow,
+        observed.clone(),
+        async |cx: ConnectionTo<Agent>| {
+            let session_id = open_session(&cx).await?;
+            let sent = cx.send_request(prompt(&session_id, "go"));
+
+            let waiter = started_rx.clone();
+            tokio::task::spawn_blocking(move || waiter.lock().unwrap().recv())
+                .await
+                .expect("join")
+                .expect("the first turn started");
+            // No `session/cancel`. The caller's own handle on the run, which is
+            // the handle a tool transport is also holding.
+            cancelled.store(true, Ordering::SeqCst);
+            for _ in 0..4 {
+                let _ = gate_tx.send(());
+            }
+
+            let response = sent.block_task().await?;
+            Ok((session_id, response.stop_reason))
+        },
+    )
+    .await;
+
+    assert_eq!(stop, StopReason::Cancelled);
+    assert!(
+        model_calls.load(Ordering::SeqCst) < 4,
+        "the run stopped before the script ran out"
     );
 }

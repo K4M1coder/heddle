@@ -47,6 +47,15 @@ pub struct SessionParts<C, P, T> {
     pub redactor: Redactor,
     pub budget: LoopBudget,
     pub ledger: Ledger,
+    /// This session's cancellation flag, **supplied rather than minted**.
+    ///
+    /// The session sets it from `session/cancel`, resets it per run, and reads
+    /// it from three places: before a turn, per line of a stream, and — since
+    /// the caller holds the same `Arc` — inside a tool call already in flight.
+    /// That last one is why it is injected: `transport` is built by the same
+    /// caller in the same frame, and a process launcher can only be stopped by
+    /// a flag it was given before the session existed.
+    pub cancelled: Arc<AtomicBool>,
 }
 
 /// One ACP session: a governed loop, its chain, and its prompt counter.
@@ -72,7 +81,7 @@ type NativeLoop<C, P, T> =
 
 impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> SkeinSession<C, P, T> {
     fn new(id: SessionId, parts: SessionParts<C, P, T>, connection: ConnectionTo<Client>) -> Self {
-        let cancelled = Arc::new(AtomicBool::new(false));
+        let cancelled = parts.cancelled;
         let streamed = Arc::new(AtomicU64::new(0));
         // Installed here because this is the one place holding both the
         // connection and the session id, and installed *through*

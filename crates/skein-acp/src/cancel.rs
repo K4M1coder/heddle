@@ -4,11 +4,17 @@
 //! ends the run at the next turn boundary with the chain intact — the same path
 //! `provider_error_leaves_the_chain_verifiable` already covers.
 //!
-//! This is the half of cancellation that applies to a turn which has not
-//! started. The other half is [`AcpTextSink::wants_more`], which the model's own
-//! producer asks *during* a turn: the same flag, read from the streaming side,
-//! so a cancellation arriving mid-answer does not wait for that answer to
-//! finish.
+//! This is the reader that applies to a turn which has not started. There are
+//! two others, all three on the **one** flag `SessionParts` carries:
+//! [`AcpTextSink::wants_more`], which the model's own producer asks per line of
+//! a stream, so a cancellation arriving mid-answer does not wait for that answer
+//! to finish; and `skein-sandbox`'s launcher, which polls it while a `proc_run`
+//! child is executing, so a cancellation arriving mid-tool does not wait for
+//! that tool's timeout.
+//!
+//! The third one is why the flag is supplied to a session rather than minted by
+//! it: the tool transport is built from the same `Arc`, by the same caller, in
+//! the frame before the session exists.
 //!
 //! [`AcpTextSink::wants_more`]: crate::AcpTextSink
 
