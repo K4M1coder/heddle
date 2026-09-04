@@ -124,6 +124,57 @@ fn an_absolute_argument_is_refused_on_the_write_path_too() {
     );
 }
 
+/// The one hazard `Path::is_absolute` does not see.
+///
+/// `C:secrets.txt` is drive-relative: it names the current directory *of drive
+/// C*, which is not the root and is not knowable from here. It carries a
+/// [`Component::Prefix`](std::path::Component::Prefix) with **no**
+/// `Component::RootDir`, so `is_absolute()` is `false` for it — which is why
+/// `rooted_relative` matches on the components rather than asking that
+/// question. Every other refusal test above builds its argument from a real
+/// outside path, and a real Windows path carries both components, so this
+/// branch is the only one of the two that nothing else reaches.
+///
+/// The literal string is the point: derived from a `PathBuf` it would pick up
+/// a `RootDir` and stop testing this. And the `#[cfg]` is the point too —
+/// drive-relative paths exist only on Windows, where alone `C:secrets.txt`
+/// parses as a prefix rather than as an ordinary filename with a colon in it.
+#[cfg(windows)]
+#[test]
+fn a_drive_relative_argument_is_refused_even_though_it_is_not_absolute() {
+    use std::path::{Component, Path};
+
+    let f = fixture();
+
+    // The two halves of the hazard, asserted rather than described: the
+    // argument is not absolute, and joining it still walks off the root.
+    assert!(
+        !Path::new("C:secrets.txt").is_absolute(),
+        "a drive-relative path must be understood to be non-absolute"
+    );
+    assert!(
+        matches!(
+            Path::new("C:secrets.txt").components().next(),
+            Some(Component::Prefix(_))
+        ),
+        "and to carry a drive prefix all the same"
+    );
+    assert_ne!(
+        f.root.path().join("C:secrets.txt"),
+        f.root.path().join("secrets.txt"),
+        "Path::join must be understood not to treat it as a name under the root"
+    );
+
+    let refusal = f
+        .root
+        .resolve("C:secrets.txt")
+        .expect_err("a drive-relative argument must be refused");
+    assert!(
+        refusal.contains("absolute"),
+        "the refusal must say why, got: {refusal}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // SC-002 — traversal, symlinks, the happy path, and construction.
 // ---------------------------------------------------------------------------
