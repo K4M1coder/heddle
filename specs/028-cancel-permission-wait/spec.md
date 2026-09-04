@@ -96,7 +96,7 @@ behaves exactly as before.
 | 5 | a `CancellableTransport` decorator outside the gate | it can only check before and after the call, which is what today's code effectively does, and that is the bug |
 | 6 | drop the pre-request check and rely on the in-loop one | it would raise a dialog for a session already cancelled and refuse it a poll later. The person who pressed stop would watch a question appear and vanish |
 | 7 | drop the in-loop check and rely on the pre-request one | it is the whole slice: the cancel that matters arrives *after* the question was asked |
-| 8 | reuse `"acp permission request cancelled"` for both | two different facts about a session — the client withdrew the question, versus the session ended under it — landing on the chain as the same payload |
+| 8 | reuse `"acp permission request cancelled"` for both | two different facts about a session — the client withdrew the question, versus the session ended under it — reaching the chain as the same sentence. Measured in S7: that sentence is the *only* trace either refusal leaves, since a `ToolDenied` becomes a tool-role message in the next turn's `llm_request` payload rather than a `ToolResult` step |
 | 9 | a shorter poll slice | 50 ms is already below what a person notices, and it is the number slice 027 pinned for the same job one crate down. A second, different constant for the same purpose would be a number to keep in agreement by hand |
 | 10 | treat a cancelled wait as a successful "reject" answer | the client did not reject anything. The chain would record an answer nobody gave |
 

@@ -224,11 +224,18 @@ open*. The reason string is deliberately different:
 Answer::SessionCancelled => Err(denied("session cancelled while awaiting acp permission".into()))
 ```
 
-Both land on the chain as an `Approval` step and a `ToolResult` payload, and a reader of that chain
-must be able to say which happened: a client that manages its own dialogs versus an operator who
-pressed stop are different facts about a session, and about whose behaviour to go and look at. This
-is the reasoning slice 027's D3 recorded for keeping the cancelled run's sentence distinct from the
-timeout's, applied one layer up.
+**Where the sentence actually lands, measured in S7 rather than assumed.** A `ToolDenied` leaves no
+`ToolResult` step at all: `NativeLoop::mediate` turns it into
+`"the {tool} tool call was refused: {reason}"` and pushes that as a tool-role message
+(`native_loop.rs:191-194`), so it reaches the chain inside the **next turn's `llm_request` payload**.
+The live run's chain is `… tool_call, approval, iteration_boundary, llm_request` — the `approval`
+step is the *policy's* (`{"decision":"allowed","reason":"allowed, read-only"}`), because the client
+gate sits after it and refuses without recording a step of its own.
+
+That makes the sentence the **only** trace the refusal leaves, which sharpens the decision rather
+than softening it: a reader of that chain has nothing else to distinguish a client that manages its
+own dialogs from an operator who pressed stop. This is the reasoning slice 027's D3 recorded for
+keeping the cancelled run's sentence distinct from the timeout's, applied one layer up.
 
 **One sentence for both of D4's checks, though.** Pre-request and in-loop are the *same* fact — the
 session was cancelled, so this call was refused — differing only in when the flag was observed. That
