@@ -27,6 +27,30 @@ Key documents:
 
 All persistent project content is written in English: source code, comments, documentation, specifications, architecture artifacts, examples, tests and commit messages.
 
+## Quickstart
+
+One command, from a clone, to one real answer produced by one real tool call on a chain you can
+verify:
+
+```powershell
+pwsh -File .\scripts\quickstart.ps1
+```
+
+It builds the release binary, checks that a local provider is running and that one of its models
+actually supports tools, runs a single read-only turn against this repository, and prints the run's
+ledger and its verification. It installs nothing and pulls no model — what is missing is reported,
+not fixed.
+
+Without the repository, `pwsh -File scripts/package.ps1` produces `dist/skein-0.1.0-windows-x64/`
+and its zip: `skein.exe`, the same `quickstart.ps1`, this README, the licence, and a
+[`QUICKSTART.md`](QUICKSTART.md) that is the whole instruction set for someone who has never seen
+Skein. Copy the folder to a share or send the zip — 13 MB as a folder, 5 MB zipped. Windows only so
+far, and
+[`QUICKSTART.md`](QUICKSTART.md) says what that means.
+
+Contributors want *Development bootstrap* below instead: the quickstart is a demo path and
+deliberately installs none of the development dependencies.
+
 ## Development bootstrap
 
 After cloning:
