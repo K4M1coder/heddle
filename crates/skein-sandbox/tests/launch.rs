@@ -14,6 +14,7 @@ mod guard;
 
 use skein_sandbox::Sandbox;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 use tempfile::TempDir;
 
@@ -21,6 +22,13 @@ fn system32(name: &str) -> PathBuf {
     PathBuf::from(std::env::var_os("SystemRoot").expect("Windows names its own root"))
         .join("System32")
         .join(name)
+}
+
+/// Nothing in this file cancels anything; the launcher needs a flag to
+/// read, and one that is never set is what "no cancel channel" looks
+/// like — the same thing `skein chat` passes.
+fn uncancelled() -> AtomicBool {
+    AtomicBool::new(false)
 }
 
 fn args(values: &[&str]) -> Vec<String> {
@@ -45,6 +53,7 @@ fn a_sandboxed_process_reads_a_file_in_its_granted_root() {
             &args(&["/c", "type", "hello.txt"]),
             16 * 1024,
             Duration::from_secs(30),
+            &uncancelled(),
         )
         .expect("a System32 binary launches inside the container");
 
@@ -79,6 +88,7 @@ fn a_sandboxed_process_starts_in_its_root() {
             &args(&["/c", "cd"]),
             16 * 1024,
             Duration::from_secs(30),
+            &uncancelled(),
         )
         .expect("the launch succeeds");
 
@@ -110,6 +120,7 @@ fn a_file_that_is_not_a_program_is_refused_rather_than_launched() {
             &args(&[]),
             16 * 1024,
             Duration::from_secs(30),
+            &uncancelled(),
         )
         .expect_err("a text file is not launchable");
 
@@ -172,6 +183,7 @@ fn a_binary_in_an_allowlisted_run_dir_executes_and_its_stdout_comes_back() {
             &args(&["/c", "type", &data]),
             16 * 1024,
             Duration::from_secs(30),
+            &uncancelled(),
         )
         .expect("the launch itself succeeds; it is the read that must fail");
     assert!(
@@ -185,6 +197,7 @@ fn a_binary_in_an_allowlisted_run_dir_executes_and_its_stdout_comes_back() {
             &args(&["/c", "toolchain.exe", "/c", "echo", MARKER]),
             16 * 1024,
             Duration::from_secs(30),
+            &uncancelled(),
         )
         .expect("the outer launch succeeds; it is the inner one that must fail");
     assert!(
@@ -202,6 +215,7 @@ fn a_binary_in_an_allowlisted_run_dir_executes_and_its_stdout_comes_back() {
             &args(&["/c", "type", &data]),
             16 * 1024,
             Duration::from_secs(30),
+            &uncancelled(),
         )
         .expect("the launch succeeds");
     assert!(
@@ -219,6 +233,7 @@ fn a_binary_in_an_allowlisted_run_dir_executes_and_its_stdout_comes_back() {
             &args(&["/c", "toolchain.exe", "/c", "echo", MARKER]),
             16 * 1024,
             Duration::from_secs(30),
+            &uncancelled(),
         )
         .expect("the outer launch succeeds");
     assert!(
@@ -234,6 +249,7 @@ fn a_binary_in_an_allowlisted_run_dir_executes_and_its_stdout_comes_back() {
             &args(&["/c", "echo", MARKER]),
             16 * 1024,
             Duration::from_secs(30),
+            &uncancelled(),
         )
         .expect("a binary in a named run directory launches inside the container");
     assert_eq!(

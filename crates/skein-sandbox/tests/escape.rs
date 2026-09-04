@@ -17,7 +17,7 @@ mod guard;
 use skein_sandbox::Sandbox;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
@@ -26,6 +26,13 @@ fn system32(name: &str) -> PathBuf {
     PathBuf::from(std::env::var_os("SystemRoot").expect("Windows names its own root"))
         .join("System32")
         .join(name)
+}
+
+/// Nothing in this file cancels anything; the launcher needs a flag to
+/// read, and one that is never set is what "no cancel channel" looks
+/// like — the same thing `skein chat` passes.
+fn uncancelled() -> AtomicBool {
+    AtomicBool::new(false)
 }
 
 fn args(values: &[&str]) -> Vec<String> {
@@ -75,6 +82,7 @@ fn a_sandboxed_process_cannot_write_outside_its_root() {
             &argv,
             16 * 1024,
             Duration::from_secs(30),
+            &uncancelled(),
         )
         .expect("the launch itself succeeds; it is the copy that must fail");
 
@@ -136,7 +144,13 @@ fn a_sandboxed_process_cannot_reach_the_network() {
     let sandbox = Sandbox::create(root.path(), &[]).expect("the profile and the grant");
     let _pruned_sandbox = guard::PrunedOnDrop::of(&sandbox);
     let run = sandbox
-        .run(&curl, &argv, 16 * 1024, Duration::from_secs(30))
+        .run(
+            &curl,
+            &argv,
+            16 * 1024,
+            Duration::from_secs(30),
+            &uncancelled(),
+        )
         .expect("the launch itself succeeds; it is the connection that must fail");
 
     // The accepted count is the ground truth, exactly as the absent file is
@@ -188,6 +202,7 @@ fn the_job_object_kills_the_tree_when_the_clock_runs_out() {
             ]),
             16 * 1024,
             Duration::from_secs(2),
+            &uncancelled(),
         )
         .expect_err("a loop far longer than the limit must be refused");
     let elapsed = started.elapsed();
@@ -236,6 +251,7 @@ fn a_sandboxed_process_cannot_write_into_a_run_dir() {
             &args(&["/c", "copy", "seed.txt", "copied.txt"]),
             16 * 1024,
             Duration::from_secs(30),
+            &uncancelled(),
         )
         .expect("the launch succeeds");
     assert!(
@@ -256,6 +272,7 @@ fn a_sandboxed_process_cannot_write_into_a_run_dir() {
             ]),
             16 * 1024,
             Duration::from_secs(30),
+            &uncancelled(),
         )
         .expect("the launch itself succeeds; it is the copy that must fail");
 

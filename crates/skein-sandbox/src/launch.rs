@@ -17,13 +17,14 @@ use std::io::Read;
 use std::mem::size_of;
 use std::os::windows::io::FromRawHandle;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use win32job::{ExtendedLimitInfo, Job};
 use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::{
     CloseHandle, LocalFree, SetHandleInformation, HANDLE, HANDLE_FLAGS, HANDLE_FLAG_INHERIT,
-    HLOCAL, WAIT_OBJECT_0,
+    HLOCAL, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows::Win32::Security::Authorization::ConvertStringSidToSidW;
 use windows::Win32::Security::{SECURITY_ATTRIBUTES, SECURITY_CAPABILITIES};
@@ -40,12 +41,23 @@ use windows::Win32::System::Threading::{
 /// drain until EOF regardless.
 const READ_CHUNK: usize = 8 * 1024;
 
+/// How long the wait below blocks before looking at the cancellation flag
+/// again.
+///
+/// It bounds the delay between an operator pressing stop and the child dying,
+/// and it costs one atomic load and one kernel wait per slice — 600 of each for
+/// a run that uses the whole 30-second budget, against a child executing
+/// instructions throughout. Shorter buys latency nothing measures as a cost;
+/// longer starts to be visible to the person holding the button.
+const POLL_SLICE: Duration = Duration::from_millis(50);
+
 pub(crate) fn run(
     sandbox: &Sandbox,
     exe: &Path,
     args: &[String],
     stream_cap: usize,
     timeout: Duration,
+    cancelled: &AtomicBool,
 ) -> Result<Run, String> {
     let exe_path = win32_path(exe);
     // Refused before anything exists: an argument the command line cannot
@@ -129,7 +141,7 @@ pub(crate) fn run(
         }
     });
 
-    let outcome = started.and_then(|()| wait(process.hProcess, timeout));
+    let outcome = started.and_then(|()| wait(process.hProcess, timeout, cancelled));
     // Dropping the job kills every surviving descendant, which is what closes
     // the last hold on the pipes' write ends. It happens on the success path
     // too: a descendant that outlived its parent would otherwise keep the
@@ -149,28 +161,66 @@ pub(crate) fn run(
     })
 }
 
-/// Blocks until the child exits or the clock runs out, and terminates it on the
-/// latter.
+/// Blocks until the child exits, the caller cancels, or the clock runs out.
+///
+/// **Sliced rather than one long wait, and the deadline is absolute.** A
+/// cancellation is only observable between waits, so the wait has to end
+/// regularly; recomputing `timeout` per iteration instead of counting down to a
+/// fixed instant would make the limit unreachable, which is the failure
+/// `a_run_nobody_cancelled_still_times_out_and_says_so` exists to catch.
 ///
 /// # Safety
 /// `process` must be a live process handle.
-fn wait(process: HANDLE, timeout: Duration) -> Result<u32, String> {
-    let millis = u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX);
-    if unsafe { WaitForSingleObject(process, millis) } != WAIT_OBJECT_0 {
-        // The tree dies with the job a moment later; this closes the one
-        // process the handle names, so the exit is not left to the drop alone.
-        unsafe { TerminateProcess(process, 1) }.map_err(|e| {
-            format!("the run exceeded {millis}ms and the child could not be killed: {e}")
-        })?;
-        return Err(format!(
-            "the run exceeded the {}s limit and was terminated",
-            timeout.as_secs()
-        ));
+fn wait(process: HANDLE, timeout: Duration, cancelled: &AtomicBool) -> Result<u32, String> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if cancelled.load(Ordering::SeqCst) {
+            return Err(terminate(process, "was cancelled by the client"));
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(terminate(
+                process,
+                &format!("exceeded the {}s limit", timeout.as_secs()),
+            ));
+        }
+        // Never past the deadline, so the last slice is as short as it needs to
+        // be and the limit is honoured to the millisecond rather than to the
+        // slice.
+        let slice = left.min(POLL_SLICE);
+        let outcome =
+            unsafe { WaitForSingleObject(process, u32::try_from(slice.as_millis()).unwrap_or(50)) };
+        if outcome == WAIT_OBJECT_0 {
+            break;
+        }
+        if outcome != WAIT_TIMEOUT {
+            // Neither exited nor timed out, so the handle itself is unusable
+            // and every further slice would fail the same way — a spin for the
+            // whole budget where the single wait this replaced simply returned.
+            return Err(terminate(
+                process,
+                &format!("could not be waited on ({:#010x})", outcome.0),
+            ));
+        }
     }
     let mut code = 0u32;
     unsafe { GetExitCodeProcess(process, &mut code) }
         .map_err(|e| format!("the child exited but its status is unreadable: {e}"))?;
     Ok(code)
+}
+
+/// The one kill, and the sentence saying which of its three reasons happened.
+///
+/// Three callers where there was one, and still **one** kill: a cancelled run
+/// and a timed-out run must die by the same mechanism, or proving one leaves
+/// the other unproved. As before, this closes only the process the handle
+/// names — the rest of the tree goes with `drop(job)` in [`run`], which happens
+/// on this path exactly as on every other.
+fn terminate(process: HANDLE, why: &str) -> String {
+    match unsafe { TerminateProcess(process, 1) } {
+        Ok(()) => format!("the run {why} and was terminated"),
+        Err(e) => format!("the run {why} and the child could not be killed: {e}"),
+    }
 }
 
 /// A fixed, minimal environment: five variables, and each one earns its place.

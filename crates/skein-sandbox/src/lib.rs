@@ -309,6 +309,14 @@ impl Sandbox {
     /// shell command line. `stream_cap` bounds each captured stream and
     /// `timeout` bounds the wall clock — a timeout kills the tree and is an
     /// `Err`, which is a tool error the loop survives.
+    ///
+    /// `cancelled` is the third bound and the only one the caller controls
+    /// while the child runs: setting it kills the tree the same way the timeout
+    /// does, within 50 ms, and yields an `Err` naming the cancellation rather
+    /// than the clock. Borrowed rather than owned because this call does not
+    /// outlive it, and read from another thread — in the product it is the ACP
+    /// session's flag, set by the connection's dispatch task while the loop
+    /// thread is blocked in here.
     #[cfg(windows)]
     pub fn run(
         &self,
@@ -316,8 +324,9 @@ impl Sandbox {
         args: &[String],
         stream_cap: usize,
         timeout: Duration,
+        cancelled: &std::sync::atomic::AtomicBool,
     ) -> std::result::Result<Run, String> {
-        launch::run(self, exe, args, stream_cap, timeout)
+        launch::run(self, exe, args, stream_cap, timeout, cancelled)
     }
 
     /// Unreachable by construction: [`Sandbox`] is uninhabited on this
@@ -329,6 +338,7 @@ impl Sandbox {
         _args: &[String],
         _stream_cap: usize,
         _timeout: Duration,
+        _cancelled: &std::sync::atomic::AtomicBool,
     ) -> std::result::Result<Run, String> {
         match self.0 {}
     }
