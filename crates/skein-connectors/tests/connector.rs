@@ -201,6 +201,38 @@ fn the_connector_lists_the_git_tools_only_when_the_root_is_a_repository() {
     );
 }
 
+/// The cap a model plans around and the cap the handler enforces are one
+/// number, and this is what says so.
+///
+/// `git_log`'s refusal message already interpolates [`LOG_COUNT_CAP`]
+/// (`server.rs`), but its `#[tool(description = ...)]` states the same ceiling
+/// as a hand-typed literal — an attribute takes a string literal, so there is
+/// no way to interpolate it there. Nothing but this assertion stops the
+/// constant from moving while the prose a model reads stays behind, which would
+/// have a model either under-asking silently or being told a ceiling that then
+/// refuses it.
+#[test]
+fn the_advertised_log_cap_is_the_constant_that_enforces_it() {
+    use skein_connectors::LOG_COUNT_CAP;
+
+    let (_repo_dir, mut over_a_repository) = connector_over_a_repository();
+
+    let catalogue = over_a_repository
+        .list()
+        .expect("tools/list reaches the embedded server");
+    let description = &catalogue
+        .iter()
+        .find(|s| s.name == "git_log")
+        .expect("git_log is advertised over a repository")
+        .description;
+
+    let stated = format!("between 1 and {LOG_COUNT_CAP}");
+    assert!(
+        description.contains(&stated),
+        "the advertised ceiling must be `{stated}`: {description}"
+    );
+}
+
 #[test]
 fn a_git_tool_whose_route_is_disabled_is_not_callable_by_name() {
     let (_dir, mut connector) = connector();
@@ -274,11 +306,15 @@ fn the_connector_lists_proc_run_with_its_caps_stated_when_run_access_is_allowed(
         .expect("proc_run is advertised");
     // The description **is** the contract the model reads, so the caps it has
     // to work within have to be in it rather than only in a Rust constant.
+    // Matched as the whole phrase, not as a bare number: the description also
+    // names `%SystemRoot%\System32`, so a bare `RUN_TIMEOUT.as_secs()` of 32
+    // would pass on a coincidence while the sentence still said thirty.
+    let killed_after = format!("killed after {} seconds", RUN_TIMEOUT.as_secs());
+    let truncated_at = format!("truncated at {RUN_OUTPUT_BYTE_CAP} bytes");
     assert!(
-        spec.description
-            .contains(&RUN_TIMEOUT.as_secs().to_string())
-            && spec.description.contains(&RUN_OUTPUT_BYTE_CAP.to_string()),
-        "the wall clock and the output cap must be stated: {}",
+        spec.description.contains(&killed_after) && spec.description.contains(&truncated_at),
+        "the wall clock and the output cap must be stated as `{killed_after}` and \
+         `{truncated_at}`: {}",
         spec.description
     );
     assert!(
