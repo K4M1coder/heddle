@@ -21,15 +21,24 @@
 
 use serde::{Deserialize, Serialize};
 use skein_core::{
-    Message, ModelClient, Result, SkeinError, ToolCall, ToolSpec, TurnRequest, TurnResponse,
-    WireExchange,
+    Message, ModelClient, Result, SkeinError, TextSink, ToolCall, ToolSpec, TurnRequest,
+    TurnResponse, WireExchange,
 };
+use std::collections::BTreeMap;
+use std::io::{BufRead, BufReader};
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 
 /// Connect budget, separate from the global one so a wrong port fails fast even
 /// when the operator has allowed a long generation.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The stream reader's ceiling, restored deliberately rather than inherited.
+/// `Body::read_to_string` applied ureq's own `MAX_BODY_SIZE`; the reader this
+/// crate now uses is documented "not limited by default", so without this line a
+/// provider looping forever would grow memory without bound. Same number as
+/// ureq's, because the property being preserved is ureq's.
+const MAX_STREAM_BODY: u64 = 10 * 1024 * 1024;
 
 /// How much of a provider's error body reaches the operator's terminal. Enough
 /// for Ollama's `{"error":{"message":…}}`, short of pasting a whole HTML page.
@@ -155,6 +164,10 @@ pub struct OpenAiCompatClient {
     /// until a turn reaches a socket *and* gets an answer, so a client that
     /// never connected has nothing to hand over.
     last_exchange: Option<WireExchange>,
+    /// Where each content delta goes as it comes off the socket. `None` for a
+    /// caller with nothing to show before the turn ends — `skein chat`, whose
+    /// contract is one answer on stdout, is exactly that caller.
+    sink: Option<Box<dyn TextSink>>,
 }
 
 impl OpenAiCompatClient {
@@ -177,10 +190,19 @@ impl OpenAiCompatClient {
             model: model.into(),
             agent,
             last_exchange: None,
+            sink: None,
         }
     }
 
-    fn post(&self, url: &str, body: &str) -> Result<(u16, String)> {
+    /// Sends the request and reads the whole answer, as the two shapes the
+    /// provider actually produces: a success is an event stream, a refusal is
+    /// one plain JSON body under a non-2xx status. Both are measured, not
+    /// assumed.
+    ///
+    /// Nothing here raises the stream's own faults. They are carried out, so the
+    /// caller can record the bytes that arrived *before* propagating — a
+    /// mid-stream failure leaves evidence rather than nothing.
+    fn send(&mut self, url: &str, body: &str) -> Result<(u16, Answer)> {
         let mut response = self
             .agent
             .post(url)
@@ -193,10 +215,28 @@ impl OpenAiCompatClient {
                 ))
             })?;
         let status = response.status().as_u16();
-        let text = response.body_mut().read_to_string().map_err(|e| {
-            SkeinError::Model(format!("POST {url} returned an unreadable body: {e}"))
-        })?;
-        Ok((status, text))
+
+        if !(200..300).contains(&status) {
+            let raw = response.body_mut().read_to_string().map_err(|e| {
+                SkeinError::Model(format!("POST {url} returned an unreadable body: {e}"))
+            })?;
+            return Ok((
+                status,
+                Answer {
+                    raw,
+                    ..Answer::default()
+                },
+            ));
+        }
+
+        let reader = BufReader::new(
+            response
+                .body_mut()
+                .with_config()
+                .limit(MAX_STREAM_BODY)
+                .reader(),
+        );
+        Ok((status, drain(reader, &mut self.sink)))
     }
 
     fn unrecognised(&self, detail: impl std::fmt::Display) -> SkeinError {
@@ -241,22 +281,29 @@ impl ModelClient for OpenAiCompatClient {
         let body = serde_json::to_string(&ChatRequest {
             model: &self.model,
             messages: req.messages.iter().map(ChatMessage::from).collect(),
-            stream: false,
+            stream: true,
+            stream_options: StreamOptions {
+                include_usage: true,
+            },
             tools: req.tools.iter().map(ChatTool::from).collect(),
         })?;
 
         let url = self.endpoint.chat_completions_url();
-        let (status, text) = self.post(&url, &body)?;
-        // `body` and `text` are *moved* here, never re-serialized: the recorded
-        // request is the same `String` whose bytes ureq transmitted, and the
-        // recorded response is the same one parsed below. Divergence between
-        // what crossed the wire and what the chain says crossed it is not
-        // unlikely, it is unrepresentable.
+        let (status, answer) = self.send(&url, &body)?;
+        // `body` and the stream's bytes are *moved* here, never re-serialized:
+        // the recorded request is the same `String` whose bytes ureq
+        // transmitted, and the recorded response is the same one the accumulator
+        // was built from. Divergence between what crossed the wire and what the
+        // chain says crossed it is not unlikely, it is unrepresentable.
+        //
+        // Stored before anything below can fail, and stored even when the read
+        // stopped short, so the bytes that caused a failure outlive it.
         self.last_exchange = Some(WireExchange {
             url,
             status,
             request: body,
-            response: text,
+            response: answer.raw,
+            streamed: answer.streamed,
         });
         // Borrowed back rather than kept from the store above: the two `&self`
         // helpers below cannot be called while a `&mut self` borrow is live,
@@ -277,41 +324,75 @@ impl ModelClient for OpenAiCompatClient {
             )));
         }
 
-        let parsed: ChatResponse = serde_json::from_str(text)
-            .map_err(|e| self.unrecognised(format!("{e}: {}", truncated(text))))?;
-        let choice = parsed
-            .choices
-            .into_iter()
-            .next()
-            .ok_or_else(|| self.unrecognised("no choices[0]"))?;
+        match answer.fault {
+            Some(StreamFault::Unreadable(why)) => {
+                return Err(SkeinError::Model(format!(
+                    "{} stopped mid-stream: {why}",
+                    self.endpoint.base_url
+                )))
+            }
+            Some(StreamFault::Unparseable(event)) => {
+                return Err(self.unrecognised(format!(
+                    "an event payload is not JSON: {}",
+                    truncated(&event)
+                )))
+            }
+            None => {}
+        }
 
-        let tool_calls = choice
-            .message
-            .tool_calls
+        if answer.events == 0 {
+            // A 200 carrying no `data:` line at all is not a stream that said
+            // nothing, it is something else entirely — an interposing proxy's
+            // page, most plausibly. Falling through to the metering refusal
+            // would name the wrong problem and never show the operator what
+            // actually answered.
+            return Err(self.unrecognised(format!("no SSE events: {}", truncated(text))));
+        }
+        let acc = answer.acc;
+        if !acc.saw_choice {
+            // Well-framed and still not an answer. The metering event carries
+            // `"choices":[]` by design, so a stream of nothing but one would
+            // otherwise become an empty assistant message.
+            return Err(self.unrecognised("no choices[0]"));
+        }
+
+        let tool_calls = acc
+            .calls
             .into_iter()
-            .enumerate()
-            .map(|(i, c)| {
+            .map(|(index, call)| {
                 // Normalized here and nowhere else, so every `ToolCall` leaving
                 // this crate has a non-empty id and the loop that echoes them
                 // needs no fallback of its own. Ollama supplies ids; the
                 // OpenAI-compat ecosystem does not guarantee one, and an empty
                 // id reaching the echo would produce a request answering a call
-                // it never made.
-                let id = c.id.unwrap_or_else(|| format!("call_{i}"));
-                serde_json::from_str(&c.function.arguments)
-                    .map(|args| ToolCall::with_id(id, c.function.name, args))
+                // it never made. The delta's own `index` is what keeps two
+                // id-less calls distinct.
+                let id = match call.id.is_empty() {
+                    true => format!("call_{index}"),
+                    false => call.id,
+                };
+                // Non-streamed, a no-argument call arrives as `"arguments":"{}"`
+                // and parses. Streamed, it accumulates to `""`, which
+                // `serde_json` rejects — so without this equivalence streaming
+                // would introduce a failure the non-streamed path did not have.
+                let arguments = match call.arguments.is_empty() {
+                    true => "{}",
+                    false => &call.arguments,
+                };
+                serde_json::from_str(arguments)
+                    .map(|args| ToolCall::with_id(id, call.name, args))
                     .map_err(|e| {
                         self.unrecognised(format!(
                             "tool call arguments are not JSON: {e}: {}",
-                            truncated(&c.function.arguments)
+                            truncated(arguments)
                         ))
                     })
             })
             .collect::<Result<Vec<ToolCall>>>()?;
 
         Ok(TurnResponse {
-            message: Message::assistant_text(choice.message.content.unwrap_or_default()),
-            tokens_used: self.metered(parsed.usage)?,
+            message: Message::assistant_text(acc.content),
+            tokens_used: self.metered(acc.usage)?,
             // The provider's `"stop"` is a *claim* that the model is done, and
             // it is only believed when the model asked for nothing further.
             // `"length"` is deliberately not final: it means the provider
@@ -319,13 +400,154 @@ impl ModelClient for OpenAiCompatClient {
             // answer would let a truncation launder itself past
             // `LoopController`, which Constitution VIII(a) reserves to the
             // engine.
-            final_output: choice.finish_reason.as_deref() == Some("stop") && tool_calls.is_empty(),
+            final_output: acc.finish_reason.as_deref() == Some("stop") && tool_calls.is_empty(),
             tool_calls,
         })
     }
 
     fn take_wire_exchange(&mut self) -> Option<WireExchange> {
         self.last_exchange.take()
+    }
+
+    fn set_text_sink(&mut self, sink: Box<dyn TextSink>) {
+        self.sink = Some(sink);
+    }
+}
+
+/// One provider answer, in whichever of its two shapes arrived: the bytes
+/// verbatim, whether they were read as an event stream, the turn reassembled
+/// from them, and why the read stopped short if it did.
+#[derive(Default)]
+struct Answer {
+    raw: String,
+    streamed: bool,
+    /// How many `data:` payloads parsed. Zero on a 200 means the body was not a
+    /// stream at all — see `turn`.
+    events: usize,
+    acc: Accumulated,
+    fault: Option<StreamFault>,
+}
+
+/// Why a stream stopped short. Carried out of the read rather than raised there,
+/// so the bytes that arrived reach the chain before the failure propagates.
+enum StreamFault {
+    /// The socket failed part-way, or the reader's ceiling was reached.
+    Unreadable(String),
+    /// An event is framed as `data:` but its payload is not JSON.
+    Unparseable(String),
+}
+
+/// Reads the event stream to its end, building the verbatim capture and the
+/// reassembled turn in one pass, and pushing each content delta to `sink` as it
+/// is absorbed — which is the whole point of the stream and the reason this is
+/// one pass rather than read-then-parse.
+///
+/// Read as bytes with `read_until`, not as lines: the terminator is **kept**, so
+/// the capture is byte-identical to the wire even if a provider frames with
+/// CRLF, where `lines()` would strip it and quietly forge the record. The
+/// lossy conversion is this function's own, so a non-UTF-8 byte becomes U+FFFD
+/// rather than erroring the read.
+///
+/// `[DONE]` ends the events, not the reading: the loop runs to EOF so trailing
+/// bytes are captured too. A provider that sends `[DONE]` and then holds the
+/// socket open is the same failure the client's global timeout already governs.
+fn drain(mut reader: impl BufRead, sink: &mut Option<Box<dyn TextSink>>) -> Answer {
+    let mut answer = Answer {
+        streamed: true,
+        ..Answer::default()
+    };
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        match reader.read_until(b'\n', &mut line) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(e) => {
+                answer.fault = Some(StreamFault::Unreadable(e.to_string()));
+                break;
+            }
+        }
+        let text = String::from_utf8_lossy(&line);
+        answer.raw.push_str(&text);
+
+        // Anything that is not a `data:` line is skipped: the blank separators,
+        // and the `event:` / `id:` / comment lines a different provider might
+        // send. They are already in `raw`, which is where they belong.
+        let Some(payload) = text.trim_end_matches(['\r', '\n']).strip_prefix("data:") else {
+            continue;
+        };
+        let payload = payload.strip_prefix(' ').unwrap_or(payload);
+        if payload == "[DONE]" {
+            continue;
+        }
+        match serde_json::from_str::<ChatChunk>(payload) {
+            Ok(chunk) => {
+                answer.events += 1;
+                answer.acc.absorb(chunk, sink);
+            }
+            Err(_) => {
+                answer.fault = Some(StreamFault::Unparseable(payload.to_string()));
+                break;
+            }
+        }
+    }
+    answer
+}
+
+/// A turn under construction, reassembled event by event.
+#[derive(Default)]
+struct Accumulated {
+    content: String,
+    /// Keyed by the delta's own `index`, so a fragment finds its call however
+    /// the events interleave, and *ordered* by it, so the calls come out in the
+    /// order the provider numbered them rather than the order they finished.
+    calls: BTreeMap<u64, PartialCall>,
+    finish_reason: Option<String>,
+    usage: Option<Usage>,
+    /// Whether any event carried a `choices[0]` at all — see `turn`.
+    saw_choice: bool,
+}
+
+#[derive(Default)]
+struct PartialCall {
+    id: String,
+    name: String,
+    arguments: String,
+}
+
+impl Accumulated {
+    fn absorb(&mut self, chunk: ChatChunk, sink: &mut Option<Box<dyn TextSink>>) {
+        for choice in chunk.choices {
+            self.saw_choice = true;
+            if choice.finish_reason.is_some() {
+                self.finish_reason = choice.finish_reason;
+            }
+            // Empty deltas are absorbed but never pushed. That is not
+            // defensiveness: the provider sends `"content":""` on every
+            // reasoning event, so a sink told about them would receive ~150
+            // empty notifications for one short turn.
+            if let Some(text) = choice.delta.content.filter(|t| !t.is_empty()) {
+                self.content.push_str(&text);
+                if let Some(sink) = sink {
+                    sink.on_text(&text);
+                }
+            }
+            for fragment in choice.delta.tool_calls {
+                let call = self.calls.entry(fragment.index).or_default();
+                if let Some(id) = fragment.id {
+                    call.id.push_str(&id);
+                }
+                if let Some(name) = fragment.function.name {
+                    call.name.push_str(&name);
+                }
+                if let Some(arguments) = fragment.function.arguments {
+                    call.arguments.push_str(&arguments);
+                }
+            }
+        }
+        if chunk.usage.is_some() {
+            self.usage = chunk.usage;
+        }
     }
 }
 
@@ -344,13 +566,25 @@ fn truncated(text: &str) -> String {
 struct ChatRequest<'a> {
     model: &'a str,
     messages: Vec<ChatMessage<'a>>,
-    /// Explicit, not implied: a provider that defaulted to SSE would break the
-    /// parse silently, and streaming is out of scope for this slice.
+    /// Always `true`. There is no flag and no config key: two wire paths would
+    /// mean two shapes to test forever, and the non-streamed one would have no
+    /// caller.
     stream: bool,
+    /// Mandatory, not decorative, and measured: under a bare `"stream": true`
+    /// the provider sends **no `usage` object at all**, and
+    /// [`OpenAiCompatClient::metered`] refuses an unmetered turn so that the
+    /// loop's token budget stays enforceable. Without this field every run
+    /// fails.
+    stream_options: StreamOptions,
     /// Skipped when empty, so a run that advertises nothing puts exactly the
     /// bytes on the wire it put there before this field existed.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     tools: Vec<ChatTool<'a>>,
+}
+
+#[derive(Serialize)]
+struct StreamOptions {
+    include_usage: bool,
 }
 
 /// The two tool fields serialize **last** and are skipped when empty, so a
@@ -369,8 +603,8 @@ struct ChatMessage<'a> {
     tool_call_id: Option<&'a str>,
 }
 
-/// The request-side mirror of [`ResponseToolCall`]: the same envelope, sent
-/// back so a provider sees the turn it produced.
+/// The request-side mirror of [`DeltaToolCall`]: the same envelope reassembled,
+/// sent back so a provider sees the turn it produced.
 #[derive(Serialize)]
 struct ChatToolCall<'a> {
     id: &'a str,
@@ -383,7 +617,7 @@ struct ChatToolCall<'a> {
 struct ChatCallFunction<'a> {
     name: &'a str,
     /// A JSON *string* holding JSON, per the wire format, exactly as
-    /// [`ToolFunction::arguments`] arrives.
+    /// [`DeltaFunction::arguments`] arrives, once its fragments are joined.
     arguments: String,
 }
 
@@ -456,47 +690,74 @@ impl<'a> From<&'a Message> for ChatMessage<'a> {
     }
 }
 
-/// Unknown fields are ignored, which is why a real provider's `id`, `object`,
-/// `created` and vendor extensions cost nothing here.
+/// One `data:` payload. Unknown fields are ignored, which is why a real
+/// provider's `id`, `object`, `created` and vendor extensions cost nothing here.
 #[derive(Deserialize)]
-struct ChatResponse {
+struct ChatChunk {
+    /// Empty on the metering event, which carries `"choices":[]` by design.
     #[serde(default)]
-    choices: Vec<Choice>,
-    /// `None` when the provider sent no metering at all, which is a refusal —
-    /// see [`OpenAiCompatClient::metered`].
+    choices: Vec<ChunkChoice>,
+    /// Present on exactly one event of a well-formed stream. `None` everywhere
+    /// else, and `None` on *every* event of a stream from a provider that
+    /// ignored `stream_options` — which is a refusal, see
+    /// [`OpenAiCompatClient::metered`].
     #[serde(default)]
     usage: Option<Usage>,
 }
 
 #[derive(Deserialize)]
-struct Choice {
-    message: ChoiceMessage,
+struct ChunkChoice {
+    #[serde(default)]
+    delta: Delta,
+    /// Carried by the one event that closes the choice; `None` on the rest.
     #[serde(default)]
     finish_reason: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct ChoiceMessage {
+/// `reasoning` is deliberately absent, and its absence is the decision. The
+/// provider sends it on a reasoning model — with `content` empty on those same
+/// events — and it sends it in **both** modes, so the non-streamed shape this
+/// replaces was already discarding it. Naming the field here would put text
+/// into `TurnResponse.message` that the non-streamed path never had.
+#[derive(Default, Deserialize)]
+struct Delta {
     /// Explicitly nullable: a tool-calling turn carries `"content": null`.
     #[serde(default)]
     content: Option<String>,
     #[serde(default)]
-    tool_calls: Vec<ResponseToolCall>,
+    tool_calls: Vec<DeltaToolCall>,
 }
 
 #[derive(Deserialize)]
-struct ResponseToolCall {
-    /// Absent on compat layers that do not synthesize one; see `turn`.
+struct DeltaToolCall {
+    /// Which call this fragment belongs to, and the whole reason fragments can
+    /// be reassembled at all.
+    ///
+    /// Defaulted because the wire does not guarantee it, though all three
+    /// provider models measured always send it. A compat layer that omitted it
+    /// would collapse every call into slot `0` — recorded as a residual in
+    /// `spec.md` rather than guessed around, since there is no second key to
+    /// fall back to that would not be a guess.
+    #[serde(default)]
+    index: u64,
+    /// Absent on compat layers that do not synthesize one, and absent on the
+    /// continuation fragments of a call whose first fragment carried it.
     #[serde(default)]
     id: Option<String>,
-    function: ToolFunction,
+    #[serde(default)]
+    function: DeltaFunction,
 }
 
-#[derive(Deserialize)]
-struct ToolFunction {
-    name: String,
-    /// A JSON *string* holding JSON, per the OpenAI wire format.
-    arguments: String,
+/// Every field optional: a fragment carries whichever parts of the call it
+/// advances and nothing else.
+#[derive(Default, Deserialize)]
+struct DeltaFunction {
+    #[serde(default)]
+    name: Option<String>,
+    /// A JSON *string* holding JSON, per the OpenAI wire format — and one that
+    /// arrives in pieces, so the pieces are text until the last one lands.
+    #[serde(default)]
+    arguments: Option<String>,
 }
 
 #[derive(Deserialize)]

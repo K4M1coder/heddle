@@ -57,6 +57,30 @@ pub struct WireExchange {
     pub status: u16,
     pub request: String,
     pub response: String,
+    /// Whether `response` was read as an event stream rather than as one body.
+    ///
+    /// The second wire fact neither body carries, and it has a real reader
+    /// rather than only a test: a provider that refuses answers a plain body
+    /// under a non-2xx status and never streams, so an auditor finding `data: `
+    /// framing in `response` knows it is the format and not corruption — and
+    /// finding none on a failed turn knows the same.
+    ///
+    /// Defaulted, so a chain written before streaming existed still
+    /// deserializes and no existing step's id moves.
+    #[serde(default)]
+    pub streamed: bool,
+}
+
+/// Where a client pushes assistant text as the provider produces it, for a
+/// caller that must show it before the turn ends.
+///
+/// `Send` for exactly the reason [`LedgerStore`] carries it: the sink is
+/// installed on this side of the port and used from the worker thread a caller
+/// runs its turn on.
+///
+/// [`LedgerStore`]: crate::ledger::LedgerStore
+pub trait TextSink: Send {
+    fn on_text(&mut self, delta: &str);
 }
 
 /// Synchronous in v0: this slice has no network, and a single-conversation turn
@@ -77,4 +101,13 @@ pub trait ModelClient {
     fn take_wire_exchange(&mut self) -> Option<WireExchange> {
         None
     }
+
+    /// Installs somewhere to push assistant text as it is produced.
+    ///
+    /// Defaulted to dropping the sink, which — as with
+    /// [`ModelClient::take_wire_exchange`]'s `None` — is the *true* answer
+    /// rather than a convenience: a client that produces its text atomically has
+    /// nothing to push before the turn ends, and its caller still receives that
+    /// text through [`TurnResponse`] as it always did.
+    fn set_text_sink(&mut self, _sink: Box<dyn TextSink>) {}
 }

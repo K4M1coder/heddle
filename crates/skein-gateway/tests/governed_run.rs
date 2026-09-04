@@ -51,9 +51,17 @@ impl StubProvider {
                 if tx.send(seen).is_err() {
                     return;
                 }
+                // A success is an event stream; a refusal is a plain JSON body.
+                // That is the provider's own split, measured: under
+                // `stream: true` a 404 still answers `content-type:
+                // application/json` with `{"error":{...}}`.
+                let content_type = match status {
+                    200..=299 => "text/event-stream",
+                    _ => "application/json",
+                };
                 let _ = socket.write_all(
                     format!(
-                        "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        "HTTP/1.1 {status} X\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                         body.len()
                     )
                     .as_bytes(),
@@ -109,15 +117,31 @@ fn read_request(socket: &mut TcpStream) -> Option<String> {
     Some(raw)
 }
 
+/// SSE framing as the real provider writes it, with a bare `\n\n` separator and
+/// a terminating `[DONE]`. Written out here rather than shared with the other
+/// test binary for the reason this file's header already records: each of these
+/// stubs is the other's control.
+fn sse(events: Vec<serde_json::Value>) -> String {
+    let mut raw = String::new();
+    for event in events {
+        raw.push_str(&format!("data: {event}\n\n"));
+    }
+    raw.push_str("data: [DONE]\n\n");
+    raw
+}
+
+/// One whole answer, streamed: a content delta, the event that closes the
+/// choice, and the metering event `stream_options.include_usage` buys.
 fn reply(content: &str, finish_reason: &str, total_tokens: u64) -> String {
-    serde_json::json!({
-        "choices": [{
-            "message": {"role": "assistant", "content": content},
-            "finish_reason": finish_reason
-        }],
-        "usage": {"total_tokens": total_tokens}
-    })
-    .to_string()
+    sse(vec![
+        serde_json::json!({
+            "choices": [{"index": 0, "delta": {"role": "assistant", "content": content}}]
+        }),
+        serde_json::json!({
+            "choices": [{"index": 0, "delta": {}, "finish_reason": finish_reason}]
+        }),
+        serde_json::json!({"choices": [], "usage": {"total_tokens": total_tokens}}),
+    ])
 }
 
 /// The collaborators a tool-less chat honestly has, mirroring what
@@ -328,13 +352,38 @@ fn the_chain_records_the_literal_bytes_of_the_exchange() {
     // wrote, in both directions. Not a parse, not a field-by-field comparison:
     // either the chain holds the transmitted buffer or it holds a re-derivation
     // of it, and only the first is what this slice claims.
+    //
+    // Under streaming that claim is worth more than it was, not less. The
+    // reassembly from events to a `TurnResponse` is now the most error-prone
+    // thing between the socket and the loop, so recording the reassembled
+    // object instead of the events would make an accumulator bug invisible to
+    // the chain — the exact defect slice 023 existed to close.
     assert_eq!(recorded.request, provider.raw_request_body());
     assert_eq!(recorded.response, answer);
+    assert!(
+        recorded.response.starts_with("data: ") && recorded.response.ends_with("data: [DONE]\n\n"),
+        "the recorded response is the SSE framing itself, got {:?}",
+        recorded.response
+    );
+    assert!(recorded.streamed, "a 200 answered as an event stream");
     assert_eq!(recorded.status, 200);
     assert!(
         recorded.url.ends_with("/chat/completions"),
         "got {}",
         recorded.url
+    );
+
+    // The two request fields the slice cannot work without. `include_usage` is
+    // not decorative: the provider sends no metering at all without it, and
+    // `metered` refuses an unmetered turn, so a request missing this key fails
+    // every run.
+    assert!(
+        recorded.request.contains(r#""stream":true"#)
+            && recorded
+                .request
+                .contains(r#""stream_options":{"include_usage":true}"#),
+        "got {}",
+        recorded.request
     );
 
     assert!(ledger.verify_chain("run-wire").is_ok());
@@ -412,6 +461,72 @@ fn a_quote_bearing_secret_is_scrubbed_from_the_exchange_it_escaped_into() {
     );
     assert!(recorded.request.contains("***"), "got {}", recorded.request);
     assert!(ledger.verify_chain("run-quoted").is_ok());
+}
+
+#[test]
+fn a_quote_bearing_secret_inside_an_sse_event_is_scrubbed_from_the_recorded_stream() {
+    // The response side of the same hole, which streaming makes newly
+    // reachable: a provider echoing a quote-bearing secret puts it on the wire
+    // *inside* a `data:` payload, where it is escaped exactly as it would be in
+    // a whole body. `redact_wire`'s premise is unchanged — each event payload is
+    // serialized JSON — and this test is what proves the premise still holds
+    // once the body is a stream of them rather than one object.
+    let provider = StubProvider::serving(vec![reply(
+        &format!("your password is {QUOTED_SECRET}"),
+        "stop",
+        11,
+    )]);
+    let mut loops = chat_loop(
+        &provider.base_url,
+        Redactor::new(vec![QUOTED_SECRET.into()]),
+    );
+    let mut ledger = Ledger::new();
+    let mut controller = LoopController::new(LoopBudget::new(4, 1_000, 4));
+
+    loops
+        .run(
+            "run-echoed",
+            Message::user_text("remind me"),
+            &mut ledger,
+            &mut controller,
+        )
+        .expect("the run completes");
+
+    for payload in payloads(&ledger, "run-echoed") {
+        assert!(
+            !payload.contains(QUOTED_SECRET),
+            "a payload carries the secret literally: {payload}"
+        );
+    }
+    let recorded = exchange(&ledger, "run-echoed");
+    assert!(
+        !recorded.response.contains(ESCAPED_SECRET),
+        "the escaped secret reached the chain: {}",
+        recorded.response
+    );
+    assert!(
+        !recorded.response.contains(QUOTED_SECRET),
+        "the literal secret reached the chain: {}",
+        recorded.response
+    );
+    assert!(
+        recorded.response.contains("***"),
+        "got {}",
+        recorded.response
+    );
+    // Scrubbing must not have destroyed the framing: an auditor still reads the
+    // events, and each payload still parses.
+    for event in recorded
+        .response
+        .lines()
+        .filter_map(|l| l.strip_prefix("data: "))
+        .filter(|l| *l != "[DONE]")
+    {
+        serde_json::from_str::<serde_json::Value>(event)
+            .unwrap_or_else(|e| panic!("a scrubbed event no longer parses: {e}: {event}"));
+    }
+    assert!(recorded.streamed);
+    assert!(ledger.verify_chain("run-echoed").is_ok());
 }
 
 #[test]
@@ -502,5 +617,13 @@ fn a_provider_error_status_still_leaves_the_bytes_that_caused_it_on_the_chain() 
     let recorded = exchange(&ledger, "run-500");
     assert_eq!(recorded.status, 500);
     assert_eq!(recorded.response, REFUSAL);
+    // The flag's real code reader, not a test-only decoration: a failed turn is
+    // genuinely *not* a stream — the provider answers a plain JSON body under a
+    // non-2xx status — so an auditor who finds no `data:` framing here is
+    // reading an exchange that never had any, rather than a corrupted capture.
+    assert!(
+        !recorded.streamed,
+        "a refusal is one body, not an event stream"
+    );
     assert!(ledger.verify_chain("run-500").is_ok());
 }

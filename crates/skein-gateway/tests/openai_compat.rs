@@ -24,23 +24,32 @@ const OBSERVE_TIMEOUT: Duration = Duration::from_secs(10);
 /// One canned reply, written by the stub exactly as spelled here.
 struct Reply {
     status: &'static str,
+    content_type: &'static str,
     body: String,
     /// Held before answering, to drive the client's global timeout.
     stall: Option<Duration>,
 }
 
 impl Reply {
+    /// A successful answer. Its content type is `text/event-stream` even for the
+    /// bodies below that are not streams at all: a provider whose 200 carries
+    /// something else entirely is exactly the case those tests exist for, and
+    /// the client's behaviour must not depend on a header it does not read.
     fn ok(body: impl Into<String>) -> Reply {
         Reply {
             status: "200 OK",
+            content_type: "text/event-stream",
             body: body.into(),
             stall: None,
         }
     }
 
+    /// A refusal, which the provider sends as a plain JSON body under a non-2xx
+    /// status — never as a stream. Measured against the real provider.
     fn status(status: &'static str, body: impl Into<String>) -> Reply {
         Reply {
             status,
+            content_type: "application/json",
             body: body.into(),
             stall: None,
         }
@@ -51,7 +60,8 @@ impl Reply {
     fn stalled(stall: Duration) -> Reply {
         Reply {
             status: "200 OK",
-            body: "{}".into(),
+            content_type: "text/event-stream",
+            body: String::new(),
             stall: Some(stall),
         }
     }
@@ -93,8 +103,9 @@ impl Stub {
                 // of racing ureq's pool.
                 let _ = socket.write_all(
                     format!(
-                        "HTTP/1.1 {}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                        "HTTP/1.1 {}\r\ncontent-type: {}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
                         reply.status,
+                        reply.content_type,
                         reply.body.len(),
                         reply.body
                     )
@@ -164,21 +175,59 @@ fn read_request(socket: &mut TcpStream) -> Option<String> {
     Some(raw)
 }
 
-/// A response shaped the way Ollama's OpenAI-compatible endpoint shapes one.
-fn provider_reply(content: &str, finish_reason: &str, total_tokens: u64) -> String {
+/// SSE framing as the real provider writes it: one `data: {json}` per event,
+/// each closed by a blank line, and `data: [DONE]` last.
+///
+/// The separator is a bare `\n\n` and not CRLF. That is measured, not assumed —
+/// `cat -A` against the live endpoint shows every line ending `$`, never `^M$` —
+/// and it matters, because the client's capture keeps its terminators.
+fn sse(events: Vec<serde_json::Value>) -> String {
+    let mut raw = String::new();
+    for event in events {
+        raw.push_str(&format!("data: {event}\n\n"));
+    }
+    raw.push_str("data: [DONE]\n\n");
+    raw
+}
+
+/// One content delta, the shape the provider sends for each fragment of an
+/// answer.
+fn delta(content: &str) -> serde_json::Value {
     serde_json::json!({
         "id": "chatcmpl-1",
-        "object": "chat.completion",
+        "object": "chat.completion.chunk",
         "created": 1_756_000_000_u64,
         "model": "llama3.1",
-        "choices": [{
-            "index": 0,
-            "message": {"role": "assistant", "content": content},
-            "finish_reason": finish_reason
-        }],
+        "choices": [{"index": 0, "delta": {"role": "assistant", "content": content}}]
+    })
+}
+
+/// The event that closes the choice. Its delta is empty; `finish_reason` is the
+/// only thing it carries.
+fn finish(reason: &str) -> serde_json::Value {
+    serde_json::json!({
+        "choices": [{"index": 0, "delta": {}, "finish_reason": reason}]
+    })
+}
+
+/// The metering event `stream_options.include_usage` buys: `choices` is empty
+/// and `usage` is the whole point. It arrives immediately before `[DONE]`.
+fn usage(total_tokens: u64) -> serde_json::Value {
+    serde_json::json!({
+        "choices": [],
         "usage": {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": total_tokens}
     })
-    .to_string()
+}
+
+/// A whole answer in one delta, framed the way the provider frames it. The
+/// shorthand most tests here want, since they assert something other than how
+/// the answer was split.
+fn provider_reply(content: &str, finish_reason: &str, total_tokens: u64) -> String {
+    sse(vec![
+        delta(content),
+        finish(finish_reason),
+        usage(total_tokens),
+    ])
 }
 
 fn client(base_url: &str, model: &str) -> OpenAiCompatClient {
@@ -222,7 +271,7 @@ fn turn_sends_an_openai_chat_completions_request() {
     // so its key order is ours and a reordering is a wire change worth catching.
     assert_eq!(
         body,
-        r#"{"model":"llama3.1","messages":[{"role":"user","content":"hello"}],"stream":false}"#
+        r#"{"model":"llama3.1","messages":[{"role":"user","content":"hello"}],"stream":true,"stream_options":{"include_usage":true}}"#
     );
 }
 
@@ -264,7 +313,7 @@ fn advertised_tools_are_sent_in_openais_function_shape() {
     // provider buys nothing. An assertion on fields could not catch its return.
     assert_eq!(
         body,
-        r#"{"model":"llama3.1","messages":[{"role":"user","content":"hello"}],"stream":false,"tools":[{"type":"function","function":{"name":"fs_read","description":"Read a UTF-8 text file.","parameters":{"properties":{"path":{"type":"string"}},"required":["path"],"type":"object"}}}]}"#
+        r#"{"model":"llama3.1","messages":[{"role":"user","content":"hello"}],"stream":true,"stream_options":{"include_usage":true},"tools":[{"type":"function","function":{"name":"fs_read","description":"Read a UTF-8 text file.","parameters":{"properties":{"path":{"type":"string"}},"required":["path"],"type":"object"}}}]}"#
     );
 }
 
@@ -475,17 +524,206 @@ fn turn_parses_a_realistic_response_into_a_turn_response() {
 }
 
 #[test]
-fn tokens_used_falls_back_to_prompt_plus_completion_when_total_is_absent() {
-    let stub = Stub::serving(vec![Reply::ok(
+fn a_streamed_answer_is_accumulated_across_its_deltas() {
+    // The slice's premise as an assertion: the provider produces the answer in
+    // pieces, and one `TurnResponse` comes out the other side. The pieces are
+    // spelled so that a client concatenating them in the wrong order, or
+    // dropping one, produces something visibly different rather than something
+    // merely shorter.
+    let stub = Stub::serving(vec![Reply::ok(sse(vec![
+        delta("The "),
+        delta("answer "),
+        delta("is "),
+        delta("42."),
+        finish("stop"),
+        usage(61),
+    ]))]);
+    let mut model = client(stub.base_url(), "llama3.1");
+
+    let response = model
+        .turn(&ask(vec![Message::user_text("what is the answer?")]))
+        .expect("the stub answers");
+
+    assert_eq!(
+        response.message,
+        Message::assistant_text("The answer is 42.")
+    );
+    // From the stream's own metering event, which exists only because the
+    // request asked for `stream_options.include_usage`. The deltas carry no
+    // count at all, so this number cannot have come from anywhere else.
+    assert_eq!(response.tokens_used, 61);
+    assert!(response.final_output);
+    assert!(response.tool_calls.is_empty());
+}
+
+/// Two complete tool calls in **one** delta, each with its own `index` — the
+/// shape the real provider was measured sending on all three models tried. The
+/// `plan.md` §0.2(4) measurement that contradicted the slice's own premise.
+fn whole_tool_calls() -> serde_json::Value {
+    serde_json::json!({
+        "choices": [{
+            "index": 0,
+            "delta": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {"index": 0, "id": "call_43lp106j", "type": "function", "function": {
+                        "name": "fs_read", "arguments": "{\"path\":\"alpha\"}"}},
+                    {"index": 1, "id": "call_jtd04izj", "type": "function", "function": {
+                        "name": "fs_write", "arguments": "{\"path\":\"beta\",\"text\":\"hi\"}"}}
+                ]
+            }
+        }]
+    })
+}
+
+/// What both shapes below must produce, spelled once so the two tests cannot
+/// drift into agreeing about something weaker than equality.
+fn expected_calls() -> Vec<skein_core::ToolCall> {
+    vec![
+        skein_core::ToolCall::with_id(
+            "call_43lp106j",
+            "fs_read",
+            serde_json::json!({"path": "alpha"}),
+        ),
+        skein_core::ToolCall::with_id(
+            "call_jtd04izj",
+            "fs_write",
+            serde_json::json!({"path": "beta", "text": "hi"}),
+        ),
+    ]
+}
+
+#[test]
+fn tool_calls_arriving_whole_in_one_delta_are_translated() {
+    let stub = Stub::serving(vec![Reply::ok(sse(vec![
+        whole_tool_calls(),
+        finish("tool_calls"),
+        usage(61),
+    ]))]);
+    let mut model = client(stub.base_url(), "llama3.1");
+
+    let response = model
+        .turn(&ask(vec![Message::user_text("read alpha then write beta")]))
+        .expect("the stub answers");
+
+    assert_eq!(response.tool_calls, expected_calls());
+    assert!(!response.final_output, "a tool request is not an answer");
+    assert_eq!(response.message, Message::assistant_text(""));
+}
+
+#[test]
+fn tool_calls_fragmented_across_deltas_accumulate_to_the_same_calls() {
+    // The shape the `index` keying exists for. The provider this slice targets
+    // never sends it — but `skein-cli`'s wiring documents a LiteLLM sidecar as
+    // a supported deployment, and LiteLLM proxying a real cloud model does
+    // fragment `arguments` across events. The name is split too, because
+    // nothing on the wire promises it arrives in one piece either.
+    let fragment = |calls: serde_json::Value| serde_json::json!({"choices": [{"index": 0, "delta": {"tool_calls": calls}}]});
+    let stub = Stub::serving(vec![Reply::ok(sse(vec![
+        fragment(serde_json::json!([
+            {"index": 0, "id": "call_43lp106j", "type": "function",
+             "function": {"name": "fs_", "arguments": ""}},
+        ])),
+        fragment(serde_json::json!([
+            {"index": 0, "function": {"name": "read", "arguments": "{\"path\":"}},
+        ])),
+        fragment(serde_json::json!([
+            {"index": 0, "function": {"arguments": "\"alpha\"}"}},
+            {"index": 1, "id": "call_jtd04izj", "type": "function",
+             "function": {"name": "fs_write", "arguments": "{\"path\""}},
+        ])),
+        fragment(serde_json::json!([
+            {"index": 1, "function": {"arguments": ":\"beta\",\"text\""}},
+        ])),
+        fragment(serde_json::json!([
+            {"index": 1, "function": {"arguments": ":\"hi\"}"}},
+        ])),
+        finish("tool_calls"),
+        usage(61),
+    ]))]);
+    let mut model = client(stub.base_url(), "llama3.1");
+
+    let response = model
+        .turn(&ask(vec![Message::user_text("read alpha then write beta")]))
+        .expect("the stub answers");
+
+    // Identical to the whole-arrival case, including the order, which comes
+    // from the `index` and not from the order the fragments happened to arrive
+    // in — index 1 is opened before index 0 is finished, above.
+    assert_eq!(response.tool_calls, expected_calls());
+    assert!(!response.final_output);
+}
+
+#[test]
+fn a_tool_call_with_no_argument_fragments_is_read_as_an_empty_object() {
+    // Non-streamed, a no-argument call arrives as `"arguments":"{}"` and parses.
+    // Streamed, it accumulates to `""`, which `serde_json` rejects. Without this
+    // equivalence streaming would introduce a failure the non-streamed path did
+    // not have, which is the one thing the parity invariant forbids.
+    let stub = Stub::serving(vec![Reply::ok(sse(vec![
+        serde_json::json!({"choices": [{"index": 0, "delta": {"tool_calls": [
+            {"index": 0, "id": "call_1", "type": "function",
+             "function": {"name": "git_status"}}
+        ]}}]}),
+        finish("tool_calls"),
+        usage(7),
+    ]))]);
+    let mut model = client(stub.base_url(), "llama3.1");
+
+    let response = model
+        .turn(&ask(vec![Message::user_text("what changed?")]))
+        .expect("the stub answers");
+
+    assert_eq!(
+        response.tool_calls,
+        vec![skein_core::ToolCall::with_id(
+            "call_1",
+            "git_status",
+            serde_json::json!({})
+        )]
+    );
+}
+
+#[test]
+fn a_reasoning_delta_never_reaches_the_message() {
+    // The real provider sends `reasoning` on a reasoning model, with `content`
+    // empty on those same events — and it sends it **in both modes**, so the
+    // non-streamed `ChoiceMessage` was already discarding it. Absorbing it now
+    // would put text into `TurnResponse.message` that the non-streamed path
+    // never had, and would show an editor a chain of thought that appears
+    // nowhere in the Ledger.
+    let thinking = |text: &str| {
         serde_json::json!({
-            "choices": [{
-                "message": {"role": "assistant", "content": "ok"},
-                "finish_reason": "stop"
-            }],
-            "usage": {"prompt_tokens": 31, "completion_tokens": 11}
+            "choices": [{"index": 0, "delta": {"role": "assistant", "content": "", "reasoning": text}}]
         })
-        .to_string(),
-    )]);
+    };
+    let stub = Stub::serving(vec![Reply::ok(sse(vec![
+        thinking("The user wants a number. "),
+        thinking("I should not say this part out loud."),
+        delta("42"),
+        finish("stop"),
+        usage(61),
+    ]))]);
+    let mut model = client(stub.base_url(), "llama3.1");
+
+    let response = model
+        .turn(&ask(vec![Message::user_text("what is the answer?")]))
+        .expect("the stub answers");
+
+    assert_eq!(response.message, Message::assistant_text("42"));
+}
+
+#[test]
+fn tokens_used_falls_back_to_prompt_plus_completion_when_total_is_absent() {
+    let stub = Stub::serving(vec![Reply::ok(sse(vec![
+        delta("ok"),
+        finish("stop"),
+        serde_json::json!({
+            "choices": [],
+            "usage": {"prompt_tokens": 31, "completion_tokens": 11}
+        }),
+    ]))]);
     let mut model = client(stub.base_url(), "llama3.1");
 
     let response = model
@@ -502,15 +740,15 @@ fn a_response_without_usage_is_refused_rather_than_metered_as_zero() {
     // disable the token budget while looking like it worked. Refusing loudly is
     // this project's established answer to "I cannot honestly produce this
     // value".
-    let stub = Stub::serving(vec![Reply::ok(
-        serde_json::json!({
-            "choices": [{
-                "message": {"role": "assistant", "content": "unmetered"},
-                "finish_reason": "stop"
-            }]
-        })
-        .to_string(),
-    )]);
+    //
+    // Streaming is why this test is now load-bearing rather than defensive: the
+    // real provider sends **no usage object at all** under a bare `stream: true`
+    // and only sends one because the request asks for `stream_options`. A
+    // provider that ignored that field would land exactly here.
+    let stub = Stub::serving(vec![Reply::ok(sse(vec![
+        delta("unmetered"),
+        finish("stop"),
+    ]))]);
 
     let message = turn_error(&stub, "how much did that cost?");
     assert!(
@@ -520,16 +758,11 @@ fn a_response_without_usage_is_refused_rather_than_metered_as_zero() {
 
     // And a `usage` that is present but half-filled is refused too: a sum needs
     // both halves.
-    let partial = Stub::serving(vec![Reply::ok(
-        serde_json::json!({
-            "choices": [{
-                "message": {"role": "assistant", "content": "half-metered"},
-                "finish_reason": "stop"
-            }],
-            "usage": {"prompt_tokens": 9}
-        })
-        .to_string(),
-    )]);
+    let partial = Stub::serving(vec![Reply::ok(sse(vec![
+        delta("half-metered"),
+        finish("stop"),
+        serde_json::json!({"choices": [], "usage": {"prompt_tokens": 9}}),
+    ]))]);
     assert!(
         turn_error(&partial, "and now?").contains("without token metering"),
         "a half-filled usage object is not metering"
@@ -576,13 +809,15 @@ fn tool_calls_are_translated_and_are_not_a_final_answer() {
     // raw body, so silently dropping a model intent would weaken Constitution
     // V. `content` is null on a tool-calling turn, which must not be a parse
     // failure.
-    let stub = Stub::serving(vec![Reply::ok(
+    let stub = Stub::serving(vec![Reply::ok(sse(vec![
         serde_json::json!({
             "choices": [{
-                "message": {
+                "index": 0,
+                "delta": {
                     "role": "assistant",
-                    "content": null,
+                    "content": "",
                     "tool_calls": [{
+                        "index": 0,
                         "id": "call_1",
                         "type": "function",
                         "function": {
@@ -590,13 +825,12 @@ fn tool_calls_are_translated_and_are_not_a_final_answer() {
                             "arguments": "{\"path\":\"README.md\"}"
                         }
                     }]
-                },
-                "finish_reason": "tool_calls"
-            }],
-            "usage": {"total_tokens": 12}
-        })
-        .to_string(),
-    )]);
+                }
+            }]
+        }),
+        finish("tool_calls"),
+        serde_json::json!({"choices": [], "usage": {"total_tokens": 12}}),
+    ]))]);
     let mut model = client(stub.base_url(), "llama3.1");
 
     let response = model
@@ -621,26 +855,28 @@ fn tool_calls_are_translated_and_are_not_a_final_answer() {
 fn tool_calls_without_a_provider_id_are_given_positional_ones() {
     // Ollama supplies ids; the OpenAI-compat ecosystem does not guarantee them.
     // Normalizing here means every `ToolCall` leaving this crate has a non-empty
-    // id, so the loop that echoes them needs no fallback of its own.
-    let stub = Stub::serving(vec![Reply::ok(
+    // id, so the loop that echoes them needs no fallback of its own. Under
+    // streaming the synthesized id is the delta's own `index`, which is what
+    // keeps two id-less calls distinct.
+    let stub = Stub::serving(vec![Reply::ok(sse(vec![
         serde_json::json!({
             "choices": [{
-                "message": {
+                "index": 0,
+                "delta": {
                     "role": "assistant",
-                    "content": null,
+                    "content": "",
                     "tool_calls": [
-                        {"type": "function", "function": {
+                        {"index": 0, "type": "function", "function": {
                             "name": "fs_read", "arguments": "{\"path\":\"alpha\"}"}},
-                        {"type": "function", "function": {
+                        {"index": 1, "type": "function", "function": {
                             "name": "fs_read", "arguments": "{\"path\":\"beta\"}"}}
                     ]
-                },
-                "finish_reason": "tool_calls"
-            }],
-            "usage": {"total_tokens": 12}
-        })
-        .to_string(),
-    )]);
+                }
+            }]
+        }),
+        finish("tool_calls"),
+        serde_json::json!({"choices": [], "usage": {"total_tokens": 12}}),
+    ]))]);
     let mut model = client(stub.base_url(), "llama3.1");
 
     let response = model
@@ -699,22 +935,34 @@ fn a_provider_error_status_carries_the_providers_own_message() {
 
 #[test]
 fn an_unrecognised_response_body_is_refused() {
-    let not_json = Stub::serving(vec![Reply::ok("<html>upstream proxy says no</html>")]);
-    let message = turn_error(&not_json, "what is this");
+    // A 200 that is not an event stream at all — the shape an interposing proxy
+    // produces. It must be refused *showing the body*, and not by falling
+    // through to the metering refusal, which would tell the operator nothing
+    // about what actually answered.
+    let not_a_stream = Stub::serving(vec![Reply::ok("<html>upstream proxy says no</html>")]);
+    let message = turn_error(&not_a_stream, "what is this");
     assert!(
         message.contains("unrecognised chat-completions response")
             && message.contains("upstream proxy says no"),
         "the body must be shown so the operator can see what answered, got: {message}"
     );
 
-    // A well-formed JSON object with no choices is equally unusable, and must
-    // not become an empty answer.
-    let no_choices = Stub::serving(vec![Reply::ok(
-        r#"{"choices":[],"usage":{"total_tokens":1}}"#,
-    )]);
+    // A well-framed stream whose events never carry a choice is equally
+    // unusable, and must not become an empty answer. The metering event alone
+    // is exactly that stream: `choices` is empty on it by design, so a client
+    // that accepted it would answer every prompt with "".
+    let no_choices = Stub::serving(vec![Reply::ok(sse(vec![usage(1)]))]);
     assert!(
         turn_error(&no_choices, "and this").contains("no choices[0]"),
-        "an empty choices array is not an answer"
+        "a stream that never carried a choice is not an answer"
+    );
+
+    // And a `data:` payload that is framed but not JSON is refused with its own
+    // bytes shown, rather than silently skipped as an unknown line would be.
+    let garbled = Stub::serving(vec![Reply::ok("data: not-json-at-all\n\ndata: [DONE]\n\n")]);
+    assert!(
+        turn_error(&garbled, "and this").contains("not-json-at-all"),
+        "an unparseable event must show itself"
     );
 }
 

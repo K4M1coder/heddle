@@ -15,7 +15,7 @@ pub use content::{Content, Message, Role};
 pub use error::{Result, SkeinError};
 pub use ledger::{Ledger, LedgerStore, Step, StepKind};
 pub use loop_ctl::{Exit, LoopBudget, LoopController};
-pub use model::{ModelClient, TurnRequest, TurnResponse, WireExchange};
+pub use model::{ModelClient, TextSink, TurnRequest, TurnResponse, WireExchange};
 pub use native_loop::{LoopRun, NativeLoop, ProgressProbe};
 pub use secret::{SecretProvider, SecretRef, SecretValue};
 pub use tool::{

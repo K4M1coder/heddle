@@ -114,6 +114,7 @@ impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> NativeLoop<C, P, T> {
                     status: exchange.status,
                     request: self.redactor.redact_wire(&exchange.request),
                     response: self.redactor.redact_wire(&exchange.response),
+                    streamed: exchange.streamed,
                 };
                 ledger.append(
                     run_id,
