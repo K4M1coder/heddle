@@ -968,6 +968,44 @@ fn a_provider_error_status_carries_the_providers_own_message() {
 }
 
 #[test]
+fn an_over_long_provider_error_is_cut_on_a_character_and_not_a_byte() {
+    // A provider error long enough to be truncated, in a language whose
+    // characters are not one byte each — a self-hosted OpenAI-compatible server
+    // answering in French or Japanese is the ordinary case, not an exotic one.
+    //
+    // The single ASCII character in front is what gives this test teeth: it
+    // makes every character in the body start at an *odd* byte offset, so the
+    // cap's own number is strictly inside a character. Without it the body's
+    // two-byte characters would land a byte slice on a boundary by parity, and
+    // a truncation that indexed bytes instead of characters would pass.
+    let body = format!("x{}", "é".repeat(410));
+    let stub = Stub::serving(vec![Reply::status("502 Bad Gateway", body.clone())]);
+
+    let message = turn_error(&stub, "ask something a proxy will refuse");
+
+    assert!(
+        message.contains("returned 502"),
+        "the status must survive truncation, got: {message}"
+    );
+    assert!(
+        message.ends_with('…'),
+        "a cut body must say it was cut, got: {message}"
+    );
+    // Counted on the body's own character rather than on the whole message,
+    // which also carries the endpoint prefix and so is not shorter than the
+    // body it truncates.
+    let survived = message.matches('é').count();
+    assert!(
+        survived > 0,
+        "what survives the cut must still be the provider's own words, got: {message}"
+    );
+    assert!(
+        survived < body.matches('é').count(),
+        "the body must actually be shortened, but all {survived} characters survived"
+    );
+}
+
+#[test]
 fn an_unrecognised_response_body_is_refused() {
     // A 200 that is not an event stream at all — the shape an interposing proxy
     // produces. It must be refused *showing the body*, and not by falling
