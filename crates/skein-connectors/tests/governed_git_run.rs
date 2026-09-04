@@ -392,6 +392,7 @@ fn a_model_asks_for_git_status_and_gets_the_real_repositorys_state_through_the_g
         vec![
             StepKind::IterationBoundary,
             StepKind::LlmRequest,
+            StepKind::WireExchange,
             StepKind::LlmResponse,
             StepKind::BudgetSpent,
             StepKind::ToolCall,
@@ -399,6 +400,7 @@ fn a_model_asks_for_git_status_and_gets_the_real_repositorys_state_through_the_g
             StepKind::ToolResult,
             StepKind::IterationBoundary,
             StepKind::LlmRequest,
+            StepKind::WireExchange,
             StepKind::LlmResponse,
             StepKind::BudgetSpent,
             StepKind::Exit,

@@ -5,7 +5,7 @@
 //! `provider_error_leaves_the_chain_verifiable` already covers. A model call
 //! already in flight completes: cancellation is not mid-turn.
 
-use skein_core::{ModelClient, Result, SkeinError, TurnRequest, TurnResponse};
+use skein_core::{ModelClient, Result, SkeinError, TurnRequest, TurnResponse, WireExchange};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -26,5 +26,13 @@ impl<C: ModelClient> ModelClient for CancellableModel<C> {
             return Err(SkeinError::Model("session cancelled by client".into()));
         }
         self.inner.turn(req)
+    }
+
+    /// Forwarded rather than defaulted. The default is the honest answer for a
+    /// client with no wire; this one is a decorator over a client that may have
+    /// had one, and inheriting the default would drop the exchange without
+    /// erroring — a traceability gap with nothing to notice it (Constitution V).
+    fn take_wire_exchange(&mut self) -> Option<WireExchange> {
+        self.inner.take_wire_exchange()
     }
 }

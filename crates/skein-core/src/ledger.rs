@@ -12,6 +12,9 @@ use sha2::{Digest, Sha256};
 #[serde(rename_all = "snake_case")]
 pub enum StepKind {
     LlmRequest,
+    /// The literal bytes of one provider round trip, between the request that
+    /// caused it and whatever the core made of the answer.
+    WireExchange,
     LlmResponse,
     ToolCall,
     ToolResult,

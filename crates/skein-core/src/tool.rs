@@ -225,6 +225,32 @@ impl Redactor {
         Ok(self.redact_value(&serde_json::to_value(value)?).to_string())
     }
 
+    /// Scrubs text that is **already serialized JSON**, where a secret
+    /// containing a quote, a backslash or a newline appears in its escaped form
+    /// rather than as written.
+    ///
+    /// This is the inverse premise to [`Redactor::redact_json`], and both are
+    /// needed: that one scrubs a value *before* it is serialized, so its needle
+    /// is the secret as written; a raw wire body has already been serialized by
+    /// someone else, so `pa"ss` is on it as `pa\"ss` and the literal needle is
+    /// simply absent. Each secret is matched in both forms.
+    pub fn redact_wire(&self, text: &str) -> String {
+        let mut out = text.to_string();
+        for secret in &self.secrets {
+            let literal = secret.expose();
+            out = out.replace(literal, "***");
+            // `Value::String` always serializes, and always to a quoted string,
+            // so trimming the quotes off yields exactly the escaping
+            // `serde_json` would have applied inside any larger body.
+            let quoted = Value::String(literal.to_string()).to_string();
+            let escaped = &quoted[1..quoted.len() - 1];
+            if escaped != literal {
+                out = out.replace(escaped, "***");
+            }
+        }
+        out
+    }
+
     /// One call with everything model-authored about it scrubbed. The name is
     /// scrubbed for the same reason the arguments are: it is model-chosen text,
     /// so it can carry an echoed secret. The id is ours, never the model's

@@ -9,7 +9,7 @@ use serde_json::json;
 use skein_core::{
     Exit, Ledger, LoopBudget, LoopController, Message, ModelClient, NativeLoop, ProgressProbe,
     Redactor, Result, SkeinError, StepKind, ToolAccess, ToolCall, ToolGateway, ToolOutcome,
-    ToolPolicy, ToolTransport, TurnRequest, TurnResponse,
+    ToolPolicy, ToolTransport, TurnRequest, TurnResponse, WireExchange,
 };
 use skein_silo::Silo;
 use tempfile::TempDir;
@@ -333,4 +333,66 @@ fn s7_a_full_governed_run_persists_and_reverifies() {
     reopened
         .verify_chain("run-1")
         .expect("the reopened governed run verifies");
+}
+
+// ---- a chain written before the WireExchange kind existed (spec 023) ----
+
+#[test]
+fn s8_a_chain_of_pre_023_kinds_reopens_unchanged_and_extends_with_the_new_one() {
+    let (_dir, root) = root();
+    let silo = Silo::open(&root, "alpha").unwrap();
+
+    // Deliberately only kinds that existed before this slice: the upgrade shape
+    // is a chain written by the old code and read by the new, not a fresh one.
+    let mut led = silo.ledger().unwrap();
+    let written: Vec<String> = [
+        (StepKind::LlmRequest, "the exact prompt"),
+        (StepKind::LlmResponse, "the exact reply"),
+        (StepKind::ToolCall, "{\"tool\":\"read_file\"}"),
+        (StepKind::Exit, "FinalOutput"),
+    ]
+    .into_iter()
+    .map(|(kind, payload)| led.append("run-1", kind, payload).unwrap())
+    .collect();
+    drop(led);
+
+    let mut reopened = silo.ledger().unwrap();
+    let log = reopened.log("run-1");
+    assert_eq!(
+        log.iter().map(|s| s.id.clone()).collect::<Vec<_>>(),
+        written,
+        "adding a StepKind variant must not move any existing step's id"
+    );
+    assert_eq!(
+        log.iter().map(|s| s.payload.clone()).collect::<Vec<_>>(),
+        vec![
+            "the exact prompt",
+            "the exact reply",
+            "{\"tool\":\"read_file\"}",
+            "FinalOutput",
+        ]
+    );
+    reopened
+        .verify_chain("run-1")
+        .expect("the pre-023 chain still verifies");
+
+    // And the new kind extends that same chain rather than starting beside it.
+    let last = written.last().unwrap().clone();
+    let appended = reopened
+        .append(
+            "run-1",
+            StepKind::WireExchange,
+            serde_json::to_string(&WireExchange {
+                url: "http://127.0.0.1:11434/v1/chat/completions".into(),
+                status: 200,
+                request: "{}".into(),
+                response: "{}".into(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(reopened.show(&appended).unwrap().parent, Some(last));
+    reopened
+        .verify_chain("run-1")
+        .expect("the extended chain verifies");
 }

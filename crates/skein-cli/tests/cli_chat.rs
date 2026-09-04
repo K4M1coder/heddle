@@ -230,6 +230,7 @@ fn chat_answers_from_a_local_provider_and_records_the_run() {
         vec![
             "iteration_boundary",
             "llm_request",
+            "wire_exchange",
             "llm_response",
             "budget_spent",
             "exit"
@@ -252,7 +253,7 @@ fn chat_answers_from_a_local_provider_and_records_the_run() {
         "stderr:\n{}",
         stderr(&verify)
     );
-    assert_eq!(stdout(&verify), format!("{run_id}\tok\t5 steps\n"));
+    assert_eq!(stdout(&verify), format!("{run_id}\tok\t6 steps\n"));
 }
 
 #[test]
@@ -408,7 +409,7 @@ fn chat_fails_when_the_engine_stops_the_run_without_an_answer() {
         "stderr:\n{}",
         stderr(&verify)
     );
-    assert_eq!(stdout(&verify), format!("{run_id}\tok\t9 steps\n"));
+    assert_eq!(stdout(&verify), format!("{run_id}\tok\t11 steps\n"));
 }
 
 #[test]
@@ -742,6 +743,7 @@ fn chat_with_an_fs_root_advertises_the_read_tools_and_reads_a_real_file() {
         vec![
             "iteration_boundary",
             "llm_request",
+            "wire_exchange",
             "llm_response",
             "budget_spent",
             "tool_call",
@@ -749,6 +751,7 @@ fn chat_with_an_fs_root_advertises_the_read_tools_and_reads_a_real_file() {
             "tool_result",
             "iteration_boundary",
             "llm_request",
+            "wire_exchange",
             "llm_response",
             "budget_spent",
             "exit"
@@ -765,7 +768,7 @@ fn chat_with_an_fs_root_advertises_the_read_tools_and_reads_a_real_file() {
         "--run",
         &run_id,
     ]);
-    assert_eq!(stdout(&verify), format!("{run_id}\tok\t12 steps\n"));
+    assert_eq!(stdout(&verify), format!("{run_id}\tok\t14 steps\n"));
 }
 
 #[test]
@@ -945,6 +948,7 @@ fn chat_with_an_fs_root_that_is_a_git_repository_advertises_the_git_tools_and_re
         vec![
             "iteration_boundary",
             "llm_request",
+            "wire_exchange",
             "llm_response",
             "budget_spent",
             "tool_call",
@@ -952,6 +956,7 @@ fn chat_with_an_fs_root_that_is_a_git_repository_advertises_the_git_tools_and_re
             "tool_result",
             "iteration_boundary",
             "llm_request",
+            "wire_exchange",
             "llm_response",
             "budget_spent",
             "exit"
@@ -968,5 +973,5 @@ fn chat_with_an_fs_root_that_is_a_git_repository_advertises_the_git_tools_and_re
         "--run",
         &run_id,
     ]);
-    assert_eq!(stdout(&verify), format!("{run_id}\tok\t12 steps\n"));
+    assert_eq!(stdout(&verify), format!("{run_id}\tok\t14 steps\n"));
 }

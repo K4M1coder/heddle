@@ -6,7 +6,7 @@ use crate::content::Message;
 use crate::error::{Result, SkeinError};
 use crate::ledger::{Ledger, StepKind};
 use crate::loop_ctl::{Exit, LoopController};
-use crate::model::{ModelClient, TurnRequest};
+use crate::model::{ModelClient, TurnRequest, WireExchange};
 use crate::tool::{Redactor, ToolCall, ToolGateway, ToolTransport};
 
 /// The ground-truth progress signal (Constitution VIII(b)).
@@ -103,7 +103,25 @@ impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> NativeLoop<C, P, T> {
                 self.redactor.redact_json(&req)?,
             )?;
 
-            let resp = self.client.turn(&req)?;
+            let resp = self.client.turn(&req);
+            if let Some(exchange) = self.client.take_wire_exchange() {
+                // Field by field, and `redact_wire` for the two bodies: they
+                // are already-serialized JSON, so a secret containing a quote
+                // is on them in escaped form and `redact_json`'s whole-value
+                // scrub would miss it. The url is ours and plain text.
+                let scrubbed = WireExchange {
+                    url: self.redactor.redact(&exchange.url),
+                    status: exchange.status,
+                    request: self.redactor.redact_wire(&exchange.request),
+                    response: self.redactor.redact_wire(&exchange.response),
+                };
+                ledger.append(
+                    run_id,
+                    StepKind::WireExchange,
+                    serde_json::to_string(&scrubbed)?,
+                )?;
+            }
+            let resp = resp?;
             ledger.append(
                 run_id,
                 StepKind::LlmResponse,

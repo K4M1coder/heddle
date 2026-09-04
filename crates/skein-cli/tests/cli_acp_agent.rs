@@ -292,6 +292,7 @@ fn an_acp_client_drives_the_real_binary_and_the_session_lands_on_the_chain() {
     let expected = vec![
         "iteration_boundary",
         "llm_request",
+        "wire_exchange",
         "llm_response",
         "budget_spent",
         "exit",
@@ -308,7 +309,7 @@ fn an_acp_client_drives_the_real_binary_and_the_session_lands_on_the_chain() {
     );
     assert_eq!(
         stdout(&verify),
-        "skein-1#1\tok\t5 steps\nskein-1#2\tok\t5 steps\n"
+        "skein-1#1\tok\t6 steps\nskein-1#2\tok\t6 steps\n"
     );
 }
 
@@ -518,6 +519,7 @@ fn acp_agent_accepts_an_fs_root_and_still_serves_a_session() {
         vec![
             "iteration_boundary",
             "llm_request",
+            "wire_exchange",
             "llm_response",
             "budget_spent",
             "exit"
@@ -945,6 +947,7 @@ fn an_acp_client_that_allows_lets_a_real_fs_write_execute() {
         vec![
             "iteration_boundary",
             "llm_request",
+            "wire_exchange",
             "llm_response",
             "budget_spent",
             "tool_call",
@@ -952,6 +955,7 @@ fn an_acp_client_that_allows_lets_a_real_fs_write_execute() {
             "tool_result",
             "iteration_boundary",
             "llm_request",
+            "wire_exchange",
             "llm_response",
             "budget_spent",
             "exit"
@@ -973,7 +977,7 @@ fn an_acp_client_that_allows_lets_a_real_fs_write_execute() {
         "stderr:\n{}",
         stderr(&verify)
     );
-    assert_eq!(stdout(&verify), "skein-1#1\tok\t12 steps\n");
+    assert_eq!(stdout(&verify), "skein-1#1\tok\t14 steps\n");
 }
 
 #[test]
@@ -1039,12 +1043,14 @@ fn an_acp_client_that_rejects_stops_the_fs_write_and_the_run_survives() {
         vec![
             "iteration_boundary",
             "llm_request",
+            "wire_exchange",
             "llm_response",
             "budget_spent",
             "tool_call",
             "approval",
             "iteration_boundary",
             "llm_request",
+            "wire_exchange",
             "llm_response",
             "budget_spent",
             "exit"
@@ -1066,7 +1072,7 @@ fn an_acp_client_that_rejects_stops_the_fs_write_and_the_run_survives() {
         "stderr:\n{}",
         stderr(&verify)
     );
-    assert_eq!(stdout(&verify), "skein-1#1\tok\t11 steps\n");
+    assert_eq!(stdout(&verify), "skein-1#1\tok\t13 steps\n");
 
     // A governed refusal is history the run survives, not an error.
     assert_eq!(answered.stop, StopReason::EndTurn);
@@ -1165,6 +1171,7 @@ fn an_acp_client_that_allows_lets_a_real_proc_run_execute() {
         vec![
             "iteration_boundary",
             "llm_request",
+            "wire_exchange",
             "llm_response",
             "budget_spent",
             "tool_call",
@@ -1172,6 +1179,7 @@ fn an_acp_client_that_allows_lets_a_real_proc_run_execute() {
             "tool_result",
             "iteration_boundary",
             "llm_request",
+            "wire_exchange",
             "llm_response",
             "budget_spent",
             "exit"
@@ -1193,7 +1201,7 @@ fn an_acp_client_that_allows_lets_a_real_proc_run_execute() {
         "stderr:\n{}",
         stderr(&verify)
     );
-    assert_eq!(stdout(&verify), "skein-1#1\tok\t12 steps\n");
+    assert_eq!(stdout(&verify), "skein-1#1\tok\t14 steps\n");
 }
 
 /// The same chain, refused (SC-010).
@@ -1262,12 +1270,14 @@ fn an_acp_client_that_rejects_stops_the_proc_run_and_the_run_survives() {
         vec![
             "iteration_boundary",
             "llm_request",
+            "wire_exchange",
             "llm_response",
             "budget_spent",
             "tool_call",
             "approval",
             "iteration_boundary",
             "llm_request",
+            "wire_exchange",
             "llm_response",
             "budget_spent",
             "exit"
@@ -1289,7 +1299,7 @@ fn an_acp_client_that_rejects_stops_the_proc_run_and_the_run_survives() {
         "stderr:\n{}",
         stderr(&verify)
     );
-    assert_eq!(stdout(&verify), "skein-1#1\tok\t11 steps\n");
+    assert_eq!(stdout(&verify), "skein-1#1\tok\t13 steps\n");
 
     // A governed refusal is history the run survives, not an error.
     assert_eq!(answered.stop, StopReason::EndTurn);

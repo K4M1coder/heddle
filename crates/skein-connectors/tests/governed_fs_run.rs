@@ -374,6 +374,7 @@ fn a_model_asks_for_a_file_and_gets_its_real_contents_through_the_governed_gatew
         vec![
             StepKind::IterationBoundary,
             StepKind::LlmRequest,
+            StepKind::WireExchange,
             StepKind::LlmResponse,
             StepKind::BudgetSpent,
             StepKind::ToolCall,
@@ -381,6 +382,7 @@ fn a_model_asks_for_a_file_and_gets_its_real_contents_through_the_governed_gatew
             StepKind::ToolResult,
             StepKind::IterationBoundary,
             StepKind::LlmRequest,
+            StepKind::WireExchange,
             StepKind::LlmResponse,
             StepKind::BudgetSpent,
             StepKind::Exit,

@@ -41,9 +41,40 @@ pub struct TurnResponse {
     pub tool_calls: Vec<ToolCall>,
 }
 
+/// One provider round trip, as bytes rather than as meaning: the literal
+/// request body that was transmitted and the literal response body that was
+/// parsed. It is what makes the chain able to disagree with itself — a
+/// mistranslation on either side of the port is invisible while the only record
+/// is [`TurnRequest`] and [`TurnResponse`], which are both this side of it.
+///
+/// Bodies only. Headers and the request line are deliberately absent, so no
+/// provider credential can become a chain payload before the slice that
+/// designs for one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WireExchange {
+    pub url: String,
+    /// The one wire fact neither body carries.
+    pub status: u16,
+    pub request: String,
+    pub response: String,
+}
+
 /// Synchronous in v0: this slice has no network, and a single-conversation turn
 /// loop is inherently sequential. A network-backed client owns its async runtime
 /// internally and blocks behind this boundary.
 pub trait ModelClient {
     fn turn(&mut self, req: &TurnRequest) -> Result<TurnResponse>;
+
+    /// The bytes of the exchange the last [`ModelClient::turn`] performed, if
+    /// this client has a wire at all.
+    ///
+    /// Defaulted to `None` because for a scripted or in-process client that is
+    /// the *true* answer rather than a convenience: there were no bytes.
+    ///
+    /// Taken, not borrowed: an exchange belongs to exactly one turn, so a
+    /// client whose next turn fails before reaching a socket cannot re-offer
+    /// the previous one's bytes as if they were this turn's.
+    fn take_wire_exchange(&mut self) -> Option<WireExchange> {
+        None
+    }
 }

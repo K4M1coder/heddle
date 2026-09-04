@@ -22,6 +22,7 @@
 use serde::{Deserialize, Serialize};
 use skein_core::{
     Message, ModelClient, Result, SkeinError, ToolCall, ToolSpec, TurnRequest, TurnResponse,
+    WireExchange,
 };
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
@@ -150,6 +151,10 @@ pub struct OpenAiCompatClient {
     endpoint: LocalEndpoint,
     model: String,
     agent: ureq::Agent,
+    /// The last completed round trip, waiting for the loop to take it. `None`
+    /// until a turn reaches a socket *and* gets an answer, so a client that
+    /// never connected has nothing to hand over.
+    last_exchange: Option<WireExchange>,
 }
 
 impl OpenAiCompatClient {
@@ -171,14 +176,14 @@ impl OpenAiCompatClient {
             endpoint,
             model: model.into(),
             agent,
+            last_exchange: None,
         }
     }
 
-    fn post(&self, body: &str) -> Result<(u16, String)> {
-        let url = self.endpoint.chat_completions_url();
+    fn post(&self, url: &str, body: &str) -> Result<(u16, String)> {
         let mut response = self
             .agent
-            .post(&url)
+            .post(url)
             .header("content-type", "application/json")
             .send(body)
             .map_err(|e| {
@@ -229,6 +234,10 @@ impl OpenAiCompatClient {
 
 impl ModelClient for OpenAiCompatClient {
     fn turn(&mut self, req: &TurnRequest) -> Result<TurnResponse> {
+        // Cleared before anything can fail, so a turn that never reaches a
+        // socket cannot leave an earlier turn's bytes to be taken as its own.
+        self.last_exchange = None;
+
         let body = serde_json::to_string(&ChatRequest {
             model: &self.model,
             messages: req.messages.iter().map(ChatMessage::from).collect(),
@@ -236,17 +245,40 @@ impl ModelClient for OpenAiCompatClient {
             tools: req.tools.iter().map(ChatTool::from).collect(),
         })?;
 
-        let (status, text) = self.post(&body)?;
+        let url = self.endpoint.chat_completions_url();
+        let (status, text) = self.post(&url, &body)?;
+        // `body` and `text` are *moved* here, never re-serialized: the recorded
+        // request is the same `String` whose bytes ureq transmitted, and the
+        // recorded response is the same one parsed below. Divergence between
+        // what crossed the wire and what the chain says crossed it is not
+        // unlikely, it is unrepresentable.
+        self.last_exchange = Some(WireExchange {
+            url,
+            status,
+            request: body,
+            response: text,
+        });
+        // Borrowed back rather than kept from the store above: the two `&self`
+        // helpers below cannot be called while a `&mut self` borrow is live,
+        // and a clone here would spend a copy of the whole body to avoid four
+        // characters of ceremony.
+        let text = self
+            .last_exchange
+            .as_ref()
+            .expect("the exchange was stored on the line above")
+            .response
+            .as_str();
+
         if !(200..300).contains(&status) {
             return Err(SkeinError::Model(format!(
                 "{} returned {status}: {}",
                 self.endpoint.base_url,
-                truncated(&text)
+                truncated(text)
             )));
         }
 
-        let parsed: ChatResponse = serde_json::from_str(&text)
-            .map_err(|e| self.unrecognised(format!("{e}: {}", truncated(&text))))?;
+        let parsed: ChatResponse = serde_json::from_str(text)
+            .map_err(|e| self.unrecognised(format!("{e}: {}", truncated(text))))?;
         let choice = parsed
             .choices
             .into_iter()
@@ -290,6 +322,10 @@ impl ModelClient for OpenAiCompatClient {
             final_output: choice.finish_reason.as_deref() == Some("stop") && tool_calls.is_empty(),
             tool_calls,
         })
+    }
+
+    fn take_wire_exchange(&mut self) -> Option<WireExchange> {
+        self.last_exchange.take()
     }
 }
 

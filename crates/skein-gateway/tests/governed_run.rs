@@ -11,6 +11,7 @@
 use skein_core::{
     Exit, Ledger, LoopBudget, LoopController, Message, NativeLoop, ProgressProbe, Redactor, Result,
     SkeinError, StepKind, ToolCall, ToolGateway, ToolOutcome, ToolPolicy, ToolTransport,
+    WireExchange,
 };
 use skein_gateway::{LocalEndpoint, OpenAiCompatClient};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -30,11 +31,17 @@ struct StubProvider {
 
 impl StubProvider {
     fn serving(bodies: Vec<String>) -> StubProvider {
+        StubProvider::answering(bodies.into_iter().map(|body| (200, body)).collect())
+    }
+
+    /// One `(status, body)` per turn, so the provider-error path — which
+    /// returns before the reply is ever parsed — is reachable from a test.
+    fn answering(replies: Vec<(u16, String)>) -> StubProvider {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
         let addr = listener.local_addr().expect("the bound address");
         let (tx, requests) = mpsc::channel();
         std::thread::spawn(move || {
-            for body in bodies {
+            for (status, body) in replies {
                 let Ok((mut socket, _)) = listener.accept() else {
                     return;
                 };
@@ -46,7 +53,7 @@ impl StubProvider {
                 }
                 let _ = socket.write_all(
                     format!(
-                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                         body.len()
                     )
                     .as_bytes(),
@@ -62,13 +69,19 @@ impl StubProvider {
 
     /// The body of the next request the provider was sent, parsed.
     fn request_body(&self) -> serde_json::Value {
+        serde_json::from_str(&self.raw_request_body()).expect("a JSON request body")
+    }
+
+    /// The same body, **unparsed and unnormalized**: a parse would launder
+    /// exactly the divergence the wire-capture tests exist to detect.
+    fn raw_request_body(&self) -> String {
         let raw = match self.requests.recv_timeout(Duration::from_secs(10)) {
-            Ok(raw) => raw.replace('\r', ""),
+            Ok(raw) => raw,
             Err(RecvTimeoutError::Timeout) => panic!("the loop sent no request within 10s"),
             Err(RecvTimeoutError::Disconnected) => panic!("the stub provider stopped early"),
         };
-        let (_, body) = raw.split_once("\n\n").expect("a blank-line separator");
-        serde_json::from_str(body).expect("a JSON request body")
+        let (_, body) = raw.split_once("\r\n\r\n").expect("a blank-line separator");
+        body.to_string()
     }
 }
 
@@ -128,6 +141,26 @@ impl ToolTransport for NoTools {
     }
 }
 
+/// The collaborators every test here injects: the real client pointed at
+/// `base_url`, no ground truth, and a transport no tool name can reach. Only
+/// the redactor varies, and it is the same one on both seats because a run
+/// configures one secret set.
+fn chat_loop(
+    base_url: &str,
+    redactor: Redactor,
+) -> NativeLoop<OpenAiCompatClient, NoGroundTruth, NoTools> {
+    NativeLoop::new(
+        OpenAiCompatClient::new(
+            LocalEndpoint::parse(base_url).expect("a loopback base URL"),
+            "llama3.1",
+            Duration::from_secs(10),
+        ),
+        NoGroundTruth,
+        ToolGateway::new(NoTools, ToolPolicy::new(vec![], vec![]), redactor.clone()),
+        redactor,
+    )
+}
+
 fn kinds(ledger: &Ledger, run_id: &str) -> Vec<StepKind> {
     ledger
         .log(run_id)
@@ -154,20 +187,7 @@ fn an_end_to_end_run_against_a_stub_provider_lands_on_the_chain() {
         reply("thinking out lou", "length", 17),
         reply("the answer is 42", "stop", 25),
     ]);
-    let mut loops = NativeLoop::new(
-        OpenAiCompatClient::new(
-            LocalEndpoint::parse(provider.base_url.as_str()).expect("a loopback base URL"),
-            "llama3.1",
-            Duration::from_secs(10),
-        ),
-        NoGroundTruth,
-        ToolGateway::new(
-            NoTools,
-            ToolPolicy::new(vec![], vec![]),
-            Redactor::new(vec![]),
-        ),
-        Redactor::new(vec![]),
-    );
+    let mut loops = chat_loop(&provider.base_url, Redactor::new(vec![]));
     let mut ledger = Ledger::new();
     let mut controller = LoopController::new(LoopBudget::new(4, 1_000, 4));
 
@@ -192,10 +212,12 @@ fn an_end_to_end_run_against_a_stub_provider_lands_on_the_chain() {
         vec![
             StepKind::IterationBoundary,
             StepKind::LlmRequest,
+            StepKind::WireExchange,
             StepKind::LlmResponse,
             StepKind::BudgetSpent,
             StepKind::IterationBoundary,
             StepKind::LlmRequest,
+            StepKind::WireExchange,
             StepKind::LlmResponse,
             StepKind::BudgetSpent,
             StepKind::Exit,
@@ -232,8 +254,9 @@ fn an_end_to_end_run_against_a_stub_provider_lands_on_the_chain() {
 
     assert!(ledger.verify_chain("run-e2e").is_ok());
 
-    // The chain holds the *translated* TurnRequest/TurnResponse, not the
-    // provider's raw wire bytes — the gap spec 012 states plainly and defers.
+    // The *translated* TurnResponse. Since spec 023 the chain also holds the
+    // bytes it was translated from, one step earlier, so the two can now be
+    // read against each other — which the tests below do.
     let recorded: serde_json::Value =
         serde_json::from_str(&payload(&ledger, "run-e2e", StepKind::LlmResponse))
             .expect("the LlmResponse payload is a serialized TurnResponse");
@@ -252,20 +275,7 @@ fn a_provider_failure_ends_the_run_with_the_request_already_on_the_chain() {
         drop(listener);
         format!("http://127.0.0.1:{port}/v1")
     };
-    let mut loops = NativeLoop::new(
-        OpenAiCompatClient::new(
-            LocalEndpoint::parse(&dead).expect("a loopback base URL"),
-            "llama3.1",
-            Duration::from_secs(10),
-        ),
-        NoGroundTruth,
-        ToolGateway::new(
-            NoTools,
-            ToolPolicy::new(vec![], vec![]),
-            Redactor::new(vec![]),
-        ),
-        Redactor::new(vec![]),
-    );
+    let mut loops = chat_loop(&dead, Redactor::new(vec![]));
     let mut ledger = Ledger::new();
     let mut controller = LoopController::new(LoopBudget::new(4, 1_000, 4));
 
@@ -279,10 +289,218 @@ fn a_provider_failure_ends_the_run_with_the_request_already_on_the_chain() {
         .expect_err("no provider is listening");
 
     assert!(matches!(error, SkeinError::Model(_)), "got {error:?}");
+    // No `WireExchange`: nothing was sent and nothing answered, and a chain
+    // that claimed bytes crossed here would be lying about the one fact it
+    // exists to hold.
     assert_eq!(
         kinds(&ledger, "run-dead"),
         vec![StepKind::IterationBoundary, StepKind::LlmRequest]
     );
     assert!(payload(&ledger, "run-dead", StepKind::LlmRequest).contains("anyone home?"));
     assert!(ledger.verify_chain("run-dead").is_ok());
+}
+
+/// The one exchange of a single-turn run, as it was recorded.
+fn exchange(ledger: &Ledger, run_id: &str) -> WireExchange {
+    serde_json::from_str(&payload(ledger, run_id, StepKind::WireExchange))
+        .expect("the WireExchange payload is a serialized WireExchange")
+}
+
+#[test]
+fn the_chain_records_the_literal_bytes_of_the_exchange() {
+    let answer = reply("the answer is 42", "stop", 25);
+    let provider = StubProvider::serving(vec![answer.clone()]);
+    let mut loops = chat_loop(&provider.base_url, Redactor::new(vec![]));
+    let mut ledger = Ledger::new();
+    let mut controller = LoopController::new(LoopBudget::new(4, 1_000, 4));
+
+    loops
+        .run(
+            "run-wire",
+            Message::user_text("what is the answer?"),
+            &mut ledger,
+            &mut controller,
+        )
+        .expect("the run completes");
+
+    let recorded = exchange(&ledger, "run-wire");
+    // Byte equality against what the socket on the other end actually read and
+    // wrote, in both directions. Not a parse, not a field-by-field comparison:
+    // either the chain holds the transmitted buffer or it holds a re-derivation
+    // of it, and only the first is what this slice claims.
+    assert_eq!(recorded.request, provider.raw_request_body());
+    assert_eq!(recorded.response, answer);
+    assert_eq!(recorded.status, 200);
+    assert!(
+        recorded.url.ends_with("/chat/completions"),
+        "got {}",
+        recorded.url
+    );
+
+    assert!(ledger.verify_chain("run-wire").is_ok());
+}
+
+/// A secret carrying a `"`. Serialized into the request body it becomes
+/// `pa\"ss-w0rd`, so the literal needle is *absent* from the wire text and a
+/// redactor that only looks for the literal form leaks it in cleartext.
+const QUOTED_SECRET: &str = "pa\"ss-w0rd";
+
+/// The same secret as it appears *inside* a serialized JSON body — the only
+/// form that is ever on the wire, and the one a literal-needle scrub misses.
+const ESCAPED_SECRET: &str = r#"pa\"ss-w0rd"#;
+
+/// Every payload of a run, so a leak anywhere is a failure and not just a leak
+/// in the step the test happens to name.
+fn payloads(ledger: &Ledger, run_id: &str) -> Vec<String> {
+    ledger
+        .log(run_id)
+        .into_iter()
+        .map(|s| s.payload.clone())
+        .collect()
+}
+
+#[test]
+fn a_quote_bearing_secret_is_scrubbed_from_the_exchange_it_escaped_into() {
+    let provider = StubProvider::serving(vec![reply("understood", "stop", 11)]);
+    let mut loops = chat_loop(
+        &provider.base_url,
+        Redactor::new(vec![QUOTED_SECRET.into()]),
+    );
+    let mut ledger = Ledger::new();
+    let mut controller = LoopController::new(LoopBudget::new(4, 1_000, 4));
+
+    loops
+        .run(
+            "run-quoted",
+            Message::user_text(format!("the password is {QUOTED_SECRET}")),
+            &mut ledger,
+            &mut controller,
+        )
+        .expect("the run completes");
+
+    // The control that makes the assertion below mean something: the model was
+    // sent the truth. Only the record is scrubbed, and the escaped form really
+    // is what crossed — so a test that passed by accident would fail here.
+    let sent = provider.raw_request_body();
+    assert!(
+        sent.contains(ESCAPED_SECRET),
+        "the provider must be sent the real secret, got {sent}"
+    );
+    assert!(!sent.contains("***"));
+
+    for payload in payloads(&ledger, "run-quoted") {
+        assert!(
+            !payload.contains(QUOTED_SECRET),
+            "a payload carries the secret literally: {payload}"
+        );
+    }
+    // Asserted on the *parsed* exchange rather than on the step's payload text.
+    // The payload escapes the wire body a second time, so a `contains` over it
+    // searches for a thrice-escaped needle and passes while the secret sits
+    // there in plain sight — which is how this test was first written, and why
+    // it is not written that way now.
+    let recorded = exchange(&ledger, "run-quoted");
+    assert!(
+        !recorded.request.contains(ESCAPED_SECRET),
+        "the escaped secret reached the chain: {}",
+        recorded.request
+    );
+    assert!(
+        !recorded.request.contains(QUOTED_SECRET),
+        "the literal secret reached the chain: {}",
+        recorded.request
+    );
+    assert!(recorded.request.contains("***"), "got {}", recorded.request);
+    assert!(ledger.verify_chain("run-quoted").is_ok());
+}
+
+#[test]
+fn a_plain_secret_is_scrubbed_from_the_exchange() {
+    const SECRET: &str = "hunter2token";
+    let provider = StubProvider::serving(vec![reply("understood", "stop", 11)]);
+    let mut loops = chat_loop(&provider.base_url, Redactor::new(vec![SECRET.into()]));
+    let mut ledger = Ledger::new();
+    let mut controller = LoopController::new(LoopBudget::new(4, 1_000, 4));
+
+    loops
+        .run(
+            "run-plain",
+            Message::user_text(format!("the password is {SECRET}")),
+            &mut ledger,
+            &mut controller,
+        )
+        .expect("the run completes");
+
+    for payload in payloads(&ledger, "run-plain") {
+        assert!(!payload.contains(SECRET), "{payload}");
+    }
+    let recorded = exchange(&ledger, "run-plain");
+    assert!(recorded.request.contains("***"), "got {}", recorded.request);
+    assert!(ledger.verify_chain("run-plain").is_ok());
+}
+
+#[test]
+fn an_unparseable_reply_still_leaves_the_bytes_that_caused_it_on_the_chain() {
+    // A body no `ChatResponse` can make sense of: the run fails, and this step
+    // is the only place in the product that can say why.
+    const GIBBERISH: &str = r#"{"error":{"message":"model not loaded"}}"#;
+    let provider = StubProvider::serving(vec![GIBBERISH.to_string()]);
+    let mut loops = chat_loop(&provider.base_url, Redactor::new(vec![]));
+    let mut ledger = Ledger::new();
+    let mut controller = LoopController::new(LoopBudget::new(4, 1_000, 4));
+
+    let error = loops
+        .run(
+            "run-garbage",
+            Message::user_text("what is the answer?"),
+            &mut ledger,
+            &mut controller,
+        )
+        .expect_err("the reply cannot be parsed");
+
+    assert!(matches!(error, SkeinError::Model(_)), "got {error:?}");
+    assert_eq!(
+        kinds(&ledger, "run-garbage"),
+        vec![
+            StepKind::IterationBoundary,
+            StepKind::LlmRequest,
+            StepKind::WireExchange,
+        ]
+    );
+    let recorded = exchange(&ledger, "run-garbage");
+    assert_eq!(recorded.response, GIBBERISH);
+    assert_eq!(recorded.status, 200);
+    assert!(ledger.verify_chain("run-garbage").is_ok());
+}
+
+#[test]
+fn a_provider_error_status_still_leaves_the_bytes_that_caused_it_on_the_chain() {
+    const REFUSAL: &str = r#"{"error":{"message":"model \"llama3.1\" is not loaded"}}"#;
+    let provider = StubProvider::answering(vec![(500, REFUSAL.to_string())]);
+    let mut loops = chat_loop(&provider.base_url, Redactor::new(vec![]));
+    let mut ledger = Ledger::new();
+    let mut controller = LoopController::new(LoopBudget::new(4, 1_000, 4));
+
+    let error = loops
+        .run(
+            "run-500",
+            Message::user_text("what is the answer?"),
+            &mut ledger,
+            &mut controller,
+        )
+        .expect_err("the provider refused");
+
+    assert!(matches!(error, SkeinError::Model(_)), "got {error:?}");
+    assert_eq!(
+        kinds(&ledger, "run-500"),
+        vec![
+            StepKind::IterationBoundary,
+            StepKind::LlmRequest,
+            StepKind::WireExchange,
+        ]
+    );
+    let recorded = exchange(&ledger, "run-500");
+    assert_eq!(recorded.status, 500);
+    assert_eq!(recorded.response, REFUSAL);
+    assert!(ledger.verify_chain("run-500").is_ok());
 }
