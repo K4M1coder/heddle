@@ -9,6 +9,7 @@
 #![cfg(windows)]
 
 mod dacl;
+mod guard;
 
 use dacl::{allow_aces, granted_sids};
 use skein_sandbox::Sandbox;
@@ -255,5 +256,66 @@ fn an_unrecorded_profile_is_deleted_and_says_its_aces_are_unknown() {
     assert!(
         granted_sids(root.path()).contains(&sid),
         "the ACE survives, and the honest report above is the only thing standing in for it"
+    );
+}
+
+/// A recorded directory that no longer exists must not cost the *rest* of the
+/// profile its revocation. The deleted one is deliberately the **middle** line
+/// of the record, so a `Missing` that short-circuits the loop — which is what a
+/// `state_of` opening the DACL before checking existence would produce — leaves
+/// the run directory after it still granted and the profile still on the
+/// machine.
+#[test]
+fn a_recorded_directory_since_deleted_does_not_stop_the_rest_being_revoked() {
+    let root = TempDir::new().expect("a temp root");
+    let parent = TempDir::new().expect("a temp parent for the run directories");
+    let gone = parent.path().join("gone");
+    let survivor = parent.path().join("survivor");
+    std::fs::create_dir(&gone).expect("the run directory to be deleted");
+    std::fs::create_dir(&survivor).expect("the run directory that outlives it");
+
+    let sandbox = Sandbox::create(root.path(), &[gone.clone(), survivor.clone()])
+        .expect("the profile and all three grants");
+    // The one test here that needs the guard: the prune below is the assertion,
+    // so a failing one would otherwise leave behind a record naming a directory
+    // that no longer exists — which every other test's `grants()` then reads.
+    let _guard = guard::PrunedOnDrop::of(&sandbox);
+    let profile = sandbox.profile().to_string();
+    let sid = sandbox.string_sid().to_string();
+
+    assert!(
+        granted_sids(root.path()).contains(&sid) && granted_sids(&survivor).contains(&sid),
+        "both surviving directories must carry the ACE before they can be shown to lose it"
+    );
+
+    std::fs::remove_dir_all(&gone).expect("the recorded run directory is deletable");
+
+    let pruned = skein_sandbox::prune(&profile)
+        .expect("a recorded directory that vanished is reported, not an error");
+
+    assert_eq!(
+        pruned.missing,
+        vec![gone],
+        "the vanished directory is reported as missing: {pruned:?}"
+    );
+    assert_eq!(
+        pruned.revoked,
+        vec![root.path().to_path_buf(), survivor.clone()],
+        "every directory that still exists is still revoked: {pruned:?}"
+    );
+
+    assert!(
+        !granted_sids(root.path()).contains(&sid),
+        "the root's ACE must actually be gone from its DACL, got {:?}",
+        allow_aces(root.path())
+    );
+    assert!(
+        !granted_sids(&survivor).contains(&sid),
+        "the surviving run directory's ACE must actually be gone from its DACL, got {:?}",
+        allow_aces(&survivor)
+    );
+    assert!(
+        !package_folder(&profile).exists(),
+        "the profile is removed even though one of its directories had vanished"
     );
 }
