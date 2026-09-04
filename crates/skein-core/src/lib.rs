@@ -19,6 +19,6 @@ pub use model::{ModelClient, TextSink, TurnRequest, TurnResponse, WireExchange};
 pub use native_loop::{LoopRun, NativeLoop, ProgressProbe};
 pub use secret::{SecretProvider, SecretRef, SecretValue};
 pub use tool::{
-    replay_tool_calls, CapturedResult, Decision, Redactor, ToolAccess, ToolCall, ToolGateway,
-    ToolOutcome, ToolPolicy, ToolSpec, ToolTransport,
+    replay_tool_calls, ApprovalRecord, ApprovalVerdict, CapturedResult, Decision, Redactor,
+    ToolAccess, ToolCall, ToolGateway, ToolOutcome, ToolPolicy, ToolSpec, ToolTransport,
 };

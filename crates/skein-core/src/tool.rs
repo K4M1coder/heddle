@@ -308,12 +308,29 @@ impl Clone for Redactor {
     }
 }
 
+/// The two-valued verdict a [`Decision`] leaves on the chain.
+///
+/// Separate from `Decision` because this is the *recorded* form: it carries no
+/// reason (the record has its own field for that) and, unlike `Decision`, it
+/// crosses a crate boundary and a durable store. The serialized spelling is
+/// therefore pinned rather than derived from the variant names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ApprovalVerdict {
+    Allowed,
+    Denied,
+}
+
 /// The `Approval` step's payload: what was asked, what was decided, and why.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ApprovalRecord {
-    tool: String,
-    decision: String,
-    reason: String,
+///
+/// Exported because a protocol adapter projects this step to its client — with
+/// this type rather than by matching strings out of the payload, so a rename on
+/// either side is a compiler error instead of a silent misreport.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovalRecord {
+    pub tool: String,
+    pub decision: ApprovalVerdict,
+    pub reason: String,
 }
 
 /// The `ToolResult` step's payload — the redacted record of one executed call,
@@ -392,12 +409,12 @@ impl<T: ToolTransport> ToolGateway<T> {
 
         let decision = self.policy.decide(&call.tool);
         let (verdict, reason) = match &decision {
-            Decision::Allow { reason } => ("allowed", reason.clone()),
-            Decision::Deny { reason } => ("denied", reason.clone()),
+            Decision::Allow { reason } => (ApprovalVerdict::Allowed, reason.clone()),
+            Decision::Deny { reason } => (ApprovalVerdict::Denied, reason.clone()),
         };
         let record = ApprovalRecord {
             tool: tool.clone(),
-            decision: verdict.to_string(),
+            decision: verdict,
             reason: reason.clone(),
         };
         ledger.append(run_id, StepKind::Approval, serde_json::to_string(&record)?)?;

@@ -11,9 +11,9 @@ use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo};
 use skein_acp::{project_updates, CancellableModel, SessionParts, SkeinAgent};
 use skein_core::{
-    CapturedResult, Ledger, LoopBudget, Message, ModelClient, ProgressProbe, Redactor, Result,
-    Role, SkeinError, StepKind, TextSink, ToolAccess, ToolCall, ToolOutcome, ToolPolicy, ToolSpec,
-    ToolTransport, TurnRequest, TurnResponse,
+    ApprovalRecord, ApprovalVerdict, CapturedResult, Ledger, LoopBudget, Message, ModelClient,
+    ProgressProbe, Redactor, Result, Role, SkeinError, StepKind, TextSink, ToolAccess, ToolCall,
+    ToolGateway, ToolOutcome, ToolPolicy, ToolSpec, ToolTransport, TurnRequest, TurnResponse,
 };
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -1489,6 +1489,54 @@ fn u1_project_updates_maps_each_ledger_step_kind() {
                 rendered.contains("token ***"),
                 "the redacted capture stays redacted: {rendered}"
             );
+        }
+        other => panic!("expected ToolCallUpdate, got {other:?}"),
+    }
+}
+
+/// The one Ledger payload two crates both read: the gateway writes the verdict
+/// and `project_updates` renders it. Driven from a real `Decision::Deny`
+/// through a real gateway rather than from a JSON literal, because a literal
+/// on this side would only prove that this test and the reader agree.
+#[test]
+fn u2_a_real_denial_projects_as_failed_through_the_typed_verdict() {
+    let mut gateway = ToolGateway::new(
+        CountingTransport {
+            calls: Arc::new(AtomicUsize::new(0)),
+            content: "never reached".into(),
+        },
+        ToolPolicy::new(read_only("read_file"), Vec::new()),
+        Redactor::new(Vec::new()),
+    );
+    let mut ledger = Ledger::new();
+    let run_id = "s#1";
+    let call = ToolCall::new("write_file", serde_json::json!({}));
+    ledger
+        .append(
+            run_id,
+            StepKind::ToolCall,
+            serde_json::to_string(&call).unwrap(),
+        )
+        .unwrap();
+
+    let error = gateway
+        .call_captured(run_id, &call, &mut ledger)
+        .expect_err("an unlisted tool is denied");
+    assert!(matches!(error, SkeinError::ToolDenied { .. }));
+
+    let approval = ledger
+        .log(run_id)
+        .into_iter()
+        .find(|s| s.kind == StepKind::Approval)
+        .expect("the refusal is on the chain");
+    let record: ApprovalRecord =
+        serde_json::from_str(&approval.payload).expect("the writer's payload is the reader's type");
+    assert_eq!(record.decision, ApprovalVerdict::Denied);
+
+    let updates = project_updates(&ledger, run_id);
+    match updates.last().expect("the approval is projected") {
+        SessionUpdate::ToolCallUpdate(update) => {
+            assert_eq!(update.fields.status, Some(ToolCallStatus::Failed));
         }
         other => panic!("expected ToolCallUpdate, got {other:?}"),
     }

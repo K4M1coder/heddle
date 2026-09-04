@@ -26,8 +26,9 @@ use agent_client_protocol::schema::v1::{
 };
 use agent_client_protocol::{Agent, Client, ConnectTo, ConnectionTo, Error, Stdio};
 use skein_core::{
-    CapturedResult, Exit, Ledger, LoopBudget, LoopController, Message, ModelClient, ProgressProbe,
-    Redactor, Result, StepKind, ToolCall, ToolGateway, ToolPolicy, ToolTransport, TurnResponse,
+    ApprovalRecord, ApprovalVerdict, CapturedResult, Exit, Ledger, LoopBudget, LoopController,
+    Message, ModelClient, ProgressProbe, Redactor, Result, StepKind, ToolCall, ToolGateway,
+    ToolPolicy, ToolTransport, TurnResponse,
 };
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -195,13 +196,16 @@ pub fn project_updates(ledger: &Ledger, run_id: &str) -> Vec<SessionUpdate> {
             StepKind::Approval => {
                 let (Some(id), Ok(record)) = (
                     current.clone(),
-                    serde_json::from_str::<serde_json::Value>(&step.payload),
+                    serde_json::from_str::<ApprovalRecord>(&step.payload),
                 ) else {
                     continue;
                 };
-                let status = match record.get("decision").and_then(|d| d.as_str()) {
-                    Some("allowed") => ToolCallStatus::Pending,
-                    _ => ToolCallStatus::Failed,
+                // The writer's own type, matched exhaustively: a third verdict
+                // would be a compiler error here rather than a granted call
+                // silently rendered as a refused one.
+                let status = match record.decision {
+                    ApprovalVerdict::Allowed => ToolCallStatus::Pending,
+                    ApprovalVerdict::Denied => ToolCallStatus::Failed,
                 };
                 updates.push(SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
                     id,
