@@ -1015,6 +1015,10 @@ async fn a13_a_cancel_arriving_mid_stream_ends_the_turn_and_reports_cancelled() 
 
 /// Drives `AcpPermissionTransport::call` directly against a real ACP client
 /// that answers with `outcome`.
+///
+/// Every wait here is bounded. A permission request is the one wait in the
+/// product with no deadline of its own, so a client that never answers one
+/// must fail this harness as a failure rather than hang the test binary.
 async fn ask_permission(
     outcome: PermissionOutcome,
     tool_calls: Arc<AtomicUsize>,
@@ -1054,36 +1058,39 @@ async fn ask_permission(
             .await
     });
 
-    let result = Agent
-        .builder()
-        .connect_with(
-            ByteStreams::new(agent_write.compat_write(), agent_read.compat()),
-            async |cx: ConnectionTo<Client>| {
-                let (tx, rx) = std::sync::mpsc::channel();
-                std::thread::spawn(move || {
-                    let mut transport = skein_acp::AcpPermissionTransport::new(
-                        CountingTransport {
-                            calls: tool_calls,
-                            content: "file contents".into(),
-                        },
-                        cx,
-                        SessionId::new("unit"),
-                    );
-                    let _ =
-                        tx.send(transport.call(&ToolCall::new("read_file", serde_json::json!({}))));
-                });
-                Ok(
-                    tokio::task::spawn_blocking(move || rx.recv().expect("answered"))
-                        .await
-                        .expect("join"),
-                )
-            },
-        )
+    let agent_side = Agent.builder().connect_with(
+        ByteStreams::new(agent_write.compat_write(), agent_read.compat()),
+        async |cx: ConnectionTo<Client>| {
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let mut transport = skein_acp::AcpPermissionTransport::new(
+                    CountingTransport {
+                        calls: tool_calls,
+                        content: "file contents".into(),
+                    },
+                    cx,
+                    SessionId::new("unit"),
+                );
+                let _ = tx.send(transport.call(&ToolCall::new("read_file", serde_json::json!({}))));
+            });
+            Ok(
+                tokio::task::spawn_blocking(move || rx.recv_timeout(OBSERVE_TIMEOUT))
+                    .await
+                    .expect("join"),
+            )
+        },
+    );
+
+    // Two bounds, and the outer one is the looser of the two so that a `call`
+    // which never returns is reported by the inner bound, which knows what was
+    // being waited for. The outer catches the connection future itself wedging.
+    let called = tokio::time::timeout(2 * OBSERVE_TIMEOUT, agent_side)
         .await
+        .expect("the agent side finished")
         .expect("the agent side ran");
 
     client.abort();
-    result
+    called.expect("`AcpPermissionTransport::call` returned")
 }
 
 #[derive(Clone, Copy)]
