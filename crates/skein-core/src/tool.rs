@@ -8,6 +8,7 @@ use crate::ledger::{Ledger, StepKind};
 use crate::secret::{SecretProvider, SecretRef, SecretValue};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::Arc;
 
 /// One tool invocation as the caller means it: raw arguments, secrets and all.
 ///
@@ -171,8 +172,18 @@ impl ToolPolicy {
 /// either literally, from a caller that already holds them, or — the shape a
 /// config should use — by resolving `SecretRef`s through a
 /// [`SecretProvider`](crate::secret::SecretProvider).
+///
+/// A run configures **one** secret set, and every consumer that scrubs into its
+/// chain — the loop, the gateway, and a protocol adapter's own text sink — must
+/// scrub the same values. Behind an `Arc` that holds by construction rather than
+/// by the convention that every call site clones from the same origin: cloning a
+/// `Redactor` shares the one buffer instead of copying live, zeroize-on-drop
+/// secret material into a second one, so the material exists once per run
+/// however many owners it has. `Arc` and not `Rc` because a session's loop and
+/// its text sink cross a thread boundary ([`crate::model::TextSink`] is `Send`).
+#[derive(Clone)]
 pub struct Redactor {
-    secrets: Vec<SecretValue>,
+    secrets: Arc<[SecretValue]>,
 }
 
 impl Redactor {
@@ -208,7 +219,7 @@ impl Redactor {
 
     pub fn redact(&self, text: &str) -> String {
         let mut out = text.to_string();
-        for secret in &self.secrets {
+        for secret in self.secrets.iter() {
             out = out.replace(secret.expose(), "***");
         }
         out
@@ -236,7 +247,7 @@ impl Redactor {
     /// simply absent. Each secret is matched in both forms.
     pub fn redact_wire(&self, text: &str) -> String {
         let mut out = text.to_string();
-        for secret in &self.secrets {
+        for secret in self.secrets.iter() {
             let literal = secret.expose();
             out = out.replace(literal, "***");
             // `Value::String` always serializes, and always to a quoted string,
@@ -286,24 +297,6 @@ impl Redactor {
                     .collect(),
             ),
             other => other.clone(),
-        }
-    }
-}
-
-/// Hand-written, because `SecretValue` is deliberately not `Clone`: a run
-/// configures **one** secret set and both the loop and the gateway must scrub
-/// the same values, so this copies the material rather than widening
-/// `secret.rs`'s public API. Both copies are `Zeroizing` and both zeroize on
-/// drop. The empty-secret filter is not re-applied: the source is already
-/// filtered.
-impl Clone for Redactor {
-    fn clone(&self) -> Self {
-        Redactor {
-            secrets: self
-                .secrets
-                .iter()
-                .map(|s| SecretValue::new(s.expose()))
-                .collect(),
         }
     }
 }
