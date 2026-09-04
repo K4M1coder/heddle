@@ -800,3 +800,69 @@ fn a_live_local_provider_answers() {
         "a live provider must meter its own turn"
     );
 }
+
+/// The other thing a stub cannot prove: that the bytes captured off a **real**
+/// provider are that provider's own, carrying metering a stub would only have
+/// because the test wrote it there.
+///
+/// Run it the same way as [`a_live_local_provider_answers`]:
+///
+/// ```text
+/// $env:SKEIN_LIVE_MODEL = "llama3.1"
+/// cargo test -p skein-gateway --test openai_compat -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore = "needs a real local provider; set SKEIN_LIVE_MODEL to run"]
+fn a_live_local_provider_exchange_is_captured_with_its_own_metering() {
+    let Some(model_name) = std::env::var_os("SKEIN_LIVE_MODEL") else {
+        eprintln!("SKEIN_LIVE_MODEL is unset; skipping the live provider test");
+        return;
+    };
+    let model_name = model_name.to_string_lossy().to_string();
+    let base_url = std::env::var("SKEIN_MODEL_BASE_URL")
+        .unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
+
+    let mut model = OpenAiCompatClient::new(
+        LocalEndpoint::parse(&base_url).expect("a loopback base URL"),
+        &model_name,
+        Duration::from_secs(120),
+    );
+
+    let response = model
+        .turn(&ask(vec![Message::user_text(
+            "Reply with exactly the word: pong",
+        )]))
+        .unwrap_or_else(|e| panic!("{base_url} did not answer for model {model_name:?}: {e}"));
+    let exchange = model
+        .take_wire_exchange()
+        .expect("a turn that reached a real socket captured its exchange");
+
+    eprintln!(
+        "live wire {model_name} @ {base_url}\n  url      = {}\n  status   = {}\n  request  = {}\n  response = {}",
+        exchange.url, exchange.status, exchange.request, exchange.response
+    );
+
+    assert_eq!(exchange.status, 200);
+    assert_eq!(exchange.url, format!("{base_url}/chat/completions"));
+
+    let sent: serde_json::Value =
+        serde_json::from_str(&exchange.request).expect("the captured request is JSON");
+    assert_eq!(sent["model"], model_name);
+    assert_eq!(
+        sent["messages"][0]["content"],
+        "Reply with exactly the word: pong"
+    );
+
+    // The provider's own `usage`, cross-checked against the number the loop
+    // would have budgeted against. Two independently produced records of one
+    // fact: the wire says it and the translation says it, and they agree.
+    let answered: serde_json::Value =
+        serde_json::from_str(&exchange.response).expect("the captured response is JSON");
+    assert_eq!(
+        answered["usage"]["total_tokens"], response.tokens_used,
+        "the captured bytes must carry the metering the loop acted on"
+    );
+
+    // Taken, not borrowed: the second call must not re-offer the first's bytes.
+    assert!(model.take_wire_exchange().is_none());
+}
