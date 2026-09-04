@@ -613,6 +613,37 @@ fn tool_calls_arriving_whole_in_one_delta_are_translated() {
 }
 
 #[test]
+fn tool_calls_arriving_one_whole_call_per_delta_are_translated() {
+    // The shape actually observed while implementing this slice, against
+    // `qwen3.8:27b`: each call complete within its own event, but the two calls
+    // in **separate** events with distinct `index` values — between the two
+    // shapes either side of it, and covered by neither on its own. An
+    // accumulator that replaced its call list per event instead of merging into
+    // it would keep only the second call and pass every other test here.
+    let one = |call: serde_json::Value| serde_json::json!({"choices": [{"index": 0, "delta": {"tool_calls": [call]}, "finish_reason": null}]});
+    let stub = Stub::serving(vec![Reply::ok(sse(vec![
+        one(
+            serde_json::json!({"id": "call_43lp106j", "index": 0, "type": "function",
+             "function": {"name": "fs_read", "arguments": "{\"path\":\"alpha\"}"}}),
+        ),
+        one(
+            serde_json::json!({"id": "call_jtd04izj", "index": 1, "type": "function",
+             "function": {"name": "fs_write", "arguments": "{\"path\":\"beta\",\"text\":\"hi\"}"}}),
+        ),
+        finish("tool_calls"),
+        usage(61),
+    ]))]);
+    let mut model = client(stub.base_url(), "llama3.1");
+
+    let response = model
+        .turn(&ask(vec![Message::user_text("read alpha then write beta")]))
+        .expect("the stub answers");
+
+    assert_eq!(response.tool_calls, expected_calls());
+    assert!(!response.final_output);
+}
+
+#[test]
 fn tool_calls_fragmented_across_deltas_accumulate_to_the_same_calls() {
     // The shape the `index` keying exists for. The provider this slice targets
     // never sends it — but `skein-cli`'s wiring documents a LiteLLM sidecar as
@@ -1101,16 +1132,134 @@ fn a_live_local_provider_exchange_is_captured_with_its_own_metering() {
         "Reply with exactly the word: pong"
     );
 
+    // The capture is the event stream itself, not the object reassembled from
+    // it, so it is framed and it ends where the provider ended it.
+    assert!(
+        exchange.response.starts_with("data: "),
+        "the captured response must be the SSE framing, got {:?}",
+        &exchange.response[..exchange.response.len().min(200)]
+    );
+    assert!(exchange.response.contains("data: [DONE]"));
+    assert!(exchange.streamed, "a live turn that succeeded was streamed");
+
     // The provider's own `usage`, cross-checked against the number the loop
     // would have budgeted against. Two independently produced records of one
-    // fact: the wire says it and the translation says it, and they agree.
-    let answered: serde_json::Value =
-        serde_json::from_str(&exchange.response).expect("the captured response is JSON");
+    // fact: the wire says it and the translation says it, and they agree. It is
+    // on the stream at all only because the request asked for `stream_options`,
+    // so this assertion is also the proof that the field is being honoured.
+    let metering = live_events(&exchange.response)
+        .into_iter()
+        .find(|event| event.get("usage").is_some_and(|u| !u.is_null()))
+        .expect("the stream carries the provider's own metering event");
     assert_eq!(
-        answered["usage"]["total_tokens"], response.tokens_used,
+        metering["usage"]["total_tokens"], response.tokens_used,
         "the captured bytes must carry the metering the loop acted on"
     );
 
     // Taken, not borrowed: the second call must not re-offer the first's bytes.
     assert!(model.take_wire_exchange().is_none());
+}
+
+/// Every `data:` payload of a captured stream, parsed. Read off the capture
+/// rather than off a second connection, so a live assertion is made against the
+/// same bytes the chain would hold.
+fn live_events(raw: &str) -> Vec<serde_json::Value> {
+    raw.lines()
+        .filter_map(|line| line.strip_prefix("data: "))
+        .filter(|payload| *payload != "[DONE]")
+        .map(|payload| {
+            serde_json::from_str(payload)
+                .unwrap_or_else(|e| panic!("a captured event is not JSON: {e}: {payload}"))
+        })
+        .collect()
+}
+
+/// The third thing a stub cannot prove: that a **real** provider's streamed tool
+/// call reassembles into the call the loop would act on — id, name and
+/// arguments alike — however that provider chose to frame it across events.
+///
+/// Run it the same way as [`a_live_local_provider_answers`], with a model that
+/// has the `tools` capability:
+///
+/// ```text
+/// $env:SKEIN_LIVE_MODEL = "qwen3.8:27b"
+/// cargo test -p skein-gateway --test openai_compat -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore = "needs a real tool-capable local provider; set SKEIN_LIVE_MODEL to run"]
+fn a_live_local_provider_streams_a_tool_call() {
+    let Some(model_name) = std::env::var_os("SKEIN_LIVE_MODEL") else {
+        eprintln!("SKEIN_LIVE_MODEL is unset; skipping the live provider test");
+        return;
+    };
+    let model_name = model_name.to_string_lossy().to_string();
+    let base_url = std::env::var("SKEIN_MODEL_BASE_URL")
+        .unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
+
+    let mut model = OpenAiCompatClient::new(
+        LocalEndpoint::parse(&base_url).expect("a loopback base URL"),
+        &model_name,
+        Duration::from_secs(300),
+    );
+
+    let response = model
+        .turn(&TurnRequest {
+            run_id: "run-live".into(),
+            messages: vec![Message::user_text(
+                "Read the file /etc/hosts. Use the fs_read tool.",
+            )],
+            tools: vec![ToolSpec::new(
+                "fs_read",
+                "Read a UTF-8 text file.",
+                serde_json::json!({
+                    "properties": {"path": {"type": "string"}},
+                    "required": ["path"],
+                    "type": "object",
+                }),
+            )],
+        })
+        .unwrap_or_else(|e| panic!("{base_url} did not answer for model {model_name:?}: {e}"));
+    let exchange = model
+        .take_wire_exchange()
+        .expect("a turn that reached a real socket captured its exchange");
+
+    eprintln!(
+        "live tool call {model_name} @ {base_url}\n  calls  = {:?}\n  tokens = {}\n  final  = {}",
+        response.tool_calls, response.tokens_used, response.final_output
+    );
+
+    let call = response.tool_calls.first().unwrap_or_else(|| {
+        panic!(
+            "the model asked for no tool; it answered {:?}",
+            response.message
+        )
+    });
+    assert_eq!(call.tool, "fs_read");
+    // The arguments reassembled into an object the gateway could parse, which a
+    // half-accumulated `arguments` string could not have produced.
+    assert!(
+        call.args.get("path").and_then(|p| p.as_str()).is_some(),
+        "the accumulated arguments must carry the model's own path: {:?}",
+        call.args
+    );
+    assert!(!call.id.is_empty());
+    assert!(!response.final_output, "a tool request is not an answer");
+
+    // Every call the provider put on the wire survived the accumulation,
+    // whether it framed them one per event or several in one. This is the
+    // assertion that would catch an accumulator keeping only the last event's
+    // calls, which is the plausible bug the `index` keying exists to prevent.
+    let wired: usize = live_events(&exchange.response)
+        .iter()
+        .filter_map(|event| {
+            event["choices"][0]["delta"]["tool_calls"]
+                .as_array()
+                .map(Vec::len)
+        })
+        .sum();
+    assert_eq!(
+        response.tool_calls.len(),
+        wired,
+        "every tool call on the wire must reach the TurnResponse"
+    );
 }
