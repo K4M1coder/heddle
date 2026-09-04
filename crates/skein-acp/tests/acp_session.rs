@@ -1019,6 +1019,11 @@ async fn a13_a_cancel_arriving_mid_stream_ends_the_turn_and_reports_cancelled() 
 /// while the question was open".
 const SESSION_CANCELLED: &str = "session cancelled while awaiting acp permission";
 
+/// How long a request already on the wire is given to reach the client before
+/// "the client was never asked" is believed. Delivery over an in-process
+/// duplex is a matter of microseconds, so this is slack, not a measurement.
+const SETTLE: Duration = Duration::from_millis(250);
+
 /// `permission.rs` polls the answer channel every 50 ms. Twenty slices of
 /// slack for a loaded runner, and still two orders of magnitude below the
 /// unbounded wait this slice removed.
@@ -1185,6 +1190,16 @@ impl Asked {
             .await
             .expect("the agent side finished")
             .expect("the agent side ran");
+
+        // A request the agent put on the wire but the client has not yet read
+        // is still a question a person is about to see, and `call` can return
+        // before the client task is next polled. Giving delivery a bounded
+        // chance to happen is what makes `requests() == 0` an assertion about
+        // what was *sent* rather than a race the assertion happens to win.
+        let settle = std::time::Instant::now() + SETTLE;
+        while self.requests() == 0 && std::time::Instant::now() < settle {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
 
         client.abort();
         called.expect("`AcpPermissionTransport::call` returned")
