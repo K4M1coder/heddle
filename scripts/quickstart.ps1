@@ -26,8 +26,38 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 # workspace manifest and the crates it builds; in a bundle it sits beside
 # skein.exe with neither. Both markers are checked, so a bundle extracted
 # somewhere unlucky cannot be mistaken for a checkout.
-$repoRoot = Join-Path $PSScriptRoot '..'
-$SourceMode = (Test-Path (Join-Path $repoRoot 'Cargo.toml')) -and (Test-Path (Join-Path $repoRoot 'crates'))
+#
+# A function rather than four inline lines because scripts/quickstart.Tests.ps1
+# pins the bundle-mode default: deriving it from this script's own location
+# resolves to the whole of %TEMP% when the bundle is run from where a mail
+# client extracted it, which is a bug this script has already had once.
+function Resolve-Placement {
+  param(
+    [Parameter(Mandatory)][string]$ScriptDirectory,
+    [string]$FsRoot
+  )
+
+  $repoRoot = Join-Path $ScriptDirectory '..'
+  $sourceMode = (Test-Path (Join-Path $repoRoot 'Cargo.toml')) -and (Test-Path (Join-Path $repoRoot 'crates'))
+  if (-not $FsRoot) {
+    # In a clone the repo root is the obvious workspace, and being a git
+    # repository it gets the git tools advertised as well as the fs tools. In a
+    # bundle there is no project to point at, so the operator's current
+    # directory is the only defensible default.
+    $FsRoot = if ($sourceMode) { $repoRoot } else { (Get-Location).Path }
+  }
+
+  return [pscustomobject]@{
+    SourceMode = $sourceMode
+    RepoRoot   = $repoRoot
+    FsRoot     = (Resolve-Path -LiteralPath $FsRoot).Path
+  }
+}
+
+$placement = Resolve-Placement -ScriptDirectory $PSScriptRoot -FsRoot $FsRoot
+$SourceMode = $placement.SourceMode
+$repoRoot = $placement.RepoRoot
+$FsRoot = $placement.FsRoot
 $exeName = if ($IsWindows) { 'skein.exe' } else { 'skein' }
 
 if (-not $BaseUrl) {
@@ -36,17 +66,6 @@ if (-not $BaseUrl) {
   # reading the variable first would silently override an operator who set it.
   $BaseUrl = if ($env:SKEIN_MODEL_BASE_URL) { $env:SKEIN_MODEL_BASE_URL } else { 'http://localhost:11434/v1' }
 }
-
-if (-not $FsRoot) {
-  # In a clone the repo root is the obvious workspace, and being a git
-  # repository it gets the git tools advertised as well as the fs tools. In a
-  # bundle there is no project to point at, so the operator's current directory
-  # is the only defensible default: deriving one from this script's own location
-  # resolves to the whole of %TEMP% when the bundle is run from where a mail
-  # client extracted it.
-  $FsRoot = if ($SourceMode) { $repoRoot } else { (Get-Location).Path }
-}
-$FsRoot = (Resolve-Path -LiteralPath $FsRoot).Path
 
 if (-not $Prompt) {
   $Prompt = 'Read the file README.md in the project root and answer in one short paragraph: what is Skein, and what is its current status?'
