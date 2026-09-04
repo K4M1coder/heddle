@@ -13,8 +13,8 @@
 
 use skein_connectors::{local_connector, FsRoot, LocalConnector};
 use skein_core::{
-    Exit, Ledger, LoopBudget, LoopController, Message, NativeLoop, ProgressProbe, Redactor, Role,
-    StepKind, ToolAccess, ToolGateway, ToolPolicy, TurnRequest,
+    replay_tool_calls, Exit, Ledger, LoopBudget, LoopController, Message, NativeLoop,
+    ProgressProbe, Redactor, Role, StepKind, ToolAccess, ToolGateway, ToolPolicy, TurnRequest,
 };
 use skein_gateway::{LocalEndpoint, OpenAiCompatClient};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -697,6 +697,81 @@ fn a_secret_in_a_files_contents_is_scrubbed_from_the_chain() {
         payloads.iter().any(|p| p.contains("endpoint=")),
         "only the configured value is scrubbed, not the file: {payloads:?}"
     );
+}
+
+/// The same shape as `SECRET_ON_DISK`, and one character different in the way
+/// that matters: a quote, so the secret is on an already-serialized tool result
+/// in escaped form rather than as written.
+const AWKWARD_ON_DISK: &str = "sk-\"awkward\"-SECRET-abc123";
+
+/// The decoded text inside a serialized result body. Every assertion below goes
+/// through here, and the assertions above deliberately do not — which is the
+/// finding this test exists to encode.
+///
+/// A `contains` over a step payload cannot see this secret at all. The
+/// `ToolResult` payload is a serialized `CapturedResult` whose `content` is
+/// *itself* serialized JSON, so a quote in the secret is escaped **twice**
+/// there: the payload holds `sk-\\\"awkward…`, which contains neither the
+/// literal needle nor `escaped()`'s singly-escaped one. Measured before this
+/// test was written: with the defect present, `SECRET_ON_DISK`'s assertion
+/// shape reported the run clean while the secret was on four payloads and in
+/// the body the provider received.
+fn body_text(body: &str) -> String {
+    let parsed: serde_json::Value =
+        serde_json::from_str(body).expect("a result body is still the JSON it was");
+    parsed["content"][0]["text"]
+        .as_str()
+        .expect("scrubbing leaves the body's shape intact")
+        .to_string()
+}
+
+#[test]
+fn a_secret_with_a_quote_in_it_is_scrubbed_from_a_real_tool_result() {
+    let contents = format!("api_key={AWKWARD_ON_DISK}\nendpoint=http://localhost:11434");
+    let stub = Stub::serving(vec![
+        tool_call_reply("fs_read", serde_json::json!({"path": "config.txt"})),
+        final_reply("I read the config."),
+    ]);
+    let Harness {
+        _dir,
+        root,
+        connector,
+    } = harness(&[("config.txt", &contents)]);
+
+    // The escaping has to arise from a **real** server rather than from a
+    // double's `format!`, because that is the premise the fix rests on:
+    // `skein-mcp` hands the port `serde_json::to_string(&CallToolResult)`.
+    let ledger = governed_run(
+        &stub,
+        connector,
+        chat_policy(),
+        vec![AWKWARD_ON_DISK.to_string()],
+    );
+
+    assert!(
+        std::fs::read_to_string(root.join("config.txt"))
+            .expect("the file is still there")
+            .contains(AWKWARD_ON_DISK),
+        "sanity: the file really holds the secret, so only redaction can explain its absence below"
+    );
+
+    let scrubbed = "api_key=***\nendpoint=http://localhost:11434";
+    assert_eq!(
+        body_text(&replay_tool_calls(&ledger, "run-fs").expect("the run replays")[0].content),
+        scrubbed,
+        "the ToolResult capture must not carry a configured secret in escaped form"
+    );
+    // The capture is also what `NativeLoop::mediate` feeds back, so this is the
+    // assertion that the secret never reached the provider either — the copy
+    // where it would be escaped twice and past reach of any needle.
+    assert_eq!(
+        body_text(&tool_feedback(&ledger)),
+        scrubbed,
+        "the model must be told the scrubbed body, not the raw one"
+    );
+    ledger
+        .verify_chain("run-fs")
+        .expect("a run holding a scrubbed tool result still verifies");
 }
 
 /// The one thing a stub cannot prove: that a **real** local model, told about
