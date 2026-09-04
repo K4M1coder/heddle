@@ -6,11 +6,13 @@
 //! `CallToolResult { is_error: true }`. The end-to-end proof that it really
 //! arrives that way is `governed_fs_run.rs`.
 
+mod reparse;
+
+use reparse::reparse_dir;
 use rmcp::handler::server::wrapper::Parameters;
 use skein_connectors::{
     EmbeddedServer, FsRoot, ListParams, ReadParams, WriteParams, READ_BYTE_CAP,
 };
-use std::path::Path;
 use tempfile::TempDir;
 
 struct Fixture {
@@ -162,29 +164,6 @@ fn fs_write_refuses_a_target_whose_directory_does_not_exist() {
 
     write(&f.server, "no/such/dir/fresh.txt", "planted")
         .expect_err("a missing parent directory must be refused rather than created");
-}
-
-/// `fs_root.rs`'s helper of the same name, and its reasons: a junction needs no
-/// privilege where `symlink_dir` needs one this project's machines lack. The
-/// copy is because each integration test is its own crate.
-fn reparse_dir(target: &Path, link: &Path) -> std::io::Result<()> {
-    #[cfg(windows)]
-    {
-        let ok = std::process::Command::new("cmd")
-            .arg("/C")
-            .arg("mklink")
-            .arg("/J")
-            .arg(link)
-            .arg(target)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()?
-            .success();
-        ok.then_some(())
-            .ok_or_else(|| std::io::Error::other("mklink /J refused"))
-    }
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(target, link)
 }
 
 /// The three tools against a directory swapped for a reparse point **after**

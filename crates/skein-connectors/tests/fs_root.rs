@@ -7,6 +7,9 @@
 //! for it that Unix does not. The assertions either side of that helper are the
 //! same bodies everywhere.
 
+mod reparse;
+
+use reparse::reparse_dir;
 use skein_connectors::FsRoot;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -42,34 +45,6 @@ fn fixture() -> Fixture {
         outside_file: std::fs::canonicalize(&outside_file).expect("the outside file canonicalizes"),
         outside_dir: std::fs::canonicalize(&outside_dir).expect("the outside dir canonicalizes"),
     }
-}
-
-/// A reparse point at `link` leading to the **directory** `target`.
-///
-/// A junction on Windows rather than a symlink, because a junction needs no
-/// privilege and `symlink_dir` needs `SeCreateSymbolicLinkPrivilege` — which
-/// this project's own developer machines do not have, so every symlink test
-/// written against it has silently skipped since slice 016.
-/// `std::os::windows::fs::junction_point` would be the direct route and is
-/// nightly-only, so `mklink /J` it is.
-fn reparse_dir(target: &Path, link: &Path) -> std::io::Result<()> {
-    #[cfg(windows)]
-    {
-        let ok = std::process::Command::new("cmd")
-            .arg("/C")
-            .arg("mklink")
-            .arg("/J")
-            .arg(link)
-            .arg(target)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()?
-            .success();
-        ok.then_some(())
-            .ok_or_else(|| std::io::Error::other("mklink /J refused"))
-    }
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(target, link)
 }
 
 /// A reparse point at `link` leading to the **file** `target`.

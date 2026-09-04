@@ -11,6 +11,9 @@
 //!
 //! Plain `#[test]`: the connector owns a runtime and blocks on it.
 
+mod reparse;
+
+use reparse::reparse_dir;
 use skein_connectors::{local_connector, FsRoot, LocalConnector};
 use skein_core::{
     replay_tool_calls, Exit, Ledger, LoopBudget, LoopController, Message, NativeLoop,
@@ -19,7 +22,7 @@ use skein_core::{
 use skein_gateway::{LocalEndpoint, OpenAiCompatClient};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::Duration;
 use tempfile::TempDir;
@@ -571,29 +574,6 @@ fn an_out_of_root_read_is_refused_by_the_server_and_the_run_survives() {
     ledger
         .verify_chain("run-fs")
         .expect("a run holding a tool-level refusal verifies");
-}
-
-/// `fs_root.rs`'s helper of the same name, and its reasons: a junction needs no
-/// privilege where `symlink_dir` needs one this project's machines lack. The
-/// copy is because each integration test is its own crate.
-fn reparse_dir(target: &Path, link: &Path) -> std::io::Result<()> {
-    #[cfg(windows)]
-    {
-        let ok = std::process::Command::new("cmd")
-            .arg("/C")
-            .arg("mklink")
-            .arg("/J")
-            .arg(link)
-            .arg(target)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()?
-            .success();
-        ok.then_some(())
-            .ok_or_else(|| std::io::Error::other("mklink /J refused"))
-    }
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(target, link)
 }
 
 /// The governed counterpart of `fs_server.rs`'s reparse-point test, and the one
