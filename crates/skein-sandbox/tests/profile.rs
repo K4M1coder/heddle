@@ -8,12 +8,25 @@
 
 mod dacl;
 
-use dacl::{allow_aces, granted_masks, granted_sids};
+use dacl::{allow_aces, granted_sids};
 use skein_sandbox::Sandbox;
 use tempfile::TempDir;
 use windows::Win32::Storage::FileSystem::{
     FILE_APPEND_DATA, FILE_EXECUTE, FILE_READ_DATA, FILE_WRITE_DATA, WRITE_DAC,
 };
+
+/// Every normalised mask this directory's DACL grants `sid`, and nothing it
+/// grants anyone else.
+///
+/// Only this file compares masks — `prune.rs` asks whether a trustee is named
+/// at all — so it stays here rather than in the shared `dacl` module.
+fn granted_masks(dir: &std::path::Path, sid: &str) -> Vec<u32> {
+    allow_aces(dir)
+        .into_iter()
+        .filter(|(trustee, _)| trustee == sid)
+        .map(|(_, mask)| mask)
+        .collect()
+}
 
 #[test]
 fn a_sandbox_derives_an_appcontainer_sid_and_grants_it_the_root() {

@@ -5,6 +5,10 @@
 //! a `tests/dacl/mod.rs` directory module rather than a `tests/dacl.rs` file so
 //! cargo treats it as a shared module instead of a test binary of its own.
 //!
+//! Only what **both** files read lives here: each test binary compiles this
+//! module for itself, so a helper one of them does not call is dead code in
+//! that binary, and `-D warnings` is right to say so.
+//!
 //! Every read here goes through the **real** `GetNamedSecurityInfoW` rather than
 //! trusting what `Sandbox::create` or `prune` says it wrote: the grant is the
 //! load-bearing containment mechanism, so its ground truth has to be the
@@ -95,14 +99,4 @@ pub const FILE_MAPPING: GENERIC_MAPPING = GENERIC_MAPPING {
 
 pub fn granted_sids(dir: &std::path::Path) -> Vec<String> {
     allow_aces(dir).into_iter().map(|(sid, _)| sid).collect()
-}
-
-/// Every normalised mask this directory's DACL grants `sid`, and nothing it
-/// grants anyone else.
-pub fn granted_masks(dir: &std::path::Path, sid: &str) -> Vec<u32> {
-    allow_aces(dir)
-        .into_iter()
-        .filter(|(trustee, _)| trustee == sid)
-        .map(|(_, mask)| mask)
-        .collect()
 }

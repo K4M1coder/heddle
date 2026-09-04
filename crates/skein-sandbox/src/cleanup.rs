@@ -19,11 +19,16 @@ use std::path::Path;
 use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::{LocalFree, HLOCAL};
 use windows::Win32::Security::Authorization::{
-    ConvertSidToStringSidW, GetNamedSecurityInfoW, SE_FILE_OBJECT,
+    ConvertSidToStringSidW, GetNamedSecurityInfoW, SetEntriesInAclW, SetNamedSecurityInfoW,
+    EXPLICIT_ACCESS_W, NO_MULTIPLE_TRUSTEE, REVOKE_ACCESS, SE_FILE_OBJECT, TRUSTEE_IS_SID,
+    TRUSTEE_IS_WELL_KNOWN_GROUP, TRUSTEE_W,
 };
-use windows::Win32::Security::Isolation::DeriveAppContainerSidFromAppContainerName;
+use windows::Win32::Security::Isolation::{
+    DeleteAppContainerProfile, DeriveAppContainerSidFromAppContainerName,
+};
 use windows::Win32::Security::{
-    FreeSid, GetAce, ACCESS_ALLOWED_ACE, ACL, DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
+    FreeSid, GetAce, ACCESS_ALLOWED_ACE, ACL, DACL_SECURITY_INFORMATION, NO_INHERITANCE,
+    PSECURITY_DESCRIPTOR, PSID,
 };
 
 /// The length of `sha256`'s first `NAME_HASH_BYTES` rendered as hex, which is
@@ -103,8 +108,115 @@ fn describe(profile: &str) -> Result<Grant, String> {
     })
 }
 
-pub(crate) fn prune(_profile: &str) -> Result<Pruned, String> {
-    todo!("T5")
+pub(crate) fn prune(profile: &str) -> Result<Pruned, String> {
+    if !is_skein_profile(profile) {
+        return Err(format!(
+            "{profile} is not a profile skein could have created: the name must be skein-              followed by 16 lowercase hexadecimal characters"
+        ));
+    }
+
+    let identity = AppContainerSid::derive(profile)?;
+    let recorded = record::read(profile)?;
+    let mut pruned = Pruned {
+        profile: profile.to_string(),
+        revoked: Vec::new(),
+        clear: Vec::new(),
+        missing: Vec::new(),
+        unrecorded: recorded.is_none(),
+    };
+
+    // The ACEs first and the profile last. `DeleteAppContainerProfile` takes the
+    // package folder — and the record inside it — with the profile, so failing
+    // half way through the reverse order would leave every un-revoked ACE with
+    // nothing left on the machine able to say where it is.
+    for dir in recorded.unwrap_or_default() {
+        match state_of(&dir, identity.0)? {
+            GrantState::Missing => pruned.missing.push(dir),
+            GrantState::Clear => pruned.clear.push(dir),
+            GrantState::Granted => {
+                revoke(&dir, identity.0)?;
+                pruned.revoked.push(dir);
+            }
+        }
+    }
+
+    let wide_name = wide(profile);
+    unsafe { DeleteAppContainerProfile(PCWSTR(wide_name.as_ptr())) }
+        .map_err(|e| format!("the app container profile {profile} is not removable: {e}"))?;
+
+    Ok(pruned)
+}
+
+/// Removes every ACE naming `sid` from `dir`'s DACL, and can remove no other.
+///
+/// One `EXPLICIT_ACCESS_W` whose mode is `REVOKE_ACCESS` and whose trustee is
+/// the single `PSID` derived from a `skein-<hash>` name. The access mask and the
+/// inheritance flags are `0` because `REVOKE_ACCESS` reads neither: it removes
+/// *all* of that trustee's entries, which is what a directory grant needs, since
+/// an inheritable generic mask splits into two ACEs on the way in.
+///
+/// # Safety
+/// `sid` must be a valid `PSID` for the duration of the call.
+fn revoke(dir: &Path, sid: PSID) -> Result<(), String> {
+    let name = wide(&win32_path(dir));
+    let entry = EXPLICIT_ACCESS_W {
+        grfAccessPermissions: 0,
+        grfAccessMode: REVOKE_ACCESS,
+        grfInheritance: NO_INHERITANCE,
+        Trustee: TRUSTEE_W {
+            pMultipleTrustee: std::ptr::null_mut(),
+            MultipleTrusteeOperation: NO_MULTIPLE_TRUSTEE,
+            TrusteeForm: TRUSTEE_IS_SID,
+            TrusteeType: TRUSTEE_IS_WELL_KNOWN_GROUP,
+            // `ptstrName` is typed `PWSTR` even when the form is
+            // `TRUSTEE_IS_SID`; casting the `PSID` into it is the documented
+            // Win32 idiom, and the same one `profile::grant` writes.
+            ptstrName: PWSTR(sid.0 as *mut u16),
+        },
+    };
+
+    with_dacl(dir, |existing| {
+        let mut stripped: *mut ACL = std::ptr::null_mut();
+        let built = unsafe { SetEntriesInAclW(Some(&[entry]), Some(existing), &mut stripped) }
+            .ok()
+            .map_err(|e| {
+                format!(
+                    "{}: the permissions without this identity do not build: {e}",
+                    dir.display()
+                )
+            });
+        let written = built.and_then(|()| {
+            unsafe {
+                SetNamedSecurityInfoW(
+                    PCWSTR(name.as_ptr()),
+                    SE_FILE_OBJECT,
+                    DACL_SECURITY_INFORMATION,
+                    None,
+                    None,
+                    Some(stripped),
+                    None,
+                )
+            }
+            .ok()
+            .map_err(|e| format!("{}: {}", dir.display(), not_writable(e)))
+        });
+        if !stripped.is_null() {
+            unsafe { LocalFree(Some(HLOCAL(stripped as *mut c_void))) };
+        }
+        written
+    })
+}
+
+/// The way out of a directory whose permissions this user cannot rewrite,
+/// which `profile::create` already meets on the way in.
+///
+/// Reported rather than swallowed, and the profile is then **not** deleted: the
+/// record survives, so an elevated retry can finish exactly the work this run
+/// could not.
+fn not_writable(reason: windows::core::Error) -> String {
+    format!(
+        "its permissions are not writable: {reason}; a directory's permissions are writable only          by its owner or an administrator, so run skein elevated once or name a directory you own"
+    )
 }
 
 /// A derived `PSID` that is freed on every path out, including the error ones.
