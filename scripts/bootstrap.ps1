@@ -10,8 +10,10 @@ function Have($cmd) { return [bool](Get-Command $cmd -ErrorAction SilentlyContin
 Step "1/8 Core tooling (git, Rust, Node, Python/uv)"
 if (-not (Have git))  { winget install --id Git.Git -e --silent }
 if (-not (Have rustup)) { winget install --id Rustlang.Rustup -e --silent }
-# Toolchain pinned by rust-toolchain.toml (1.79); ensure components
-rustup toolchain install 1.79 --component rustfmt --component clippy
+# Toolchain channel read from rust-toolchain.toml, not hardcoded here, so this
+# script cannot drift from the version the workspace actually pins.
+$toolchain = (Select-String -Path (Join-Path $PSScriptRoot "..\rust-toolchain.toml") -Pattern 'channel\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+rustup toolchain install $toolchain --component rustfmt --component clippy
 if (-not (Have node)) { winget install --id OpenJS.NodeJS.LTS -e --silent }
 if (-not (Have uv))   { winget install --id astral-sh.uv -e --silent }
 

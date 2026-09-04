@@ -11,7 +11,7 @@ Skein is created and owned by **Cédric Thedrez**:
 
 ## Current status
 
-The project is in architecture and specification hardening. Product implementation has not started. The design is developed through a BMAD × Spec-Kit bridge, adversarial architecture review and evidence-based loop engineering.
+v0 — the strict-local coding agent scoped by [ADR-0004 D3](docs/superpowers/adr/0004-solo-v0-calibration.md) — is implemented: a Skein-owned native loop behind an ACP boundary, MCP tools for `fs` and `git` plus a Windows-first sandboxed `shell` connector ([ADR-0006](docs/superpowers/adr/0006-shell-connector-windows-first-sandbox.md)), one local model path via an Ollama-compatible gateway, a silo-backed event-sourced Ledger and OS-keychain `SecretProvider`, and the `skein` CLI (`chat`, `acp-agent`, `ledger`, `secret`, `sandbox`). Each implemented slice has its own spec, plan and task record under [`specs/`](specs/), numbered in build order; the design docs below remain the source of intent behind them.
 
 Key documents:
 

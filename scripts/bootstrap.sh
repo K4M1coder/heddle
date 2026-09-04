@@ -10,7 +10,10 @@ have() { command -v "$1" >/dev/null 2>&1; }
 step "1/8 Core tooling (git, Rust, Node, Python/uv)"
 have git || { echo "Install git via your package manager first."; exit 1; }
 have rustup || curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-rustup toolchain install 1.79 --component rustfmt --component clippy
+# Toolchain channel read from rust-toolchain.toml, not hardcoded here, so this
+# script cannot drift from the version the workspace actually pins.
+toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' "$(dirname "$0")/../rust-toolchain.toml")
+rustup toolchain install "$toolchain" --component rustfmt --component clippy
 have node || { echo "Install Node.js LTS (nvm/brew/apt) then re-run."; exit 1; }
 have uv || curl -LsSf https://astral.sh/uv/install.sh | sh
 
