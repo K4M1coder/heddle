@@ -82,6 +82,47 @@ impl StubProvider {
         }
     }
 
+    /// Writes part of one SSE response, then holds the socket open until `gate`
+    /// fires before writing the rest.
+    ///
+    /// `content-length` covers **both** parts, so the client is committed to
+    /// reading more and cannot mistake the pause for the end of the body, and
+    /// `set_nodelay` keeps the first part from sitting in a Nagle buffer. This
+    /// is the only way a test can put a chunk on the client's transcript at a
+    /// moment when the model's turn provably has not returned.
+    fn stalling(first: String, rest: String, gate: Receiver<()>) -> StubProvider {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+        let addr = listener.local_addr().expect("the bound address");
+        let (tx, requests) = mpsc::channel();
+        std::thread::spawn(move || {
+            let Ok((mut socket, _)) = listener.accept() else {
+                return;
+            };
+            let _ = socket.set_nodelay(true);
+            let Some(seen) = read_request(&mut socket) else {
+                return;
+            };
+            if tx.send(seen).is_err() {
+                return;
+            }
+            let _ = socket.write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{first}",
+                    first.len() + rest.len()
+                )
+                .as_bytes(),
+            );
+            let _ = socket.flush();
+            let _ = gate.recv();
+            let _ = socket.write_all(rest.as_bytes());
+            let _ = socket.flush();
+        });
+        StubProvider {
+            base_url: format!("http://{addr}/v1"),
+            requests,
+        }
+    }
+
     /// The next request's body, parsed: what the real binary put on the wire.
     fn request_body(&self) -> serde_json::Value {
         match self.requests.recv_timeout(OBSERVE_TIMEOUT) {
@@ -116,15 +157,18 @@ fn read_request(socket: &mut TcpStream) -> Option<String> {
     Some(String::from_utf8_lossy(&body).to_string())
 }
 
-/// SSE framing as the real provider writes it, with a bare `\n\n` separator and
-/// a terminating `[DONE]`. Spelled out here rather than shared across test
-/// binaries for the reason each of these files already records: they are one
-/// another's controls.
+/// One SSE event, framed as the real provider frames it: a `data:` line closed
+/// by a blank one. The separator is a bare `\n\n`, not CRLF — measured, not
+/// assumed.
+fn event(value: serde_json::Value) -> String {
+    format!("data: {value}\n\n")
+}
+
+/// A whole stream: the events, then `[DONE]`. Spelled out here rather than
+/// shared across test binaries for the reason this file's header already
+/// records: they are one another's controls.
 fn sse(events: Vec<serde_json::Value>) -> String {
-    let mut raw = String::new();
-    for event in events {
-        raw.push_str(&format!("data: {event}\n\n"));
-    }
+    let mut raw: String = events.into_iter().map(event).collect();
     raw.push_str("data: [DONE]\n\n");
     raw
 }
@@ -213,6 +257,147 @@ fn logged_kinds(root: &Path, silo: &str, run_id: &str) -> Vec<String> {
         .lines()
         .map(|l| l.split('\t').nth(2).expect("a kind column").to_string())
         .collect()
+}
+
+/// The claim slice 025 exists to make, stated so that only the claim can
+/// satisfy it: **a chunk reaches the editor while `session/prompt` is still
+/// outstanding.**
+///
+/// "More than one chunk arrived" would not prove it — the projection could
+/// still be sending every one of them after the run, which is exactly the
+/// behaviour being replaced. So the provider writes two events and then stops
+/// writing, holding the socket open. Nothing releases it except the arrival of
+/// a chunk at the client. Therefore:
+///
+/// - if the client sees a chunk, the provider's response is provably unfinished,
+///   so `turn` has not returned, so the run has not ended, so `session/prompt`
+///   has not been answered — the chunk can only have come from the live path;
+/// - if the client sees no chunk, nothing releases the provider, the prompt
+///   never completes, and `run_with_timeout` fails the test rather than passing
+///   it quietly.
+///
+/// `answered` records the second half directly rather than leaving it to that
+/// argument: the notification handler snapshots it, and the first chunk must
+/// have found it `false`.
+#[test]
+fn a_chunk_reaches_the_client_while_the_prompt_is_still_outstanding() {
+    let delta = |text: &str| {
+        event(serde_json::json!({
+            "choices": [{"index": 0, "delta": {"role": "assistant", "content": text}}]
+        }))
+    };
+    let held = [delta("The "), delta("answer ")].concat();
+    let rest = [
+        delta("is 42."),
+        event(serde_json::json!({
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]
+        })),
+        event(serde_json::json!({"choices": [], "usage": {"total_tokens": 25}})),
+        "data: [DONE]
+
+"
+        .to_string(),
+    ]
+    .concat();
+
+    let (release, gate) = mpsc::channel();
+    let provider = StubProvider::stalling(held, rest, gate);
+    let (_dir, root) = temp_root();
+    let root_flag = root_arg(&root);
+
+    let updates: Arc<Mutex<Vec<SessionUpdate>>> = Arc::default();
+    let collected = updates.clone();
+    // Set the instant the prompt is answered; read by the notification handler
+    // for every chunk it receives.
+    let answered = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let answered_when_notified = answered.clone();
+    let seen_answered: Arc<Mutex<Vec<bool>>> = Arc::default();
+    let recording = seen_answered.clone();
+
+    let transport = AcpAgent::new(AcpAgentConfig::new(env!("CARGO_BIN_EXE_skein")).args([
+        "acp-agent",
+        "--root",
+        &root_flag,
+        "--silo",
+        "alpha",
+        "--model",
+        "llama3.1",
+        "--base-url",
+        &provider.base_url,
+        "--timeout-secs",
+        "30",
+    ]));
+
+    let stop = run_with_timeout(move || {
+        futures::executor::block_on(
+            Client
+                .builder()
+                .name("test-client")
+                .on_receive_notification(
+                    async move |notification: SessionNotification, _cx| {
+                        if matches!(notification.update, SessionUpdate::AgentMessageChunk(_)) {
+                            recording.lock().expect("the flag log").push(
+                                answered_when_notified.load(std::sync::atomic::Ordering::SeqCst),
+                            );
+                            // Only now does the provider get to finish, so the
+                            // turn cannot have ended before this line ran.
+                            let _ = release.send(());
+                        }
+                        collected
+                            .lock()
+                            .expect("the update log")
+                            .push(notification.update);
+                        Ok(())
+                    },
+                    agent_client_protocol::on_receive_notification!(),
+                )
+                .connect_with(transport, async move |cx: ConnectionTo<Agent>| {
+                    cx.send_request(InitializeRequest::new(ProtocolVersion::V1))
+                        .block_task()
+                        .await?;
+                    let session = cx
+                        .send_request(NewSessionRequest::new(PathBuf::from(".")))
+                        .block_task()
+                        .await?;
+                    let response = cx
+                        .send_request(PromptRequest::new(
+                            session.session_id,
+                            vec![ContentBlock::Text(TextContent::new("what is the answer?"))],
+                        ))
+                        .block_task()
+                        .await?;
+                    answered.store(true, std::sync::atomic::Ordering::SeqCst);
+                    Ok(response.stop_reason)
+                }),
+        )
+        .expect("the ACP client ran to completion")
+    });
+
+    assert_eq!(stop, StopReason::EndTurn);
+    let flags = seen_answered.lock().expect("the flag log").clone();
+    assert_eq!(
+        flags.first(),
+        Some(&false),
+        "the first chunk must arrive before session/prompt is answered, got {flags:?}"
+    );
+    // One per delta and nothing after them: a fourth entry holding the whole
+    // answer would be the chain-derived projection repeating what the client
+    // already has.
+    assert_eq!(chunks(&updates), vec!["The ", "answer ", "is 42."]);
+
+    // And the run is an ordinary governed run on the chain, unchanged by the
+    // fact that its text left the process early.
+    assert_eq!(
+        logged_kinds(&root, "alpha", "skein-1#1"),
+        vec![
+            "iteration_boundary",
+            "llm_request",
+            "wire_exchange",
+            "llm_response",
+            "budget_spent",
+            "exit",
+        ]
+    );
 }
 
 // ---------------------------------------------------------------------------
