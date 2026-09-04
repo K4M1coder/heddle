@@ -142,3 +142,62 @@ fn a_run_dir_is_granted_read_and_execute_and_the_root_is_not() {
         "the fs-root keeps its full access — an agent's workspace is writable: {root_masks:?}"
     );
 }
+
+/// The grant **adds**; it does not replace. This is what says so.
+///
+/// `grant` reads the directory's existing DACL and merges through
+/// `SetEntriesInAclW`. Dropping that read and writing an ACL holding only the
+/// new entry is a shorter function that passes every other test in this file —
+/// each one filters the DACL down to its own AppContainer SID and never looks
+/// at who else is on it.
+///
+/// The pre-existing trustee here is **another sandbox's**, which is not a
+/// contrived fixture: it is one workspace serving as a second session's run
+/// directory, and it is the case where a replace is worst — the surviving
+/// session keeps running against a directory it silently no longer reaches.
+///
+/// It has to be an *explicit* ACE to prove anything, and that is the whole
+/// reason this test builds one rather than trusting a bare `TempDir`. A fresh
+/// temp directory carries nothing but ACEs inherited from `%TEMP%`, and
+/// `SetNamedSecurityInfoW` without `PROTECTED_DACL_SECURITY_INFORMATION`
+/// rewrites only the explicit half — so inherited entries survive a replace too
+/// and could not tell the two implementations apart.
+///
+/// Compared as a multiset: an ACE that appeared twice before and once after is
+/// a loss too, and the inheritance split `dacl::allow_aces` documents means
+/// duplicate-looking pairs are normal here.
+#[test]
+fn the_grant_leaves_every_trustee_the_directory_already_had() {
+    let shared = TempDir::new().expect("a temp dir two sessions both want");
+    let elsewhere = TempDir::new().expect("the first session's own root");
+
+    let first = Sandbox::create(elsewhere.path(), &[shared.path().to_path_buf()])
+        .expect("the first session's profile, and its grant on the shared directory");
+    let _pruned_first = guard::PrunedOnDrop::of(&first);
+
+    let before = allow_aces(shared.path());
+    assert!(
+        before.iter().any(|(trustee, _)| trustee == first.string_sid()),
+        "the first session must hold an explicit ACE here, or this test proves nothing:          {before:?}"
+    );
+
+    let second =
+        Sandbox::create(shared.path(), &[]).expect("the second session takes it as a root");
+    let _pruned_second = guard::PrunedOnDrop::of(&second);
+
+    let mut after = allow_aces(shared.path());
+    for pair in &before {
+        let found = after
+            .iter()
+            .position(|candidate| candidate == pair)
+            .unwrap_or_else(|| panic!("the grant must not evict {pair:?}; after {after:?}"));
+        after.remove(found);
+    }
+    assert!(
+        after
+            .iter()
+            .any(|(trustee, _)| trustee == second.string_sid()),
+        "and it must add the second identity on top of them, got {:?}",
+        allow_aces(shared.path())
+    );
+}
