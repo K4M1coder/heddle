@@ -30,6 +30,7 @@ Every anchor below is a `dev` anchor.
 | `Redactor::redact_wire` | `skein-core/src/tool.rs:237` | literal **and** `Value::String`-escaped needle; the exact premise a tool result satisfies |
 | the source of the escaping | `skein-mcp/src/lib.rs:57` | `content: serde_json::to_string(&result)?` — the whole `CallToolResult`, serialized |
 | the only other `ToolOutcome` construction in the product | — | there is none: `grep -rn "ToolOutcome {" crates/*/src` returns `tool.rs:76` (the definition) and `skein-mcp/src/lib.rs:57` |
+| every `impl ToolTransport` funnels through it | `wiring.rs:141,390`, `connector.rs:85`, `skein-mcp/src/lib.rs:43` | four impls, and none of them is a second producer: `ConfiguredTools` dispatches to `NoTools` or to `LocalConnector`, `LocalConnector` delegates to its `RmcpToolTransport` field (`connector.rs:38`), and `NoTools::call` returns `Err` unconditionally. So "already-serialized JSON" is a property of the port, not of one caller |
 | the propagation | `skein-core/src/native_loop.rs:186` | `Ok((_, captured)) => captured.content` — the capture is what goes back to the model |
 | the two existing `redact_wire` callers | `skein-core/src/native_loop.rs:115-116` | `exchange.request` / `exchange.response`, with the comment stating the premise |
 | the unit-level control | `skein-core/tests/tool_gateway.rs:226` | `secret_is_redacted_from_args_and_result_before_capture`, over `SECRET = "sk-SECRET-abc123"` — no escapable character, so it is green either way |
