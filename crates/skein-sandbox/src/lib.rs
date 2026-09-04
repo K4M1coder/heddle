@@ -229,7 +229,8 @@ pub fn prune(_profile: &str) -> std::result::Result<Pruned, String> {
 /// find and nothing to remove. The refusal is the honest answer rather than a
 /// stub standing in for missing work.
 #[cfg(not(windows))]
-const NO_CLEANUP: &str = "there are no sandbox profiles to list or prune on this platform; the                           app container sandbox is Windows-only in v0";
+const NO_CLEANUP: &str = "there are no sandbox profiles to list or prune on this platform; \r
+                          the app container sandbox is Windows-only in v0";
 
 impl Sandbox {
     /// Creates — or reuses — the AppContainer profile for `root`, grants its
