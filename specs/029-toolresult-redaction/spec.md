@@ -82,7 +82,7 @@ diff is one identifier in one line of `skein-core`, its comment, and the tests.
 | # | alternative | why not |
 |---|---|---|
 | 1 | scrub the `LlmRequest` payload / the wire body harder instead | by then the secret is escaped **twice** (measured: `sk-\\\\\\\"awkward…` on the wire) and `redact_wire`'s two needles both miss. A third needle for double-escaping, then a fourth, is an escaping arms race whose fix is to scrub at the one place the bytes are still singly escaped |
-| 2 | make `redact` itself try both forms and delete `redact_wire` | it would splice `***` into plain text that merely *looks* escaped, and it erases a distinction the type-level comments at `tool.rs:213`/`tool.rs:231` exist to keep. `redact_json`'s premise — scrub before serializing — stays correct and stays different |
+| 2 | make `redact` itself try both forms and delete `redact_wire` | it would splice `***` into plain text that merely *looks* escaped, and it erases a distinction the type-level comments at `tool.rs:209`/`tool.rs:228` exist to keep. `redact_json`'s premise — scrub before serializing — stays correct and stays different |
 | 3 | parse `outcome.content` and use `redact_json` on the value | the transport's body is not guaranteed parseable by `skein-core`, which owns no MCP vocabulary; a tool that returned non-JSON would become an error where today it is captured. `redact_wire` needs no such assumption |
 | 4 | change `ToolOutcome.content` to a `Value` | it pushes MCP's result shape into the core port that slice 022's D-notes deliberately kept out of it, for a one-identifier fix |
 | 5 | assert with `contains()` over the raw step payload | measured to pass while the secret leaks. This is FR-002's whole reason for naming the *decoded* text |

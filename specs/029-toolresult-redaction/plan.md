@@ -25,7 +25,7 @@ Every anchor below is a `dev` anchor.
 | anchor | file | fact |
 |---|---|---|
 | the defect | `skein-core/src/tool.rs:410` | `content: self.redactor.redact(&outcome.content)` |
-| `Redactor::redact` | `skein-core/src/tool.rs:213` | `text.replace(secret.expose(), "***")` — the literal needle only |
+| `Redactor::redact` | `skein-core/src/tool.rs:209` | `text.replace(secret.expose(), "***")` — the literal needle only |
 | `Redactor::redact_json` | `skein-core/src/tool.rs:224` | scrub-**then**-serialize; its doc names the escaping hazard |
 | `Redactor::redact_wire` | `skein-core/src/tool.rs:237` | literal **and** `Value::String`-escaped needle; the exact premise a tool result satisfies |
 | the source of the escaping | `skein-mcp/src/lib.rs:57` | `content: serde_json::to_string(&result)?` — the whole `CallToolResult`, serialized |
@@ -36,7 +36,7 @@ Every anchor below is a `dev` anchor.
 | the integration control | `skein-connectors/tests/governed_fs_run.rs:652` | `a_secret_in_a_files_contents_is_scrubbed_from_the_chain`, over `SECRET_ON_DISK = "sk-from-disk-SECRET-abc123"` — likewise |
 | the assertion shape that cannot catch this | `skein-connectors/tests/governed_fs_run.rs:685` | `payloads.iter().all(|p| !p.contains(SECRET_ON_DISK))` |
 | the helper that is *still* not enough | `skein-connectors/tests/governed_fs_run.rs:290` | `escaped(text)` — single-escaped; the `ToolResult` payload is doubly escaped |
-| `replay_tool_calls` | `skein-core/src/tool.rs:418` | parses each `ToolResult` payload into a `CapturedResult`; the parsed form every assertion here uses |
+| `replay_tool_calls` | `skein-core/src/tool.rs:424` | parses each `ToolResult` payload into a `CapturedResult`; the parsed form every assertion here uses |
 
 ### 0.3 What leaks today, measured
 
@@ -98,7 +98,7 @@ let captured = CapturedResult {
 `ToolOutcome.content` has exactly one producer in the product — `skein-mcp/src/lib.rs:57`,
 `serde_json::to_string(&result)?` — so "already-serialized JSON" is not a convention this line hopes
 for, it is the only thing the port is ever handed. That is `redact_wire`'s documented premise
-verbatim (`tool.rs:231-236`), and it was written one slice ago for the two other bodies satisfying
+verbatim (`tool.rs:228-236`), and it was written one slice ago for the two other bodies satisfying
 it. The comment above the line changes with it: it currently says nothing about escaping, and after
 the fix it must say why this scrubber and not the neighbouring one.
 
