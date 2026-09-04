@@ -16,6 +16,8 @@ use skein_connectors::RunAccess;
 use skein_core::{Exit, LoopController, Message, NativeLoop, Result, SkeinError, ToolGateway};
 use skein_silo::Silo;
 use std::io::Read;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn chat(silo: &SiloArgs, args: &ChatArgs) -> Result<()> {
@@ -33,7 +35,13 @@ pub fn chat(silo: &SiloArgs, args: &ChatArgs) -> Result<()> {
     // attempt that never left the process.
     // `RunAccess::Denied`, always: this command has no `--allow-run` to
     // resolve, so no sandbox is built and no directory's ACL is touched.
-    let transport = args.tools.transport(RunAccess::Denied)?;
+    // The flag is minted here and dropped here: `chat` is non-interactive and
+    // has no cancel channel, so "nothing can stop this run" is stated in the
+    // wiring rather than asserted in a comment. Giving it one is a CLI slice
+    // with its own decisions.
+    let transport = args
+        .tools
+        .transport(RunAccess::Denied, Arc::new(AtomicBool::new(false)))?;
     let prompt = prompt(args.prompt.as_deref())?;
 
     let run_id = match &args.run_id {

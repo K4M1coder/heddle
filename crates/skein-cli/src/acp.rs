@@ -15,6 +15,8 @@ use crate::SiloArgs;
 use skein_acp::{SessionParts, SkeinAgent};
 use skein_core::Result;
 use skein_silo::Silo;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 pub fn serve(
     silo: &SiloArgs,
@@ -53,13 +55,21 @@ pub fn serve(
     // `model` moves into the factory: the closure outlives this frame, and one
     // client is built per session rather than shared across them.
     SkeinAgent::new(move || {
+        // **One flag, two holders, and this is the only frame that can pair
+        // them.** The session sets it from `session/cancel`; the transport's
+        // launcher polls it while a `proc_run` child executes. Minting a second
+        // one here would leave a cancellation reaching the model and not the
+        // child — and it would fail silently, because the run still ends
+        // `Cancelled`, thirty seconds later, once the tool's own timeout
+        // expires.
+        let cancelled = Arc::new(AtomicBool::new(false));
         Ok(SessionParts {
             client: model.client(endpoint.clone()),
             probe: NoGroundTruth,
             // One embedded server per session, matching the one client per
             // session above. Built here, under `futures::executor::block_on`
             // rather than a tokio runtime, which is what makes it legal at all.
-            transport: tools.transport(run.clone())?,
+            transport: tools.transport(run.clone(), cancelled.clone())?,
             // Without `--fs-root` this is an empty allowlist and nothing is
             // advertised. With one, `fs_write` is allowed **and** approved —
             // not a weakening but the only way to reach a human, because
@@ -73,6 +83,7 @@ pub fn serve(
             // `SessionParts.ledger` is a `Ledger` by value. This is the whole
             // reason the factory is fallible.
             ledger: Silo::open(&root, &id)?.ledger()?,
+            cancelled,
         })
     })
     .serve_stdio()

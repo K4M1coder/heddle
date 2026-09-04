@@ -21,6 +21,8 @@ use skein_core::{
 use skein_gateway::{LocalEndpoint, OpenAiCompatClient};
 use skein_silo::OsKeychain;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Ollama's own OpenAI-compatible endpoint, which `scripts/bootstrap.ps1
@@ -183,11 +185,19 @@ impl ToolArgs {
     ///
     /// **Not callable from inside a tokio context**, per
     /// [`LocalConnector`]'s docstring.
-    pub fn transport(&self, run: RunAccess) -> Result<ConfiguredTools> {
+    ///
+    /// `cancelled` is what stops a `proc_run` already executing. It must be the
+    /// **same** `Arc` the session is given, or a cancellation reaches the model
+    /// and not the child — a failure that is silent, because the run still ends
+    /// `Cancelled`, thirty seconds later.
+    /// `acp_agent_cancelling_a_proc_run_kills_it_without_waiting_for_its_timeout`
+    /// is what fails when it is not.
+    pub fn transport(&self, run: RunAccess, cancelled: Arc<AtomicBool>) -> Result<ConfiguredTools> {
         match &self.fs_root {
             Some(path) => Ok(ConfiguredTools::Fs(Box::new(local_connector_with_run(
                 FsRoot::new(path)?,
                 run,
+                cancelled,
             )?))),
             None => Ok(ConfiguredTools::None),
         }

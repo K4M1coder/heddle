@@ -15,8 +15,8 @@
 mod guard;
 
 use agent_client_protocol::schema::v1::{
-    ContentBlock, InitializeRequest, NewSessionRequest, PermissionOptionKind, PromptRequest,
-    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
+    CancelNotification, ContentBlock, InitializeRequest, NewSessionRequest, PermissionOptionKind,
+    PromptRequest, RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
     SelectedPermissionOutcome, SessionId, SessionNotification, SessionUpdate, StopReason,
     TextContent, ToolCallId, ToolCallStatus,
 };
@@ -1624,5 +1624,123 @@ fn acp_agent_refuses_a_run_dir_that_does_not_exist_before_serving() {
             .ledger_path()
             .exists(),
         "a refused run directory must not open a chain"
+    );
+}
+
+// ---- cancelling a tool call in flight (spec 027) ----
+
+/// The composition root's own test, and the only one that can catch its one
+/// silent mistake.
+///
+/// `skein acp-agent`'s session factory mints one `Arc<AtomicBool>` and must
+/// hand the **same** one to the session and to the tool transport. Wire two and
+/// nothing fails loudly: `session/cancel` still reaches `CancellableModel`, the
+/// next turn is still refused, and the prompt is still answered `Cancelled` —
+/// thirty seconds later, once `RUN_TIMEOUT` expires and the child dies of its
+/// own clock. So the assertion that matters here is **elapsed wall clock**, not
+/// the stop reason, and reverting `acp.rs` to two flags is what proves it.
+///
+/// The command is the grandchild loop `skein-sandbox`'s `tests/cancel.rs`
+/// measured as the one thing an AppContainer with zero capability SIDs lets
+/// keep running.
+#[cfg(windows)]
+#[test]
+fn acp_agent_cancelling_a_proc_run_kills_it_without_waiting_for_its_timeout() {
+    let provider = StubProvider::serving(vec![
+        tool_call_reply(
+            "proc_run",
+            serde_json::json!({
+                "command": "cmd.exe",
+                "args": ["/c", "cmd.exe", "/c", "for", "/l", "%i", "in", "(1,1,2000000000)", "do", "@rem"]
+            }),
+        ),
+        reply("never reached", "stop", 7),
+    ]);
+    let (_dir, root) = temp_root();
+    let files = TempDir::new().expect("a temp fs root");
+    let _pruned = guard::PrunedOnDrop::of_root(files.path());
+
+    let opened: Arc<Mutex<Option<SessionId>>> = Arc::default();
+    let known = opened.clone();
+    let recorded = opened.clone();
+
+    let transport = AcpAgent::new(AcpAgentConfig::new(env!("CARGO_BIN_EXE_skein")).args([
+        "acp-agent",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "kappa",
+        "--model",
+        "llama3.1",
+        "--base-url",
+        &provider.base_url,
+        "--fs-root",
+        &root_arg(files.path()),
+        "--timeout-secs",
+        "60",
+        "--allow-run",
+    ]));
+
+    let started = std::time::Instant::now();
+    let stop = run_with_timeout(move || {
+        futures::executor::block_on(
+            Client
+                .builder()
+                .name("test-client")
+                // Approve, then immediately press stop. The permission answer
+                // is what unblocks the child's loop thread into the launch, so
+                // this is the earliest moment a client could cancel a tool call
+                // — and the flag survives until the launcher polls it, because
+                // the run resets it once, before the first turn.
+                .on_receive_request(
+                    async move |request: RequestPermissionRequest, responder, cx| {
+                        let option = request
+                            .options
+                            .iter()
+                            .find(|o| o.kind == PermissionOptionKind::AllowOnce)
+                            .expect("allow-once is offered");
+                        let answered = responder.respond(RequestPermissionResponse::new(
+                            RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
+                                option.option_id.clone(),
+                            )),
+                        ));
+                        let session = recorded.lock().expect("the session cell").clone();
+                        cx.send_notification(CancelNotification::new(
+                            session.expect("the session was opened before it was prompted"),
+                        ))?;
+                        answered
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .connect_with(transport, async move |cx: ConnectionTo<Agent>| {
+                    cx.send_request(InitializeRequest::new(ProtocolVersion::V1))
+                        .block_task()
+                        .await?;
+                    let session = cx
+                        .send_request(NewSessionRequest::new(PathBuf::from(".")))
+                        .block_task()
+                        .await?;
+                    *known.lock().expect("the session cell") = Some(session.session_id.clone());
+                    let response = cx
+                        .send_request(PromptRequest::new(
+                            session.session_id,
+                            vec![ContentBlock::Text(TextContent::new("run something long"))],
+                        ))
+                        .block_task()
+                        .await?;
+                    Ok(response.stop_reason)
+                }),
+        )
+        .expect("the ACP client ran to completion")
+    });
+    let elapsed = started.elapsed();
+
+    assert_eq!(stop, StopReason::Cancelled);
+    // The assertion the slice exists for. A composition root holding two flags
+    // reaches this line too — after `RUN_TIMEOUT`.
+    assert!(
+        elapsed < skein_connectors::RUN_TIMEOUT,
+        "the child must die on the flag and not on its own {:?} clock; the prompt took {elapsed:?}",
+        skein_connectors::RUN_TIMEOUT
     );
 }
