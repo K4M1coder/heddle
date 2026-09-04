@@ -14,19 +14,22 @@ use agent_client_protocol::schema::v1::{
 };
 use agent_client_protocol::{Client, ConnectionTo};
 use skein_core::{Redactor, TextSink};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 /// Sends one `AgentMessageChunk` per delta, scrubbed.
 ///
 /// `emitted` is what tells the session, once the run has ended, that this text
 /// has already been delivered — so the chain-derived projection must not send it
-/// a second time.
+/// a second time. `cancelled` is the session's own `session/cancel` flag, read
+/// back the other way: the sink is the one thing the model's producer holds
+/// across the port, so it is where "stop" travels out.
 pub struct AcpTextSink {
     connection: ConnectionTo<Client>,
     session_id: SessionId,
     redactor: Redactor,
     emitted: Arc<AtomicU64>,
+    cancelled: Arc<AtomicBool>,
 }
 
 impl AcpTextSink {
@@ -35,12 +38,14 @@ impl AcpTextSink {
         session_id: SessionId,
         redactor: Redactor,
         emitted: Arc<AtomicU64>,
+        cancelled: Arc<AtomicBool>,
     ) -> Self {
         AcpTextSink {
             connection,
             session_id,
             redactor,
             emitted,
+            cancelled,
         }
     }
 }
@@ -67,5 +72,17 @@ impl TextSink for AcpTextSink {
                 TextContent::new(self.redactor.redact(delta)),
             ))),
         ));
+    }
+
+    /// An atomic load and nothing else, deliberately: the producer asks this
+    /// once per line of an event stream that a reasoning model can make tens of
+    /// thousands of lines long, so anything that locked or allocated here would
+    /// be a per-line cost paid by every run that is never cancelled.
+    ///
+    /// The flag is the session's, reset per run, so a cancellation belongs to
+    /// the run it arrived during exactly as `CancellableModel`'s pre-turn check
+    /// does.
+    fn wants_more(&self) -> bool {
+        !self.cancelled.load(Ordering::SeqCst)
     }
 }

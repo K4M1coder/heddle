@@ -85,6 +85,7 @@ impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> SkeinSession<C, P, T> {
             id.clone(),
             parts.redactor.clone(),
             streamed.clone(),
+            cancelled.clone(),
         )));
         // Cloned rather than split: the gateway and the loop both write into
         // this session's one chain, so they must scrub the one secret set the

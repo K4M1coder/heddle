@@ -12,13 +12,18 @@ use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo};
 use skein_acp::{project_updates, CancellableModel, SessionParts, SkeinAgent};
 use skein_core::{
     CapturedResult, Ledger, LoopBudget, Message, ModelClient, ProgressProbe, Redactor, Result,
-    Role, StepKind, TextSink, ToolAccess, ToolCall, ToolOutcome, ToolPolicy, ToolSpec,
+    Role, SkeinError, StepKind, TextSink, ToolAccess, ToolCall, ToolOutcome, ToolPolicy, ToolSpec,
     ToolTransport, TurnRequest, TurnResponse,
 };
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
+
+/// Long enough that a loaded CI runner never trips it, short enough that a
+/// signal which never arrives fails as a failure rather than as a hang.
+const OBSERVE_TIMEOUT: Duration = Duration::from_secs(10);
 
 // ---------------------------------------------------------------------------
 // Doubles. Modelled on the private ones in skein-core's and skein-mcp's test
@@ -35,6 +40,11 @@ struct ScriptedModel {
     /// Set for the streaming tests: pushed one at a time before the turn
     /// returns, standing in for what a real provider produces mid-turn.
     deltas: Vec<String>,
+    /// Set for the mid-stream cancellation test: after the first delta, the
+    /// turn waits once for the sink itself to stop wanting text. Waiting on the
+    /// real signal rather than on a channel is what lets the test cancel over a
+    /// real ACP connection without racing its delivery.
+    awaits_stop: bool,
     sink: Option<Box<dyn TextSink>>,
 }
 
@@ -49,6 +59,7 @@ impl ScriptedModel {
             gate: None,
             started: None,
             deltas: Vec::new(),
+            awaits_stop: false,
             sink: None,
         }
     }
@@ -67,8 +78,22 @@ impl ModelClient for ScriptedModel {
         // that only learns the text from the value `turn` produces cannot have
         // shown it any earlier than `turn` returning.
         if let Some(sink) = &mut self.sink {
-            for delta in &self.deltas {
+            for (i, delta) in self.deltas.iter().enumerate() {
+                // Asked the way `skein-gateway`'s reader asks it — before each
+                // piece — and answered as an error rather than as a short
+                // answer, for the same reason.
+                if !sink.wants_more() {
+                    return Err(SkeinError::Model("cancelled mid-stream".into()));
+                }
                 sink.on_text(delta);
+                if self.awaits_stop && i == 0 {
+                    // Bounded, so a cancellation that never arrives fails the
+                    // test's own assertion rather than hanging the suite.
+                    let deadline = std::time::Instant::now() + OBSERVE_TIMEOUT;
+                    while sink.wants_more() && std::time::Instant::now() < deadline {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                }
             }
         }
         Ok(self.script[n.min(self.script.len() - 1)].clone())
@@ -148,6 +173,20 @@ struct Observed {
 }
 
 impl Observed {
+    /// Waits until the client has been sent `n` chunks, so a test that acts
+    /// *during* a turn acts on delivery rather than on a guess about timing.
+    async fn wait_for_chunks(&self, n: usize) {
+        let deadline = std::time::Instant::now() + OBSERVE_TIMEOUT;
+        while self.chunks().len() < n {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the client saw {} chunks within {OBSERVE_TIMEOUT:?}, expected {n}",
+                self.chunks().len()
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
     fn chunks(&self) -> Vec<String> {
         self.updates
             .lock()
@@ -385,12 +424,14 @@ async fn a8_the_session_runs_in_the_ledger_the_operator_injected() {
 fn streaming_agent(
     deltas: Vec<&str>,
     secrets: Vec<String>,
+    awaits_stop: bool,
 ) -> ScriptedAgent<impl FnMut() -> Result<ScriptedParts> + Send + 'static> {
     let deltas: Vec<String> = deltas.into_iter().map(String::from).collect();
     SkeinAgent::new(move || {
         Ok(SessionParts {
             client: ScriptedModel {
                 deltas: deltas.clone(),
+                awaits_stop,
                 ..ScriptedModel::playing(
                     vec![finishes(&deltas.concat())],
                     Arc::new(AtomicUsize::new(0)),
@@ -415,7 +456,7 @@ async fn a11_a_streaming_model_reaches_the_client_one_delta_at_a_time() {
     let observed = Observed::default();
 
     let stop = with_facade(
-        streaming_agent(deltas.clone(), Vec::new()),
+        streaming_agent(deltas.clone(), Vec::new(), false),
         Answer::Allow,
         observed.clone(),
         async |cx: ConnectionTo<Agent>| {
@@ -451,7 +492,11 @@ async fn a12_a_secret_in_a_streamed_delta_reaches_the_client_redacted() {
     let observed = Observed::default();
 
     with_facade(
-        streaming_agent(vec!["your key ", SECRET, " is fine"], vec![SECRET.into()]),
+        streaming_agent(
+            vec!["your key ", SECRET, " is fine"],
+            vec![SECRET.into()],
+            false,
+        ),
         Answer::Allow,
         observed.clone(),
         async |cx: ConnectionTo<Agent>| {
@@ -910,6 +955,52 @@ async fn a7_session_cancel_ends_the_run_and_reports_cancelled() {
         .ledger()
         .verify_chain(&format!("{session_id}#1"))
         .expect("a cancelled run still leaves a verifiable chain");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a13_a_cancel_arriving_mid_stream_ends_the_turn_and_reports_cancelled() {
+    let deltas = vec!["The ", "answer ", "is ", "42."];
+    let observed = Observed::default();
+    let agent = streaming_agent(deltas, Vec::new(), true);
+    let inspect = agent.clone();
+    let watching = observed.clone();
+
+    let (session_id, stop) = with_facade(
+        agent,
+        Answer::Allow,
+        observed.clone(),
+        async |cx: ConnectionTo<Agent>| {
+            let session_id = open_session(&cx).await?;
+            let sent = cx.send_request(prompt(&session_id, "go"));
+            // Cancelled only once the client has actually been shown text. Any
+            // earlier and this would be the pre-turn refusal `x1` already
+            // covers, rather than the cancellation of a turn in flight.
+            watching.wait_for_chunks(1).await;
+            cx.send_notification(agent_client_protocol::schema::v1::CancelNotification::new(
+                session_id.clone(),
+            ))?;
+            let response = sent.block_task().await?;
+            Ok((session_id, response.stop_reason))
+        },
+    )
+    .await;
+
+    assert_eq!(stop, StopReason::Cancelled);
+    // Equality, not a length bound: it says both that no further delta was
+    // pushed *and* that the chain-derived projection did not repeat the one the
+    // client already has.
+    assert_eq!(
+        observed.chunks(),
+        vec!["The "],
+        "the delta sent before the cancellation, and nothing after it"
+    );
+
+    let session = inspect.session(&session_id).expect("session is registered");
+    let session = session.lock().unwrap();
+    session
+        .ledger()
+        .verify_chain(&format!("{session_id}#1"))
+        .expect("a run cancelled mid-stream still leaves a verifiable chain");
 }
 
 // ---------------------------------------------------------------------------

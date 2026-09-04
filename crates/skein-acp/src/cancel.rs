@@ -2,8 +2,15 @@
 //!
 //! `NativeLoop::run` propagates a provider error straight out, so a refusal here
 //! ends the run at the next turn boundary with the chain intact — the same path
-//! `provider_error_leaves_the_chain_verifiable` already covers. A model call
-//! already in flight completes: cancellation is not mid-turn.
+//! `provider_error_leaves_the_chain_verifiable` already covers.
+//!
+//! This is the half of cancellation that applies to a turn which has not
+//! started. The other half is [`AcpTextSink::wants_more`], which the model's own
+//! producer asks *during* a turn: the same flag, read from the streaming side,
+//! so a cancellation arriving mid-answer does not wait for that answer to
+//! finish.
+//!
+//! [`AcpTextSink::wants_more`]: crate::AcpTextSink
 
 use skein_core::{
     ModelClient, Result, SkeinError, TextSink, TurnRequest, TurnResponse, WireExchange,
