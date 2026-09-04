@@ -361,6 +361,29 @@ fn a_symlink_leaf_on_the_write_path_does_not_reach_its_target() {
     );
 }
 
+/// The read-side mirror of the test above, and the same hole: the leaf is the
+/// one component a parent-canonicalize-then-append walk never checks, so it
+/// has to be walked like every other one on **every** operation `FsRoot`
+/// offers, not only on the writes that first exposed it.
+#[test]
+fn a_symlink_leaf_on_the_read_path_does_not_reach_its_target() {
+    let f = fixture();
+    let link = f.root.path().join("link.txt");
+    if reparse_file(&f.outside_file, &link).is_err() {
+        eprintln!("this machine does not permit creating file symlinks; skipping");
+        return;
+    }
+
+    assert_eq!(
+        std::fs::read_to_string(&link).expect("the symlink really escapes"),
+        "not yours",
+        "positive control: without containment this leaf reads the outside file"
+    );
+
+    read(&f.root, "link.txt")
+        .expect_err("a leaf that leads outside the root must be refused, not followed");
+}
+
 /// The mechanism itself: a directory swapped for a reparse point **after** the
 /// root was constructed is refused by the handle walk.
 ///
