@@ -1212,6 +1212,126 @@ fn a_hanging_provider_times_out_rather_than_blocking_the_run() {
     );
 }
 
+/// A sink that stops after `stop_after` deltas and timestamps every one, so the
+/// live test below can report how long the provider kept writing after the read
+/// stopped wanting it.
+struct TimingSink {
+    seen: Arc<Mutex<Vec<(String, std::time::Instant)>>>,
+    stop_after: usize,
+}
+
+impl TextSink for TimingSink {
+    fn on_text(&mut self, delta: &str) {
+        self.seen
+            .lock()
+            .unwrap()
+            .push((delta.to_string(), std::time::Instant::now()));
+    }
+
+    fn wants_more(&self) -> bool {
+        self.seen.lock().unwrap().len() < self.stop_after
+    }
+}
+
+/// What a stub cannot prove about cancellation: that abandoning a **real**
+/// provider's event stream mid-answer actually ends the turn quickly, leaves a
+/// capture without its terminator, and leaves the client able to make the next
+/// request — the last being the observable half of ureq keeping a half-read
+/// connection out of its pool (spec 026 FR-006).
+///
+/// Run it the same way as [`a_live_local_provider_answers`]:
+///
+/// ```text
+/// $env:SKEIN_LIVE_MODEL = "gemma4:latest"
+/// cargo test -p skein-gateway --test openai_compat -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore = "needs a real local provider; set SKEIN_LIVE_MODEL to run"]
+fn a_live_local_provider_stops_when_the_sink_stops_wanting_text() {
+    let Some(model_name) = std::env::var_os("SKEIN_LIVE_MODEL") else {
+        eprintln!("SKEIN_LIVE_MODEL is unset; skipping the live provider test");
+        return;
+    };
+    let model_name = model_name.to_string_lossy().to_string();
+    let base_url = std::env::var("SKEIN_MODEL_BASE_URL")
+        .unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
+
+    const STOP_AFTER: usize = 8;
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let mut model = OpenAiCompatClient::new(
+        LocalEndpoint::parse(&base_url).expect("a loopback base URL"),
+        &model_name,
+        Duration::from_secs(120),
+    );
+    model.set_text_sink(Box::new(TimingSink {
+        seen: seen.clone(),
+        stop_after: STOP_AFTER,
+    }));
+
+    // Long enough that the provider is certainly still writing when the sink
+    // stops wanting it — the whole point is to cancel an answer in progress.
+    let started = std::time::Instant::now();
+    let error = model
+        .turn(&ask(vec![Message::user_text(
+            "Count from 1 to 300. One number per line. No other words.",
+        )]))
+        .expect_err("the sink stopped wanting text, so the turn must not succeed");
+    let ended = std::time::Instant::now();
+
+    // Copied out rather than held: the sink is still installed, and holding its
+    // lock across the follow-up turn below would deadlock this thread against
+    // its own `on_text`.
+    let seen: Vec<(String, std::time::Instant)> = seen.lock().unwrap().clone();
+    let exchange = model
+        .take_wire_exchange()
+        .expect("a cancelled turn still captured what arrived");
+    let last_delta = seen.last().expect("the provider wrote something").1;
+    eprintln!(
+        "live cancel {model_name} @ {base_url}
+  deltas    = {} (stopped after {STOP_AFTER})
+           text      = {:?}
+  turn took = {:?}, of which {:?} after the last delta
+  capture   =          {} bytes, ends {:?}",
+        seen.len(),
+        seen.iter().map(|(d, _)| d.as_str()).collect::<String>(),
+        ended - started,
+        ended - last_delta,
+        exchange.response.len(),
+        &exchange.response[exchange.response.len().saturating_sub(60)..],
+    );
+
+    assert_eq!(
+        seen.len(),
+        STOP_AFTER,
+        "the read must stop at the delta the sink stopped wanting more after"
+    );
+    assert!(
+        format!("{error}").contains("cancelled"),
+        "the refusal must name the cancellation, got: {error}"
+    );
+    assert!(
+        !exchange.response.contains("[DONE]"),
+        "a cancelled capture cannot hold the terminator the read never reached"
+    );
+    // The provider was still writing; a read that only stopped at the natural
+    // end of a 300-line answer would take far longer than one more line.
+    assert!(
+        ended - last_delta < Duration::from_secs(5),
+        "the turn must end at the next line, not at the end of the answer; took {:?}",
+        ended - last_delta
+    );
+
+    // The client is still usable: the abandoned connection was not handed back
+    // to the pool for the next request to inherit. A fresh sink, because the one
+    // above has stopped wanting text for good.
+    model.set_text_sink(Box::new(RecordingSink(Arc::new(Mutex::new(Vec::new())))));
+    let next = model
+        .turn(&ask(vec![Message::user_text("Reply with exactly: pong")]))
+        .expect("the client is still usable after a cancelled turn");
+    eprintln!("  next turn = {:?}", next.message.text());
+    assert!(next.tokens_used > 0);
+}
+
 /// The one thing a stub cannot prove: that a **real** local provider answers
 /// this wire format, and that it sends the token metering the loop's budget
 /// depends on.
