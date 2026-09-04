@@ -45,6 +45,11 @@ struct ScriptedModel {
     /// real signal rather than on a channel is what lets the test cancel over a
     /// real ACP connection without racing its delivery.
     awaits_stop: bool,
+    /// Set for the finished-then-cancelled test: the session's flag, raised on
+    /// the way out of the turn that answers. Nothing else can place a
+    /// cancellation in that window — by the time a test observes the answer,
+    /// `run` has already returned and the race is over.
+    cancels_on_answering: Option<Arc<AtomicBool>>,
     sink: Option<Box<dyn TextSink>>,
 }
 
@@ -60,6 +65,7 @@ impl ScriptedModel {
             started: None,
             deltas: Vec::new(),
             awaits_stop: false,
+            cancels_on_answering: None,
             sink: None,
         }
     }
@@ -96,7 +102,13 @@ impl ModelClient for ScriptedModel {
                 }
             }
         }
-        Ok(self.script[n.min(self.script.len() - 1)].clone())
+        let response = self.script[n.min(self.script.len() - 1)].clone();
+        // After the answer exists and before `run` can return it: the exact
+        // interleaving a person hitting stop as the agent finishes produces.
+        if let Some(cancelled) = &self.cancels_on_answering {
+            cancelled.store(true, Ordering::SeqCst);
+        }
+        Ok(response)
     }
 
     fn set_text_sink(&mut self, sink: Box<dyn TextSink>) {
@@ -1726,4 +1738,67 @@ async fn a14_a_session_obeys_the_cancellation_flag_its_caller_supplied() {
         model_calls.load(Ordering::SeqCst) < 4,
         "the run stopped before the script ran out"
     );
+}
+
+/// A cancellation landing *after* the engine decided the run is a race, not an
+/// outcome. The chain records `Exit(FinalOutput)` and the client has the whole
+/// answer; telling it `Cancelled` anyway makes it discard or re-request text it
+/// already holds, and contradicts the chain the facade is supposed to be a view
+/// of. The three cancellations that arrive in time — pre-turn, mid-stream and
+/// mid-permission — are `x1`, `a13` and `p5`/`p9`; this is the fourth
+/// interleaving, where the flag simply lost.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a15_a_cancel_that_lands_after_the_answer_reports_the_runs_own_outcome() {
+    let observed = Observed::default();
+    let flag = Arc::new(AtomicBool::new(false));
+    let supplied = flag.clone();
+    let agent = SkeinAgent::new(move || {
+        Ok(SessionParts {
+            client: ScriptedModel {
+                cancels_on_answering: Some(supplied.clone()),
+                ..ScriptedModel::playing(vec![finishes("42")], Arc::new(AtomicUsize::new(0)))
+            },
+            probe: StaticProbe(true),
+            transport: CountingTransport {
+                calls: Arc::new(AtomicUsize::new(0)),
+                content: "unused".into(),
+            },
+            policy: ToolPolicy::new(Vec::new(), Vec::new()),
+            redactor: Redactor::new(Vec::new()),
+            budget: LoopBudget::new(8, 10_000, 8),
+            ledger: Ledger::new(),
+            cancelled: supplied.clone(),
+        })
+    });
+
+    let inspect = agent.clone();
+    let (session_id, stop) = with_facade(
+        agent,
+        Answer::Allow,
+        observed.clone(),
+        async |cx: ConnectionTo<Agent>| {
+            let session_id = open_session(&cx).await?;
+            let response = cx
+                .send_request(prompt(&session_id, "go"))
+                .block_task()
+                .await?;
+            Ok((session_id, response.stop_reason))
+        },
+    )
+    .await;
+
+    assert_eq!(stop, StopReason::EndTurn);
+    assert!(flag.load(Ordering::SeqCst), "the flag really was raised");
+
+    let session = inspect.session(&session_id).expect("session is registered");
+    let session = session.lock().unwrap();
+    let run_id = format!("{session_id}#1");
+    let log = session.ledger().log(&run_id);
+    let last = log.last().expect("the run left steps on the chain");
+    assert_eq!(last.kind, StepKind::Exit);
+    assert_eq!(
+        last.payload, "FinalOutput",
+        "the stop reason has to be the one the chain records"
+    );
+    assert_eq!(observed.chunks(), vec!["42"], "the client got its answer");
 }

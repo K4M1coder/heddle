@@ -142,10 +142,19 @@ impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> SkeinSession<C, P, T> {
         let mut ctl = LoopController::new(self.budget.clone());
         let outcome = self.engine.run(&run_id, prompt, &mut self.ledger, &mut ctl);
 
-        if self.cancelled.load(Ordering::SeqCst) {
-            return Ok((run_id, StopReason::Cancelled));
+        // Derived from the run, not from a second reading of the flag. Every
+        // one of the four cancellation readers ends the run by *erroring* — the
+        // model refusing a turn, the sink stopping a stream, the launcher
+        // killing a child, the permission wait giving up — so an `Ok` here is a
+        // run the engine finished and closed out with an `Exit` step. Reporting
+        // `Cancelled` for one of those would tell the client to discard an
+        // answer the chain says it has in full, which is the race a person
+        // hitting stop as the agent finishes actually produces.
+        match outcome {
+            Ok(run) => Ok((run_id, stop_reason(&run.exit))),
+            Err(_) if self.cancelled.load(Ordering::SeqCst) => Ok((run_id, StopReason::Cancelled)),
+            Err(error) => Err(error),
         }
-        Ok((run_id, stop_reason(&outcome?.exit)))
     }
 }
 
