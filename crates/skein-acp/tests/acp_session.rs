@@ -1047,6 +1047,10 @@ enum ClientScript {
     /// so the cancellation is triggered by delivery rather than by a guess
     /// about timing.
     CancelsTheSession,
+    /// Cancels the session and *then* answers `allow-once`, with nothing
+    /// awaited in between, so the flag is set before the answer can reach the
+    /// agent and both land inside one poll slice.
+    CancelsTheSessionThenAllows,
 }
 
 /// One direct drive of `AcpPermissionTransport::call` against a real ACP
@@ -1121,6 +1125,15 @@ impl Asked {
                             ClientScript::CancelsTheSession => {
                                 cancels.store(true, Ordering::SeqCst);
                                 None
+                            }
+                            ClientScript::CancelsTheSessionThenAllows => {
+                                cancels.store(true, Ordering::SeqCst);
+                                Some(RequestPermissionOutcome::Selected(
+                                    SelectedPermissionOutcome::new(offered(
+                                        &request,
+                                        PermissionOptionKind::AllowOnce,
+                                    )),
+                                ))
                             }
                             ClientScript::NeverAnswers | ClientScript::ClosesTheConnection => None,
                         };
@@ -1272,6 +1285,31 @@ async fn p5_a_session_cancelled_while_the_request_is_outstanding_denies_the_call
     assert!(
         waited < CANCEL_LATENCY,
         "the call was refused in {waited:?}, expected under {CANCEL_LATENCY:?}"
+    );
+}
+
+/// The priority between the two, which `p5` cannot pin because its client
+/// never answers: a cancellation that arrives first must win over an `Allow`
+/// that arrives second, or the tool runs after its session was cancelled and
+/// the grant is one nobody can withdraw.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn p9_a_cancellation_beats_an_allow_answer_that_lands_in_the_same_slice() {
+    let asked = Asked::new(ClientScript::CancelsTheSessionThenAllows);
+    let error = asked
+        .call()
+        .await
+        .expect_err("the session was cancelled first");
+
+    assert_eq!(asked.requests(), 1, "the client was asked");
+    assert_eq!(
+        asked.tool_calls(),
+        0,
+        "the tool ran after its session was cancelled"
+    );
+    assert!(
+        matches!(&error, SkeinError::ToolDenied { tool, reason }
+            if tool == "read_file" && reason == SESSION_CANCELLED),
+        "expected the session-cancelled refusal, got {error:?}"
     );
 }
 

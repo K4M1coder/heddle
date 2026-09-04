@@ -119,6 +119,16 @@ impl<T: ToolTransport> AcpPermissionTransport<T> {
                 return Ok(Answer::SessionCancelled);
             }
             match rx.recv_timeout(POLL_SLICE) {
+                // Re-read here, and not only at the top of the loop, because
+                // the loop's check alone does not give cancellation priority:
+                // an answer landing inside the same poll slice as the
+                // cancellation returns `Ok` from `recv_timeout` before the
+                // loop can come round again, and the `Allow` would win. The
+                // flag being already set means the session ended before this
+                // answer was sent, so the answer is not one to act on.
+                Ok(_) if self.cancelled.load(Ordering::SeqCst) => {
+                    return Ok(Answer::SessionCancelled)
+                }
                 Ok(answered) => {
                     return answered.map(Answer::Client).map_err(|e| {
                         SkeinError::Tool(format!("acp permission request failed: {e}"))
