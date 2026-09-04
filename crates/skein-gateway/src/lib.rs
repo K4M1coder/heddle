@@ -450,9 +450,9 @@ enum StreamFault {
     Cancelled,
 }
 
-/// Reads the event stream to its end, building the verbatim capture and the
-/// reassembled turn in one pass, and pushing each content delta to `sink` as it
-/// is absorbed — which is the whole point of the stream and the reason this is
+/// Reads the event stream until it ends or the sink stops wanting it, building
+/// the verbatim capture and the reassembled turn in one pass, and pushing each
+/// content delta to `sink` as it is absorbed — which is the whole point of the stream and the reason this is
 /// one pass rather than read-then-parse.
 ///
 /// Read as bytes with `read_until`, not as lines: the terminator is **kept**, so
@@ -461,9 +461,10 @@ enum StreamFault {
 /// lossy conversion is this function's own, so a non-UTF-8 byte becomes U+FFFD
 /// rather than erroring the read.
 ///
-/// `[DONE]` ends the events, not the reading: the loop runs to EOF so trailing
-/// bytes are captured too. A provider that sends `[DONE]` and then holds the
-/// socket open is the same failure the client's global timeout already governs.
+/// `[DONE]` ends the events, not the reading: an uncancelled loop runs to EOF so
+/// trailing bytes are captured too. A provider that sends `[DONE]` and then
+/// holds the socket open is the same failure the client's global timeout already
+/// governs.
 fn drain(mut reader: impl BufRead, sink: &mut Option<Box<dyn TextSink>>) -> Answer {
     let mut answer = Answer {
         streamed: true,
