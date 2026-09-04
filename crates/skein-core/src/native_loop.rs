@@ -194,7 +194,10 @@ impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> NativeLoop<C, P, T> {
                 }
                 Err(e) => return Err(e),
             };
-            feedback.push(Message::tool_result(call.id.clone(), body));
+            // The scrubbed id, matching what the echo above declares: the id
+            // is model-reachable text like the rest of the call, and an answer
+            // naming the raw one would dangle against a scrubbed echo.
+            feedback.push(Message::tool_result(self.redactor.redact(&call.id), body));
         }
         Ok(feedback)
     }

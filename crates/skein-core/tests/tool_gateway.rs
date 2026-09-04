@@ -564,3 +564,41 @@ fn approval_alone_does_not_admit_a_tool_missing_from_the_allowlist() {
     );
     assert_eq!(gw.transport.calls, 0, "the transport must never be touched");
 }
+
+#[test]
+fn a_secret_in_a_tool_call_id_is_redacted_from_the_attempt() {
+    let mut led = Ledger::new();
+    let mut gw = gateway(CountingTransport::new("contents"), &["read_secret"]);
+
+    // The id is not ours whenever a provider supplies one: `OpenAiCompatClient`
+    // forwards the provider's id verbatim if it is non-empty, so a compromised
+    // endpoint can echo an operator secret into this field exactly as it can
+    // into the name or the arguments.
+    let id = format!("call_{SECRET}");
+    gw.call(
+        "run-t12",
+        &ToolCall::with_id(&id, "read_secret", json!({})),
+        &mut led,
+    )
+    .expect("read_secret is allowlisted and runs");
+
+    assert_eq!(
+        gw.transport.seen[0].id, id,
+        "the transport must receive the raw id, not the redacted one"
+    );
+
+    let payloads: Vec<String> = led
+        .log("run-t12")
+        .iter()
+        .map(|s| s.payload.clone())
+        .collect();
+    assert!(
+        payloads.iter().all(|p| !p.contains(SECRET)),
+        "no captured payload may contain the secret: {payloads:?}"
+    );
+    assert!(
+        payloads[0].contains("call_***"),
+        "the attempt names the call by its scrubbed id: {}",
+        payloads[0]
+    );
+}

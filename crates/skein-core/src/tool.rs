@@ -251,14 +251,20 @@ impl Redactor {
         out
     }
 
-    /// One call with everything model-authored about it scrubbed. The name is
-    /// scrubbed for the same reason the arguments are: it is model-chosen text,
-    /// so it can carry an echoed secret. The id is ours, never the model's
-    /// words, so it passes through — and it must, or the answer that names it
-    /// would dangle.
+    /// One call with everything model-authored about it scrubbed — name,
+    /// arguments and id alike. The id is scrubbed because it is not ours
+    /// whenever a provider supplies one: `skein-gateway`'s OpenAI-compatible
+    /// client forwards the provider's id verbatim if it is non-empty, so a
+    /// compromised endpoint can echo a secret into it exactly as into the
+    /// other two fields.
+    ///
+    /// Scrubbing is deterministic, so a redacted id still pairs an echoed call
+    /// with the `Role::Tool` message answering it — as long as both sides name
+    /// it through this method. `NativeLoop::mediate` is the one caller that has
+    /// to hold up its end.
     pub fn redact_call(&self, call: &ToolCall) -> ToolCall {
         ToolCall {
-            id: call.id.clone(),
+            id: self.redact(&call.id),
             tool: self.redact(&call.tool),
             args: self.redact_value(&call.args),
         }

@@ -1277,6 +1277,65 @@ fn a_secret_in_a_tool_calls_arguments_is_redacted_from_the_echo_too() {
         .expect("a chain holding an echoed, redacted call still verifies");
 }
 
+#[test]
+fn a_secret_in_a_tool_call_id_is_redacted_and_the_echo_still_pairs() {
+    // The third field of the same call. `OpenAiCompatClient` forwards a
+    // provider-supplied id verbatim, so the id is model-reachable text like the
+    // name and the arguments — and scrubbing it must not break spec 022's
+    // pairing, which is what the second half of this test asserts.
+    let id = format!("call_{SECRET}");
+    let model = ScriptedModel::new(vec![
+        reply_with_tools(
+            "",
+            1,
+            false,
+            vec![ToolCall::with_id(&id, "read_file", json!({}))],
+        ),
+        reply("done", 1, true),
+    ]);
+    let mut lp = NativeLoop::new(
+        model,
+        ScriptedProbe::new(vec![true]),
+        gateway(RecordingTransport::new("contents"), &[]),
+        Redactor::new(vec![SECRET.into()]),
+    );
+    let mut led = Ledger::new();
+    let mut ctl = LoopController::new(LoopBudget::new(10, 1_000_000, 10));
+
+    lp.run("run-echo-id", Message::user_text("go"), &mut led, &mut ctl)
+        .unwrap();
+
+    let payloads: Vec<String> = led
+        .log("run-echo-id")
+        .iter()
+        .map(|s| s.payload.clone())
+        .collect();
+    assert!(
+        payloads.iter().all(|p| !p.contains(SECRET)),
+        "no payload of the run may contain the secret: {payloads:?}"
+    );
+
+    // Asserted on what the *model* received, not on the chain: the chain's
+    // `LlmRequest` capture re-scrubs the whole request, so a wire echo and a
+    // wire answer that disagree would both read as `call_***` there and the
+    // dangling answer spec 022 forbids would be invisible.
+    let sent = &lp.client.seen[1].messages;
+    let echoed = sent[1].tool_calls[0].id.clone();
+    assert_eq!(echoed, "call_***", "the echo names the scrubbed id");
+    assert_eq!(sent[2].role, Role::Tool);
+    assert_eq!(
+        sent[2].tool_call_id.as_deref(),
+        Some(echoed.as_str()),
+        "the tool message answers the id the echo declared: {sent:?}"
+    );
+
+    // The transport still received the real id; only what is recorded and
+    // replayed is scrubbed.
+    assert_eq!(lp.gateway.transport.seen[0].id, id);
+    led.verify_chain("run-echo-id")
+        .expect("a chain holding a scrubbed call id still verifies");
+}
+
 // ---- tool advertisement on the request path (spec 015) ----
 
 /// Every `TurnRequest` the run captured, as the chain holds it.
