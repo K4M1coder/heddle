@@ -12,6 +12,9 @@
 //! a CLI test can answer honestly — that the binary is a real client of that
 //! capability, and that its interface is what an operator was promised.
 
+#[cfg(windows)]
+mod guard;
+
 use std::process::{Command, Output};
 
 fn skein(args: &[&str]) -> Output {
@@ -91,37 +94,23 @@ mod windows {
     use super::{both_streams, skein};
     use tempfile::TempDir;
 
-    /// Removes the profile the test created — and with it the two ACEs — on
-    /// every exit path including a panic, which is `cli_secret.rs`'s `TestRef`
-    /// applied to the state this command is about.
-    struct Created {
-        profile: String,
-    }
-
-    impl Drop for Created {
-        fn drop(&mut self) {
-            // Tolerant by design: the passing path prunes through the binary, so
-            // "already gone" is the normal case, and a cleanup that panicked
-            // would mask the real failure.
-            let _ = skein_sandbox::prune(&self.profile);
-        }
-    }
-
     #[test]
     fn a_real_grant_is_listed_and_pruned_through_the_binary() {
         let root = TempDir::new().expect("a temp root");
         let toolbin = TempDir::new().expect("a temp run directory");
         let sandbox = skein_sandbox::Sandbox::create(root.path(), &[toolbin.path().to_path_buf()])
             .expect("the profile and both grants");
-        let held = Created {
-            profile: sandbox.profile().to_string(),
-        };
+        let profile = sandbox.profile().to_string();
+        // The passing path prunes through the binary, so this guard is for the
+        // failing one: a panicking assertion must not leave a profile and two
+        // ACEs behind on the developer's machine.
+        let _pruned = crate::guard::PrunedOnDrop::of_root(root.path());
 
         let listed = skein(&["sandbox", "list"]);
         assert!(listed.status.success(), "{}", both_streams(&listed));
         let root_line = String::from_utf8_lossy(&listed.stdout)
             .lines()
-            .find(|line| line.starts_with(&format!("{}\t", held.profile)) && line.contains("root"))
+            .find(|line| line.starts_with(&format!("{}\t", profile)) && line.contains("root"))
             .map(str::to_string)
             .unwrap_or_else(|| {
                 panic!(
@@ -143,7 +132,7 @@ mod windows {
             "the last column is the directory: {root_line:?}"
         );
 
-        let pruned = skein(&["sandbox", "prune", "--profile", &held.profile]);
+        let pruned = skein(&["sandbox", "prune", "--profile", &profile]);
         assert!(pruned.status.success(), "{}", both_streams(&pruned));
         assert!(
             both_streams(&pruned).contains("deleted profile"),
@@ -154,7 +143,7 @@ mod windows {
         let again = skein(&["sandbox", "list"]);
         assert!(again.status.success(), "{}", both_streams(&again));
         assert!(
-            !String::from_utf8_lossy(&again.stdout).contains(&held.profile),
+            !String::from_utf8_lossy(&again.stdout).contains(&profile),
             "a pruned profile is gone from the listing: {}",
             both_streams(&again)
         );

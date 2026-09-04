@@ -7,6 +7,8 @@
 //! `skein-sandbox`'s own `tests/escape.rs` where the positive controls are.
 #![cfg(windows)]
 
+mod guard;
+
 use rmcp::handler::server::wrapper::Parameters;
 use skein_connectors::{
     EmbeddedServer, FsRoot, RunAccess, RunDirs, RunParams, RUN_OUTPUT_BYTE_CAP,
@@ -17,6 +19,10 @@ use tempfile::TempDir;
 
 struct Fixture {
     server: EmbeddedServer,
+    /// Between the server and the directories on purpose: it drops with the
+    /// server's sandbox already gone and the root still on disk, so the revoke
+    /// it performs is a real one.
+    _pruned: guard::PrunedOnDrop,
     /// Declared **last**, for the reason `fs_root.rs`'s fixture records: the
     /// server's root holds an open directory handle, and fields drop in
     /// declaration order.
@@ -66,6 +72,7 @@ fn built(name_the_run_dir: bool) -> Fixture {
     Fixture {
         server: EmbeddedServer::with_run(root, RunAccess::Allowed(run_dirs))
             .expect("the sandbox is built once, here"),
+        _pruned: guard::PrunedOnDrop::of_root(&root_path),
         _toolbin: toolbin,
         _dir: dir,
     }

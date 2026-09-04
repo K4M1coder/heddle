@@ -6,6 +6,9 @@
 //! `crates/skein-mcp/tests/rmcp_gateway.rs` records: the connector owns a
 //! runtime and blocks on it, and `Runtime::block_on` inside a runtime panics.
 
+#[cfg(windows)]
+mod guard;
+
 use git2::{Repository, Signature};
 use skein_connectors::{local_connector, FsRoot, LocalConnector};
 use skein_core::{ToolCall, ToolTransport};
@@ -247,6 +250,7 @@ fn the_connector_lists_proc_run_with_its_caps_stated_when_run_access_is_allowed(
 
     let dir = TempDir::new().expect("a temp dir");
     let root = FsRoot::new(dir.path()).expect("a canonicalizable root");
+    let _pruned = guard::PrunedOnDrop::of_root(dir.path());
     let mut allowed = local_connector_with_run(root, RunAccess::Allowed(RunDirs::none()))
         .expect("the sandbox builds and the server serves");
 
@@ -370,6 +374,7 @@ fn the_advertised_description_names_the_allowlisted_directories() {
     let dirs = RunDirs::new(&[toolbin.path().to_path_buf()]).expect("a real directory");
     let named = dirs.paths()[0].to_string_lossy().replace(r"\\?\", "");
 
+    let _pruned = guard::PrunedOnDrop::of_root(dir.path());
     let mut listed = local_connector_with_run(
         FsRoot::new(dir.path()).expect("a canonicalizable root"),
         RunAccess::Allowed(dirs),

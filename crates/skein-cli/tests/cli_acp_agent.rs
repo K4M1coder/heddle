@@ -11,6 +11,9 @@
 //! chat-completions bytes from this test process, so no test here needs a
 //! running Ollama and none needs an installed editor.
 
+#[cfg(windows)]
+mod guard;
+
 use agent_client_protocol::schema::v1::{
     ContentBlock, InitializeRequest, NewSessionRequest, PermissionOptionKind, PromptRequest,
     RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
@@ -1127,6 +1130,7 @@ fn an_acp_client_that_allows_lets_a_real_proc_run_execute() {
         "bytes only a real process could read",
     )
     .expect("a file for the sandboxed process to read");
+    let _pruned = guard::PrunedOnDrop::of_root(files.path());
 
     let answered = run_answering_with_args(
         &root,
@@ -1223,6 +1227,7 @@ fn an_acp_client_that_rejects_stops_the_proc_run_and_the_run_survives() {
     let files = TempDir::new().expect("a temp fs root");
     std::fs::write(files.path().join("seed.txt"), "the source of the copy")
         .expect("a file to copy");
+    let _pruned = guard::PrunedOnDrop::of_root(files.path());
 
     let answered = run_answering_with_args(
         &root,

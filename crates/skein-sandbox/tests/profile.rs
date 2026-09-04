@@ -6,6 +6,8 @@
 //! `skein-connectors`' `tests/connector.rs`, where the catalogue is.
 #![cfg(windows)]
 
+mod guard;
+
 mod dacl;
 
 use dacl::{allow_aces, granted_sids};
@@ -34,6 +36,7 @@ fn a_sandbox_derives_an_appcontainer_sid_and_grants_it_the_root() {
 
     let sandbox =
         Sandbox::create(dir.path(), &[]).expect("the profile is created and the root granted");
+    let _pruned_sandbox = guard::PrunedOnDrop::of(&sandbox);
 
     // S-1-15-2-* is the AppContainer SID authority, and nothing else has it.
     // Asserting the prefix rather than the whole string is the point: the hash
@@ -60,13 +63,16 @@ fn the_same_root_reuses_one_profile_and_two_roots_do_not() {
     let other = TempDir::new().expect("a second temp dir");
 
     let first = Sandbox::create(one.path(), &[]).expect("the first profile");
+    let _pruned_first = guard::PrunedOnDrop::of(&first);
     // The second call over the same root meets
     // `HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS)` and must fall through to
     // deriving the SID from the name rather than failing. Without that, a
     // second ACP session over one workspace could not start.
     let again = Sandbox::create(one.path(), &[]).expect("the same profile is reused, not refused");
+    let _pruned_again = guard::PrunedOnDrop::of(&again);
     let elsewhere =
         Sandbox::create(other.path(), &[]).expect("a different root gets its own profile");
+    let _pruned_elsewhere = guard::PrunedOnDrop::of(&elsewhere);
 
     assert_eq!(
         first.string_sid(),
@@ -101,6 +107,7 @@ fn a_run_dir_is_granted_read_and_execute_and_the_root_is_not() {
 
     let sandbox = Sandbox::create(root.path(), &[toolbin.path().to_path_buf()])
         .expect("the profile, the root's grant and the run directory's");
+    let _pruned_sandbox = guard::PrunedOnDrop::of(&sandbox);
 
     let sid = sandbox.string_sid();
     let run_masks = granted_masks(toolbin.path(), sid);

@@ -7,6 +7,8 @@
 //! gate that *does* run there is `tests/absent.rs`.
 #![cfg(windows)]
 
+mod guard;
+
 use skein_sandbox::Sandbox;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
@@ -46,6 +48,7 @@ fn a_created_sandbox_records_its_root_and_run_dirs_beside_its_profile() {
 
     let sandbox = Sandbox::create(root.path(), &[toolbin.path().to_path_buf()])
         .expect("the profile, the root's grant and the run directory's");
+    let _pruned_sandbox = guard::PrunedOnDrop::of(&sandbox);
 
     let lines = recorded(sandbox.profile());
     assert!(
@@ -77,8 +80,10 @@ fn a_second_create_over_one_root_unions_rather_than_replaces() {
 
     let one = Sandbox::create(root.path(), &[first.path().to_path_buf()])
         .expect("the first session's profile");
+    let _pruned_one = guard::PrunedOnDrop::of(&one);
     let two = Sandbox::create(root.path(), &[second.path().to_path_buf()])
         .expect("the second session reuses the profile");
+    let _pruned_two = guard::PrunedOnDrop::of(&two);
     assert_eq!(
         one.profile(),
         two.profile(),
@@ -113,6 +118,7 @@ fn a_created_profile_is_listed_with_its_directories_and_their_live_state() {
 
     let sandbox = Sandbox::create(root.path(), &[toolbin.path().to_path_buf()])
         .expect("the profile and both grants");
+    let _pruned_sandbox = guard::PrunedOnDrop::of(&sandbox);
 
     let listed = skein_sandbox::grants().expect("the profiles on this machine are listable");
     let mine = listed
@@ -152,6 +158,7 @@ fn a_created_profile_is_listed_with_its_directories_and_their_live_state() {
 fn a_profile_with_no_record_is_listed_with_no_directories() {
     let root = TempDir::new().expect("a temp root");
     let sandbox = Sandbox::create(root.path(), &[]).expect("the profile and the grant");
+    let _pruned_sandbox = guard::PrunedOnDrop::of(&sandbox);
 
     std::fs::remove_file(record_of(sandbox.profile())).expect("the record is removable");
 

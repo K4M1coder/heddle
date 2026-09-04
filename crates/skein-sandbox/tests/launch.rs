@@ -10,6 +10,8 @@
 //! is built on top of it.
 #![cfg(windows)]
 
+mod guard;
+
 use skein_sandbox::Sandbox;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -35,6 +37,7 @@ fn a_sandboxed_process_reads_a_file_in_its_granted_root() {
     .expect("a file in the root");
     let sandbox =
         Sandbox::create(dir.path(), &[]).expect("the profile is created and the root granted");
+    let _pruned_sandbox = guard::PrunedOnDrop::of(&sandbox);
 
     let run = sandbox
         .run(
@@ -68,6 +71,7 @@ fn a_sandboxed_process_reads_a_file_in_its_granted_root() {
 fn a_sandboxed_process_starts_in_its_root() {
     let dir = TempDir::new().expect("a temp dir");
     let sandbox = Sandbox::create(dir.path(), &[]).expect("the profile and the grant");
+    let _pruned_sandbox = guard::PrunedOnDrop::of(&sandbox);
 
     let run = sandbox
         .run(
@@ -98,6 +102,7 @@ fn a_file_that_is_not_a_program_is_refused_rather_than_launched() {
     let not_a_program = dir.path().join("notes.txt");
     std::fs::write(&not_a_program, "plain text, not a PE image").expect("a file in the root");
     let sandbox = Sandbox::create(dir.path(), &[]).expect("the profile and the grant");
+    let _pruned_sandbox = guard::PrunedOnDrop::of(&sandbox);
 
     let refusal = sandbox
         .run(
@@ -160,6 +165,7 @@ fn a_binary_in_an_allowlisted_run_dir_executes_and_its_stdout_comes_back() {
     // The controls first, ungranted: the child can neither read out of that
     // directory nor find a binary in it through its own `PATH`.
     let ungranted = Sandbox::create(root.path(), &[]).expect("the profile and the root's grant");
+    let _pruned_ungranted = guard::PrunedOnDrop::of(&ungranted);
     let refused = ungranted
         .run(
             &system32("cmd.exe"),
@@ -188,6 +194,7 @@ fn a_binary_in_an_allowlisted_run_dir_executes_and_its_stdout_comes_back() {
 
     let sandbox = Sandbox::create(root.path(), &[toolbin.path().to_path_buf()])
         .expect("the profile, the root's grant and the run directory's");
+    let _pruned_sandbox = guard::PrunedOnDrop::of(&sandbox);
 
     let read = sandbox
         .run(
