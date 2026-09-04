@@ -10,17 +10,38 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// One tool invocation as the caller means it: raw arguments, secrets and all.
+///
+/// `id` is what a later `Role::Tool` message answers. It is defaulted for the
+/// same reason [`crate::model::TurnResponse::tool_calls`] is, and the reason is
+/// load-bearing rather than ergonomic: `skein-acp` reconstructs a `ToolCall`
+/// out of old `StepKind::ToolCall` payloads inside a `let Ok(…) else
+/// { continue }`, so a required field would make every chain recorded before
+/// this field existed lose its tool-call updates **without erroring**.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolCall {
+    #[serde(default)]
+    pub id: String,
     pub tool: String,
     pub args: Value,
 }
 
 impl ToolCall {
+    /// A call nobody has to answer by id — the shape a trusted caller
+    /// constructs directly. Every call that arrives *from a provider* comes
+    /// through [`ToolCall::with_id`], because `skein-gateway` supplies an id
+    /// even when the provider omits one.
     pub fn new(tool: impl Into<String>, args: Value) -> Self {
         ToolCall {
+            id: String::new(),
             tool: tool.into(),
             args,
+        }
+    }
+
+    pub fn with_id(id: impl Into<String>, tool: impl Into<String>, args: Value) -> Self {
+        ToolCall {
+            id: id.into(),
+            ..ToolCall::new(tool, args)
         }
     }
 }
@@ -204,6 +225,19 @@ impl Redactor {
         Ok(self.redact_value(&serde_json::to_value(value)?).to_string())
     }
 
+    /// One call with everything model-authored about it scrubbed. The name is
+    /// scrubbed for the same reason the arguments are: it is model-chosen text,
+    /// so it can carry an echoed secret. The id is ours, never the model's
+    /// words, so it passes through — and it must, or the answer that names it
+    /// would dangle.
+    pub fn redact_call(&self, call: &ToolCall) -> ToolCall {
+        ToolCall {
+            id: call.id.clone(),
+            tool: self.redact(&call.tool),
+            args: self.redact_value(&call.args),
+        }
+    }
+
     /// Redacts the strings inside a JSON value, leaving its shape intact — so
     /// the captured payload stays parseable for replay.
     fn redact_value(&self, value: &Value) -> Value {
@@ -315,17 +349,12 @@ impl<T: ToolTransport> ToolGateway<T> {
         call: &ToolCall,
         ledger: &mut Ledger,
     ) -> Result<(ToolOutcome, CapturedResult)> {
-        // The name is redacted for the same reason the arguments are: it is
-        // model-chosen text, so it can carry an echoed secret. Only the three
-        // recorded copies are scrubbed — the policy decides on the raw name
-        // below, and the transport receives the raw call.
-        let tool = self.redactor.redact(&call.tool);
-
+        // Only the three recorded copies are scrubbed — the policy decides on
+        // the raw name below, and the transport receives the raw call.
+        //
         // Recorded before the decision, so a refused attempt still names itself.
-        let attempt = ToolCall {
-            tool: tool.clone(),
-            args: self.redactor.redact_value(&call.args),
-        };
+        let attempt = self.redactor.redact_call(call);
+        let tool = attempt.tool.clone();
         ledger.append(run_id, StepKind::ToolCall, serde_json::to_string(&attempt)?)?;
 
         let decision = self.policy.decide(&call.tool);

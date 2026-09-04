@@ -13,8 +13,8 @@ use rmcp::{tool, tool_handler, tool_router, ServerHandler, ServiceExt};
 use serde_json::json;
 use skein_core::{
     replay_tool_calls, Ledger, LoopBudget, LoopController, Message, ModelClient, NativeLoop,
-    ProgressProbe, Redactor, SkeinError, StepKind, ToolAccess, ToolCall, ToolGateway, ToolPolicy,
-    ToolTransport, TurnRequest, TurnResponse,
+    ProgressProbe, Redactor, Role, SkeinError, StepKind, ToolAccess, ToolCall, ToolGateway,
+    ToolPolicy, ToolTransport, TurnRequest, TurnResponse,
 };
 use skein_mcp::RmcpToolTransport;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -265,7 +265,7 @@ fn c6_native_loop_calls_a_live_mcp_tool_mid_run() {
             scripted_reply(
                 "reading config",
                 false,
-                vec![ToolCall::new("read_secret", json!({}))],
+                vec![ToolCall::with_id("call_1", "read_secret", json!({}))],
             ),
             scripted_reply("done", true, Vec::new()),
         ],
@@ -295,11 +295,10 @@ fn c6_native_loop_calls_a_live_mcp_tool_mid_run() {
         .filter(|s| s.kind == StepKind::LlmRequest)
         .map(|s| serde_json::from_str(&s.payload).unwrap())
         .collect();
-    let fed_back = requests[1].messages[2].text();
-    assert!(
-        fed_back.starts_with("[tool_result tool=read_secret status=ok]"),
-        "{fed_back}"
-    );
+    let answer = &requests[1].messages[2];
+    assert_eq!(answer.role, Role::Tool);
+    assert_eq!(answer.tool_call_id.as_deref(), Some("call_1"));
+    let fed_back = answer.text();
     assert!(
         fed_back.contains("endpoint=https://x") && fed_back.contains("***"),
         "the real server output reaches the model, redacted: {fed_back}"

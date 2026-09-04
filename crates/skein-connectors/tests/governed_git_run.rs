@@ -20,8 +20,8 @@
 use git2::{Repository, Signature};
 use skein_connectors::{local_connector, FsRoot, LocalConnector};
 use skein_core::{
-    Ledger, LoopBudget, LoopController, Message, NativeLoop, ProgressProbe, Redactor, StepKind,
-    ToolAccess, ToolGateway, ToolPolicy, TurnRequest,
+    Ledger, LoopBudget, LoopController, Message, NativeLoop, ProgressProbe, Redactor, Role,
+    StepKind, ToolAccess, ToolGateway, ToolPolicy, TurnRequest,
 };
 use skein_gateway::{LocalEndpoint, OpenAiCompatClient};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -298,13 +298,19 @@ fn captured_requests(ledger: &Ledger) -> Vec<TurnRequest> {
 /// The last message of the run's final captured request: what the model was
 /// told about the tool it asked for.
 fn tool_feedback(ledger: &Ledger) -> String {
-    captured_requests(ledger)
+    let told = captured_requests(ledger)
         .last()
         .expect("a second request")
         .messages
         .last()
         .expect("a fed-back tool result")
-        .text()
+        .clone();
+    // The envelope, checked once here so every caller's subject is the body:
+    // the result is external content by its role, and it names the call the
+    // stub made rather than resting on its position in the history.
+    assert_eq!(told.role, Role::Tool);
+    assert_eq!(told.tool_call_id.as_deref(), Some("call_1"));
+    told.text()
 }
 
 #[test]
@@ -346,17 +352,17 @@ fn a_model_asks_for_git_status_and_gets_the_real_repositorys_state_through_the_g
     // 2. The real chain answered from the real repository: nothing in it is a
     //    double, and the porcelain the tool produced is what the model reads.
     let second = stub.request_body();
-    let fed_back = second["messages"]
+    let last = second["messages"]
         .as_array()
         .expect("a messages array")
         .last()
-        .expect("the tool result is the last message")["content"]
-        .as_str()
-        .expect("text content");
-    assert!(
-        fed_back.starts_with("[tool_result tool=git_status status=ok]"),
-        "{fed_back}"
+        .expect("the tool result is the last message");
+    assert_eq!(
+        (&last["role"], &last["tool_call_id"]),
+        (&serde_json::json!("tool"), &serde_json::json!("call_1")),
+        "on the wire too, not only in the chain: {last}"
     );
+    let fed_back = last["content"].as_str().expect("text content");
     assert!(
         fed_back.contains(&escaped("## work\n??\tnotes.txt"))
             && fed_back.contains("\"isError\":false"),
@@ -414,11 +420,7 @@ fn a_model_asks_for_git_log_and_gets_the_real_commit_summaries() {
     let ledger = governed_run(&stub, connector, Vec::new());
 
     let told = tool_feedback(&ledger);
-    assert!(
-        told.starts_with("[tool_result tool=git_log status=ok]")
-            && told.contains("\"isError\":false"),
-        "{told}"
-    );
+    assert!(told.contains("\"isError\":false"), "{told}");
     for summary in ["the newest", "then more work", "the oldest work"] {
         assert!(
             told.contains(summary),
@@ -500,14 +502,10 @@ fn a_crafted_count_is_refused_as_a_tool_error_and_the_run_survives() {
 
     let told = tool_feedback(&ledger);
     assert!(
-        told.starts_with("[tool_result tool=git_log status=ok]"),
-        "`ok` is right and load-bearing: the *transport* succeeded, and the \
-         refusal is inside the result where the model can read it — a transport \
-         failure would have ended the run. Got: {told}"
-    );
-    assert!(
         told.contains("\"isError\":true"),
-        "the refusal must arrive flagged as a tool error: {told}"
+        "the *transport* succeeded and the refusal is inside the result, where the \
+         model can read it and the run can continue — a transport failure would \
+         have ended the run instead. Got: {told}"
     );
     assert_eq!(
         ledger.log(RUN).last().expect("a step").kind.clone(),

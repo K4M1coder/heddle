@@ -280,10 +280,18 @@ fn a_conversation_history_is_sent_in_order() {
                 parts: vec![Content::Text {
                     text: "be terse".into(),
                 }],
+                tool_calls: Vec::new(),
+                tool_call_id: None,
             },
             Message::user_text("first"),
             Message::assistant_text("second"),
             Message::user_text("third"),
+            Message::assistant_text("").with_tool_calls(vec![skein_core::ToolCall::with_id(
+                "call_1",
+                "fs_read",
+                serde_json::json!({"path": "alpha"}),
+            )]),
+            Message::tool_result("call_1", "alpha holds 7"),
         ]))
         .expect("the stub answers");
 
@@ -294,8 +302,73 @@ fn a_conversation_history_is_sent_in_order() {
             {"role": "user", "content": "first"},
             {"role": "assistant", "content": "second"},
             {"role": "user", "content": "third"},
+            // `arguments` is a JSON *string* holding JSON, not an object. That
+            // is the wire format, and a test comparing parsed values is the
+            // only kind that can tell the two apart.
+            {"role": "assistant", "content": "", "tool_calls": [{
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "fs_read", "arguments": "{\"path\":\"alpha\"}"}
+            }]},
+            {"role": "tool", "content": "alpha holds 7", "tool_call_id": "call_1"},
         ])
     );
+}
+
+#[test]
+fn every_wire_tool_message_answers_exactly_one_earlier_echoed_call() {
+    // Slice 015's stated objection to this shape — "a dangling call id" — as an
+    // assertion rather than a promise. It reads the serialized body, so it
+    // covers the translation and not only the core's bookkeeping.
+    let stub = Stub::serving(vec![Reply::ok(provider_reply("ok", "stop", 4))]);
+    let mut model = client(stub.base_url(), "llama3.1");
+
+    model
+        .turn(&ask(vec![
+            Message::user_text("read both"),
+            Message::assistant_text("").with_tool_calls(vec![
+                skein_core::ToolCall::with_id(
+                    "call_a",
+                    "fs_read",
+                    serde_json::json!({"path": "alpha"}),
+                ),
+                skein_core::ToolCall::with_id(
+                    "call_b",
+                    "fs_read",
+                    serde_json::json!({"path": "beta"}),
+                ),
+            ]),
+            Message::tool_result("call_a", "7"),
+            Message::tool_result("call_b", "19"),
+        ]))
+        .expect("the stub answers");
+
+    let body = stub.request_body();
+    let messages = body["messages"].as_array().expect("a messages array");
+    let mut echoed: Vec<&str> = Vec::new();
+    let mut answered: Vec<&str> = Vec::new();
+
+    for (i, message) in messages.iter().enumerate() {
+        if message["role"] == "tool" {
+            let id = message["tool_call_id"]
+                .as_str()
+                .unwrap_or_else(|| panic!("messages[{i}] is a tool message with no id: {body}"));
+            assert!(
+                echoed.contains(&id),
+                "messages[{i}] answers {id:?}, which nothing earlier asked for: {body}"
+            );
+            answered.push(id);
+        }
+        for call in message["tool_calls"].as_array().into_iter().flatten() {
+            echoed.push(call["id"].as_str().expect("an echoed call carries an id"));
+        }
+    }
+
+    assert_eq!(
+        echoed, answered,
+        "every echoed id is answered exactly once, in order: {body}"
+    );
+    assert!(!echoed.is_empty(), "the fixture must echo something");
 }
 
 /// The message a refused base URL must carry, so a test asserts the refusal's
@@ -532,13 +605,57 @@ fn tool_calls_are_translated_and_are_not_a_final_answer() {
 
     assert_eq!(
         response.tool_calls,
-        vec![skein_core::ToolCall::new(
+        vec![skein_core::ToolCall::with_id(
+            "call_1",
             "read_file",
             serde_json::json!({"path": "README.md"})
-        )]
+        )],
+        "the provider's own id is carried, not discarded: it is what the next
+         request's tool message answers"
     );
     assert!(!response.final_output, "a tool request is not an answer");
     assert_eq!(response.message, Message::assistant_text(""));
+}
+
+#[test]
+fn tool_calls_without_a_provider_id_are_given_positional_ones() {
+    // Ollama supplies ids; the OpenAI-compat ecosystem does not guarantee them.
+    // Normalizing here means every `ToolCall` leaving this crate has a non-empty
+    // id, so the loop that echoes them needs no fallback of its own.
+    let stub = Stub::serving(vec![Reply::ok(
+        serde_json::json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                        {"type": "function", "function": {
+                            "name": "fs_read", "arguments": "{\"path\":\"alpha\"}"}},
+                        {"type": "function", "function": {
+                            "name": "fs_read", "arguments": "{\"path\":\"beta\"}"}}
+                    ]
+                },
+                "finish_reason": "tool_calls"
+            }],
+            "usage": {"total_tokens": 12}
+        })
+        .to_string(),
+    )]);
+    let mut model = client(stub.base_url(), "llama3.1");
+
+    let response = model
+        .turn(&ask(vec![Message::user_text("read both")]))
+        .expect("the stub answers");
+
+    assert_eq!(
+        response
+            .tool_calls
+            .iter()
+            .map(|c| c.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["call_0", "call_1"],
+        "distinct and non-empty, so the two answers cannot be confused"
+    );
 }
 
 #[test]

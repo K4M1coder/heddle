@@ -652,14 +652,20 @@ fn fs_root_holding(name: &str, contents: &str) -> (TempDir, String) {
 /// The last message of the request the child sent, which is what the model was
 /// told about the tool it asked for.
 fn last_message(request: &serde_json::Value) -> String {
-    request["messages"]
+    let last = request["messages"]
         .as_array()
         .expect("a messages array")
         .last()
-        .expect("at least one message")["content"]
-        .as_str()
-        .expect("text content")
-        .to_string()
+        .expect("at least one message");
+    // Every caller reads this for what the model was told about a tool, so the
+    // envelope is asserted once here: external content by its role, naming the
+    // call it answers rather than resting on its position in the history.
+    assert_eq!(
+        (&last["role"], &last["tool_call_id"]),
+        (&serde_json::json!("tool"), &serde_json::json!("call_1")),
+        "{last}"
+    );
+    last["content"].as_str().expect("text content").to_string()
 }
 
 #[test]
@@ -713,11 +719,7 @@ fn chat_with_an_fs_root_advertises_the_read_tools_and_reads_a_real_file() {
     // And the file really was read, by the shipped binary, off disk.
     let second = provider.request_body();
     let told = last_message(&second);
-    assert!(
-        told.starts_with("[tool_result tool=fs_read status=ok]")
-            && told.contains("hello from disk"),
-        "{told}"
-    );
+    assert!(told.contains("hello from disk"), "{told}");
 
     let run_id = reported_run_id(&out);
     let log = skein(&[
@@ -919,9 +921,7 @@ fn chat_with_an_fs_root_that_is_a_git_repository_advertises_the_git_tools_and_re
     let second = provider.request_body();
     let told = last_message(&second);
     assert!(
-        told.starts_with("[tool_result tool=git_status status=ok]")
-            && told.contains("## work")
-            && told.contains("??\\tnotes.txt"),
+        told.contains("## work") && told.contains("??\\tnotes.txt"),
         "{told}"
     );
 

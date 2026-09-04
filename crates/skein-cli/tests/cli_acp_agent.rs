@@ -735,14 +735,20 @@ fn tool_call_reply(tool: &str, arguments: serde_json::Value) -> String {
 /// The last message of the request the child sent, which is what the model was
 /// told about the tool it asked for. Copied from `cli_chat.rs`.
 fn last_message(request: &serde_json::Value) -> String {
-    request["messages"]
+    let last = request["messages"]
         .as_array()
         .expect("a messages array")
         .last()
-        .expect("at least one message")["content"]
-        .as_str()
-        .expect("text content")
-        .to_string()
+        .expect("at least one message");
+    // Every caller reads this for what the model was told about a tool, so the
+    // envelope is asserted once here: external content by its role, naming the
+    // call it answers rather than resting on its position in the history.
+    assert_eq!(
+        (&last["role"], &last["tool_call_id"]),
+        (&serde_json::json!("tool"), &serde_json::json!("call_1")),
+        "{last}"
+    );
+    last["content"].as_str().expect("text content").to_string()
 }
 
 /// What one answered session leaves behind: how the turn ended, every
@@ -932,11 +938,7 @@ fn an_acp_client_that_allows_lets_a_real_fs_write_execute() {
     // And the model was told the truth about it.
     let _first = provider.request_body();
     let told = last_message(&provider.request_body());
-    assert!(
-        told.starts_with("[tool_result tool=fs_write status=ok]")
-            && told.contains("wrote 20 bytes to planted.txt"),
-        "{told}"
-    );
+    assert!(told.contains("wrote 20 bytes to planted.txt"), "{told}");
 
     assert_eq!(
         logged_kinds(&root, "phi", "skein-1#1"),
@@ -1025,9 +1027,7 @@ fn an_acp_client_that_rejects_stops_the_fs_write_and_the_run_survives() {
     let _first = provider.request_body();
     let told = last_message(&provider.request_body());
     assert!(
-        told.starts_with("[tool_result tool=fs_write status=denied]")
-            && told.contains("acp client declined permission")
-            && told.contains("skein.reject-once"),
+        told.contains("acp client declined permission") && told.contains("skein.reject-once"),
         "the model must be told plainly who refused and why, got: {told}"
     );
 
@@ -1156,9 +1156,7 @@ fn an_acp_client_that_allows_lets_a_real_proc_run_execute() {
     let _first = provider.request_body();
     let told = last_message(&provider.request_body());
     assert!(
-        told.starts_with("[tool_result tool=proc_run status=ok]")
-            && told.contains("exit 0")
-            && told.contains("bytes only a real process could read"),
+        told.contains("exit 0") && told.contains("bytes only a real process could read"),
         "{told}"
     );
 
@@ -1253,9 +1251,7 @@ fn an_acp_client_that_rejects_stops_the_proc_run_and_the_run_survives() {
     let _first = provider.request_body();
     let told = last_message(&provider.request_body());
     assert!(
-        told.starts_with("[tool_result tool=proc_run status=denied]")
-            && told.contains("acp client declined permission")
-            && told.contains("skein.reject-once"),
+        told.contains("acp client declined permission") && told.contains("skein.reject-once"),
         "the model must be told plainly who refused and why, got: {told}"
     );
 

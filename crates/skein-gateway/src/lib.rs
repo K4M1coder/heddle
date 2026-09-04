@@ -257,9 +257,17 @@ impl ModelClient for OpenAiCompatClient {
             .message
             .tool_calls
             .into_iter()
-            .map(|c| {
+            .enumerate()
+            .map(|(i, c)| {
+                // Normalized here and nowhere else, so every `ToolCall` leaving
+                // this crate has a non-empty id and the loop that echoes them
+                // needs no fallback of its own. Ollama supplies ids; the
+                // OpenAI-compat ecosystem does not guarantee one, and an empty
+                // id reaching the echo would produce a request answering a call
+                // it never made.
+                let id = c.id.unwrap_or_else(|| format!("call_{i}"));
                 serde_json::from_str(&c.function.arguments)
-                    .map(|args| ToolCall::new(c.function.name, args))
+                    .map(|args| ToolCall::with_id(id, c.function.name, args))
                     .map_err(|e| {
                         self.unrecognised(format!(
                             "tool call arguments are not JSON: {e}: {}",
@@ -309,10 +317,38 @@ struct ChatRequest<'a> {
     tools: Vec<ChatTool<'a>>,
 }
 
+/// The two tool fields serialize **last** and are skipped when empty, so a
+/// message that involves no tool puts exactly the bytes on the wire it put
+/// there before they existed.
 #[derive(Serialize)]
 struct ChatMessage<'a> {
     role: &'a str,
     content: String,
+    /// What the assistant asked for on this turn, echoed so the ids the
+    /// following `tool` messages name have something to answer.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    tool_calls: Vec<ChatToolCall<'a>>,
+    /// Which call a `tool` message answers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_call_id: Option<&'a str>,
+}
+
+/// The request-side mirror of [`ResponseToolCall`]: the same envelope, sent
+/// back so a provider sees the turn it produced.
+#[derive(Serialize)]
+struct ChatToolCall<'a> {
+    id: &'a str,
+    #[serde(rename = "type")]
+    kind: &'static str,
+    function: ChatCallFunction<'a>,
+}
+
+#[derive(Serialize)]
+struct ChatCallFunction<'a> {
+    name: &'a str,
+    /// A JSON *string* holding JSON, per the wire format, exactly as
+    /// [`ToolFunction::arguments`] arrives.
+    arguments: String,
 }
 
 /// OpenAI's function-tool envelope. `type` is the wire's discriminator and
@@ -356,8 +392,30 @@ impl<'a> From<&'a Message> for ChatMessage<'a> {
                 skein_core::Role::User => "user",
                 skein_core::Role::Assistant => "assistant",
                 skein_core::Role::System => "system",
+                skein_core::Role::Tool => "tool",
             },
             content: message.text(),
+            tool_calls: message
+                .tool_calls
+                .iter()
+                .map(|call| ChatToolCall {
+                    id: &call.id,
+                    kind: "function",
+                    function: ChatCallFunction {
+                        name: &call.tool,
+                        // Serializing an owned `Value` back to text cannot
+                        // fail: there is no writer to error and no key a
+                        // `Value` can hold that is not already a string. A
+                        // fallback here is forbidden for this slice's own
+                        // reason — an empty object would silently erase the
+                        // arguments the model chose, which is the exact
+                        // information loss this shape exists to stop.
+                        arguments: serde_json::to_string(&call.args)
+                            .expect("a serde_json::Value re-serializes"),
+                    },
+                })
+                .collect(),
+            tool_call_id: message.tool_call_id.as_deref(),
         }
     }
 }
@@ -392,6 +450,9 @@ struct ChoiceMessage {
 
 #[derive(Deserialize)]
 struct ResponseToolCall {
+    /// Absent on compat layers that do not synthesize one; see `turn`.
+    #[serde(default)]
+    id: Option<String>,
     function: ToolFunction,
 }
 

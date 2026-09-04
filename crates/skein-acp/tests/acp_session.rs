@@ -12,8 +12,8 @@ use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo};
 use skein_acp::{project_updates, CancellableModel, SessionParts, SkeinAgent};
 use skein_core::{
     CapturedResult, Ledger, LoopBudget, Message, ModelClient, ProgressProbe, Redactor, Result,
-    StepKind, ToolAccess, ToolCall, ToolOutcome, ToolPolicy, ToolSpec, ToolTransport, TurnRequest,
-    TurnResponse,
+    Role, StepKind, ToolAccess, ToolCall, ToolOutcome, ToolPolicy, ToolSpec, ToolTransport,
+    TurnRequest, TurnResponse,
 };
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -75,7 +75,11 @@ fn asks_for(tool: &str) -> TurnResponse {
         message: Message::assistant_text("working"),
         tokens_used: 1,
         final_output: false,
-        tool_calls: vec![ToolCall::new(tool, serde_json::json!({"path": "x"}))],
+        tool_calls: vec![ToolCall::with_id(
+            "call_1",
+            tool,
+            serde_json::json!({"path": "x"}),
+        )],
     }
 }
 
@@ -563,10 +567,17 @@ async fn a3_client_decline_stops_the_tool_and_the_run_survives() {
         .filter(|s| s.kind == StepKind::LlmRequest)
         .map(|s| &s.payload)
         .collect();
-    assert!(requests
-        .last()
-        .expect("a second request was made")
-        .contains("[tool_result tool=read_file status=denied]"));
+    let replayed: TurnRequest =
+        serde_json::from_str(requests.last().expect("a second request was made"))
+            .expect("the captured request parses");
+    let told = replayed.messages.last().expect("a fed-back refusal");
+    assert_eq!(told.role, Role::Tool);
+    assert_eq!(told.tool_call_id.as_deref(), Some("call_1"));
+    assert_eq!(
+        told.text(),
+        "the read_file tool call was refused: acp client declined permission (skein.reject-once)",
+        "the model is told plainly who refused and why"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

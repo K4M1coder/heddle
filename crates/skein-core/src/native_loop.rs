@@ -122,13 +122,29 @@ impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> NativeLoop<C, P, T> {
             if let Some(exit) = ctl.should_exit(resp.final_output) {
                 return terminate(ledger, run_id, exit, Some(resp.message));
             }
-            messages.push(resp.message);
+            // The echo and the answers are pushed together, in that order, so
+            // "every echoed id is answered by exactly one following tool
+            // message, and no tool message answers an id nothing asked for" is
+            // a property of this control flow rather than of review. The calls
+            // are redacted for the same reason their results are: the history
+            // is replayed into the next request's payload, and the wire and the
+            // chain's `LlmRequest` capture must stay the same bytes.
+            let echoed = resp.tool_calls.iter().map(|c| self.redactor.redact_call(c));
+            messages.push(resp.message.with_tool_calls(echoed.collect()));
             messages.extend(feedback);
         }
     }
 
     /// Runs the turn's requested calls sequentially, in the order the model
     /// declared them, and returns what the model is told about each.
+    ///
+    /// This is the only place a [`Role::Tool`](crate::Role) message is made.
+    /// Tool output is external content, and here it is distinguishable from the
+    /// model's own words and from operator instruction by its role rather than
+    /// by a marker any of them could equally have typed. What that does **not**
+    /// buy is a model's *obedience*: one may still follow instructions it reads
+    /// in tool content, under this shape exactly as under the text-marker one
+    /// it replaced, and design §7 item 5's other half stays open.
     ///
     /// A refusal is a governance decision the run is designed to survive: the
     /// attempt and the verdict are already on the chain and the model is told
@@ -142,28 +158,27 @@ impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> NativeLoop<C, P, T> {
     ) -> Result<Vec<Message>> {
         let mut feedback = Vec::with_capacity(calls.len());
         for call in calls {
-            let message = match self.gateway.call_captured(run_id, call, ledger) {
+            let body = match self.gateway.call_captured(run_id, call, ledger) {
                 // The redacted capture, never the raw outcome: the history is
                 // replayed into the next request's payload, so feeding back the
-                // real secret would put it straight back on the chain.
-                Ok((_, captured)) => tool_message(&captured.tool, "ok", &captured.content),
+                // real secret would put it straight back on the chain. It goes
+                // back unwrapped: an MCP `CallToolResult` already carries
+                // whether it is an error.
+                Ok((_, captured)) => captured.content,
+                // The one outcome that genuinely needs words, because the
+                // refusal is the gateway's and no tool ran to produce a payload
+                // explaining it. The name is redacted for the same reason
+                // `call_captured` redacts it.
                 Err(SkeinError::ToolDenied { tool, reason }) => {
-                    tool_message(&tool, "denied", &reason)
+                    let tool = self.redactor.redact(&tool);
+                    format!("the {tool} tool call was refused: {reason}")
                 }
                 Err(e) => return Err(e),
             };
-            feedback.push(message);
+            feedback.push(Message::tool_result(call.id.clone(), body));
         }
         Ok(feedback)
     }
-}
-
-/// Tool output is external content: it enters the conversation as user-role data
-/// under a label, never as a system instruction and never as the model's own
-/// words. The label is a marker, not an injection boundary — that needs a typed
-/// content variant (design §7 item 5).
-fn tool_message(tool: &str, status: &str, body: &str) -> Message {
-    Message::user_text(format!("[tool_result tool={tool} status={status}]\n{body}"))
 }
 
 /// The single place a run is closed out, so "every terminated run ends with

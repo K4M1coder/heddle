@@ -13,8 +13,8 @@
 
 use skein_connectors::{local_connector, FsRoot, LocalConnector};
 use skein_core::{
-    Ledger, LoopBudget, LoopController, Message, NativeLoop, ProgressProbe, Redactor, StepKind,
-    ToolAccess, ToolGateway, ToolPolicy, TurnRequest,
+    Ledger, LoopBudget, LoopController, Message, NativeLoop, ProgressProbe, Redactor, Role,
+    StepKind, ToolAccess, ToolGateway, ToolPolicy, TurnRequest,
 };
 use skein_gateway::{LocalEndpoint, OpenAiCompatClient};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -132,6 +132,29 @@ fn tool_call_reply(tool: &str, arguments: serde_json::Value) -> String {
                     "type": "function",
                     "function": {"name": tool, "arguments": arguments.to_string()}
                 }]
+            },
+            "finish_reason": "tool_calls"
+        }],
+        "usage": {"total_tokens": 12}
+    })
+    .to_string()
+}
+
+/// Two calls in one assistant turn, the way Ollama really answers when a model
+/// reads several files at once, each with the provider's own id.
+fn two_tool_calls_reply(calls: &[(&str, serde_json::Value)]) -> String {
+    serde_json::json!({
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": null,
+                "tool_calls": calls.iter().enumerate().map(|(i, (tool, arguments))| {
+                    serde_json::json!({
+                        "id": format!("call_{i}"),
+                        "type": "function",
+                        "function": {"name": tool, "arguments": arguments.to_string()}
+                    })
+                }).collect::<Vec<_>>()
             },
             "finish_reason": "tool_calls"
         }],
@@ -296,17 +319,17 @@ fn a_model_asks_for_a_file_and_gets_its_real_contents_through_the_governed_gatew
     // 2 & 3. The stub asked for `fs_read`, and the real chain answered from the
     //    real file: nothing in it is a double.
     let second = stub.request_body();
-    let fed_back = second["messages"]
+    let last = second["messages"]
         .as_array()
         .expect("a messages array")
         .last()
-        .expect("the tool result is the last message")["content"]
-        .as_str()
-        .expect("text content");
-    assert!(
-        fed_back.starts_with("[tool_result tool=fs_read status=ok]"),
-        "{fed_back}"
+        .expect("the tool result is the last message");
+    assert_eq!(
+        (&last["role"], &last["tool_call_id"]),
+        (&serde_json::json!("tool"), &serde_json::json!("call_1")),
+        "on the wire too, not only in the chain: {last}"
     );
+    let fed_back = last["content"].as_str().expect("text content");
     // The whole `CallToolResult` is what the transport hands back — `isError`
     // and any structured content are part of what the tool said — so the file's
     // bytes arrive JSON-escaped inside it. Asserting the escaped form is
@@ -368,16 +391,80 @@ fn a_model_asks_for_a_file_and_gets_its_real_contents_through_the_governed_gatew
         .expect("a run that called a real tool still verifies");
 }
 
+#[test]
+fn two_reads_in_one_turn_are_answered_by_id_through_the_real_chain() {
+    // The same property `native_loop.rs` proves against a scripted client, here
+    // with a real `EmbeddedServer`, a real `OpenAiCompatClient` and a real
+    // socket — and with the two files' contents differing, so a wrong pairing
+    // is visible rather than merely unproven.
+    let stub = Stub::serving(vec![
+        two_tool_calls_reply(&[
+            ("fs_read", serde_json::json!({"path": "gamma.txt"})),
+            ("fs_read", serde_json::json!({"path": "alpha.txt"})),
+        ]),
+        final_reply("gamma holds 4 and alpha holds 7."),
+    ]);
+    let Harness {
+        _dir,
+        root: _root,
+        connector,
+    } = harness(&[("alpha.txt", "7"), ("gamma.txt", "4")]);
+
+    let ledger = governed_run(&stub, connector, chat_policy(), Vec::new());
+
+    let _first = stub.request_body();
+    let second = stub.request_body();
+    let messages = second["messages"].as_array().expect("a messages array");
+
+    assert_eq!(
+        messages[1]["tool_calls"]
+            .as_array()
+            .expect("the turn that asked is replayed with its calls")
+            .iter()
+            .map(|c| (
+                c["id"].as_str().expect("an id"),
+                c["function"]["arguments"].as_str().expect("a JSON string")
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            ("call_0", r#"{"path":"gamma.txt"}"#),
+            ("call_1", r#"{"path":"alpha.txt"}"#)
+        ],
+        "arguments travel back as a JSON string, per the wire format: {second}"
+    );
+
+    // The pairing itself: the answer naming `call_0` holds gamma's contents.
+    for (message, (id, contents)) in messages[2..].iter().zip([("call_0", "4"), ("call_1", "7")]) {
+        assert_eq!(message["role"], serde_json::json!("tool"));
+        assert_eq!(message["tool_call_id"], serde_json::json!(id));
+        let body = message["content"].as_str().expect("text content");
+        assert!(
+            body.contains(&format!(r#""text":"{contents}""#)),
+            "{id} must answer with the contents of the file it named: {body}"
+        );
+    }
+
+    ledger
+        .verify_chain("run-fs")
+        .expect("a run answering two calls by id still verifies");
+}
+
 /// The last message of the run's final captured request: what the model was
 /// told about the tool it asked for.
 fn tool_feedback(ledger: &Ledger) -> String {
-    captured_requests(ledger)
+    let told = captured_requests(ledger)
         .last()
         .expect("a second request")
         .messages
         .last()
         .expect("a fed-back tool result")
-        .text()
+        .clone();
+    // The envelope, checked once here so every caller's subject is the body:
+    // the result is external content by its role, and it names the call the
+    // stub made rather than resting on its position in the history.
+    assert_eq!(told.role, Role::Tool);
+    assert_eq!(told.tool_call_id.as_deref(), Some("call_1"));
+    told.text()
 }
 
 #[test]
@@ -406,10 +493,9 @@ fn an_unlisted_write_never_reaches_the_server() {
         "an unlisted mutating tool must have had no effect whatsoever"
     );
     let told = tool_feedback(&ledger);
-    assert!(
-        told.starts_with("[tool_result tool=fs_write status=denied]")
-            && told.contains("not in the allowlist"),
-        "the model must be told plainly why, got: {told}"
+    assert_eq!(
+        told, "the fs_write tool call was refused: tool is not in the allowlist",
+        "the model must be told plainly why"
     );
     // The refusal is history, not an error: the attempt and the verdict are on
     // the chain, there is no `ToolResult` because nothing was executed, and the
@@ -453,14 +539,10 @@ fn an_out_of_root_read_is_refused_by_the_server_and_the_run_survives() {
 
     let told = tool_feedback(&ledger);
     assert!(
-        told.starts_with("[tool_result tool=fs_read status=ok]"),
-        "`ok` is right and load-bearing: the *transport* succeeded, and the \
-         refusal is inside the result where the model can read it — a transport \
-         failure would have ended the run. Got: {told}"
-    );
-    assert!(
         told.contains("\"isError\":true") && told.contains("outside the root"),
-        "the server's own refusal must reach the model: {told}"
+        "the *transport* succeeded and the refusal is inside the result, where the \
+         model can read it and the run can continue — a transport failure would \
+         have ended the run instead. Got: {told}"
     );
     assert!(
         !told.contains("not yours"),
@@ -529,13 +611,10 @@ fn a_read_through_a_reparse_point_planted_after_the_server_is_refused() {
 
     let told = tool_feedback(&ledger);
     assert!(
-        told.starts_with("[tool_result tool=fs_read status=ok]"),
-        "the transport succeeded and the refusal is inside the result, where the \
-         model can read it and the run can continue. Got: {told}"
-    );
-    assert!(
         told.contains("\"isError\":true") && told.contains("outside the root"),
-        "the server's own refusal must reach the model: {told}"
+        "the *transport* succeeded and the refusal is inside the result, where the \
+         model can read it and the run can continue — a transport failure would \
+         have ended the run instead. Got: {told}"
     );
     assert!(
         !told.contains("not yours"),
