@@ -405,9 +405,16 @@ impl<T: ToolTransport> ToolGateway<T> {
         // The tool needs the real secret; only the record must not have it.
         let outcome = self.transport.call(call)?;
 
+        // `redact_wire`, not `redact`: a transport hands this port an
+        // already-serialized body, so a secret containing a quote, a backslash
+        // or a newline is on it in escaped form and the literal needle alone
+        // would miss it. Scrubbed here rather than downstream because
+        // `NativeLoop::mediate` feeds this content back into the conversation —
+        // by the time those copies exist the secret is escaped twice, and no
+        // needle spelled the way the operator wrote it matches any of them.
         let captured = CapturedResult {
             tool,
-            content: self.redactor.redact(&outcome.content),
+            content: self.redactor.redact_wire(&outcome.content),
         };
         ledger.append(
             run_id,

@@ -100,19 +100,30 @@ fn a_transport_that_does_not_override_list_offers_nothing() {
     );
 }
 
+fn policy(approved: &[&str]) -> ToolPolicy {
+    ToolPolicy::new(
+        vec![
+            ("fs_write".into(), ToolAccess::Mutating),
+            ("read_secret".into(), ToolAccess::ReadOnly),
+            ("read_other".into(), ToolAccess::ReadOnly),
+        ],
+        approved.iter().map(|s| s.to_string()).collect(),
+    )
+}
+
 fn gateway(transport: CountingTransport, approved: &[&str]) -> ToolGateway<CountingTransport> {
     ToolGateway::new(
         transport,
-        ToolPolicy::new(
-            vec![
-                ("fs_write".into(), ToolAccess::Mutating),
-                ("read_secret".into(), ToolAccess::ReadOnly),
-                ("read_other".into(), ToolAccess::ReadOnly),
-            ],
-            approved.iter().map(|s| s.to_string()).collect(),
-        ),
+        policy(approved),
         Redactor::new(vec![SECRET.into()]),
     )
+}
+
+/// `gateway`, with the redacted material chosen by the caller: the redaction
+/// tests turn on which *forms* of a secret are found, so the secret itself is
+/// the variable.
+fn gateway_scrubbing(transport: CountingTransport, secret: &str) -> ToolGateway<CountingTransport> {
+    ToolGateway::new(transport, policy(&[]), Redactor::new(vec![secret.into()]))
 }
 
 #[test]
@@ -260,6 +271,123 @@ fn secret_is_redacted_from_args_and_result_before_capture() {
         payloads.iter().any(|p| p.contains("***")),
         "the secret must be replaced by the redaction marker: {payloads:?}"
     );
+}
+
+/// The three characters `serde_json` escapes inside a string, in one secret. A
+/// tool result is already-serialized JSON, so this is the form the secret is
+/// actually on it in — and `Redactor::redact_wire` derives its escaped needle
+/// from `Value::String`, so one secret carrying all three proves the derivation
+/// rather than one character of it.
+const AWKWARD: &str = "pa\"ss\\wo\nrd";
+
+/// A `CallToolResult` as `skein-mcp` hands one over: the whole result,
+/// serialized (`skein-mcp/src/lib.rs`). `text` is the decoded string the tool
+/// produced, so a secret is as written here and escaped by this serialization.
+fn wire_result(text: &str) -> String {
+    serde_json::to_string(&json!({
+        "content": [{"type": "text", "text": text}],
+        "isError": false,
+    }))
+    .expect("a result body serializes")
+}
+
+/// The decoded text inside a serialized result body — the only form in which a
+/// secret appears as written, and what a replay consumer actually reads.
+///
+/// Every assertion about an awkward secret goes through here, in **both**
+/// directions, because a `contains` over the serialized form is meaningless in
+/// either. On the raw outcome the secret is escaped once, so the literal needle
+/// misses a secret that is present; on the `ToolResult` step payload it is
+/// escaped twice — `content` is itself serialized JSON inside a serialized
+/// `CapturedResult` — so neither the literal nor a singly-escaped needle
+/// matches, and the naive assertion is green while the secret is in plain sight.
+/// Parsing back down to the string is what makes either assertion real, and it
+/// proves the body is still parseable at the same time.
+fn body_text(body: &str) -> String {
+    let parsed: serde_json::Value =
+        serde_json::from_str(body).expect("a result body is still the JSON it was");
+    parsed["content"][0]["text"]
+        .as_str()
+        .expect("scrubbing leaves the body's shape intact")
+        .to_string()
+}
+
+fn captured_text(led: &Ledger, run_id: &str) -> String {
+    body_text(&replay_tool_calls(led, run_id).expect("the run replays")[0].content)
+}
+
+#[test]
+fn an_awkward_secret_is_redacted_from_a_wire_shaped_result() {
+    let mut led = Ledger::new();
+    let text = format!("api_key={AWKWARD}\nendpoint=localhost");
+    let mut gw = gateway_scrubbing(CountingTransport::new(&wire_result(&text)), AWKWARD);
+
+    let call = ToolCall::new("read_secret", json!({ "token": AWKWARD }));
+    let out = gw
+        .call("run-t12", &call, &mut led)
+        .expect("read_secret runs");
+
+    assert_eq!(
+        captured_text(&led, "run-t12"),
+        "api_key=***\nendpoint=localhost",
+        "a secret containing a quote, a backslash or a newline is on an \
+         already-serialized result in escaped form, so finding it needs the wire premise"
+    );
+    assert_eq!(
+        body_text(&out.content),
+        text,
+        "the raw secret must still reach the trusted caller"
+    );
+    assert_eq!(
+        gw.transport.seen[0].args,
+        json!({ "token": AWKWARD }),
+        "the transport must receive the raw arguments, not the redacted ones"
+    );
+    led.verify_chain("run-t12").expect("chain verifies");
+}
+
+#[test]
+fn a_secret_with_nothing_to_escape_is_captured_byte_for_byte_as_before() {
+    // The escaped needle is added only when it differs from the literal one, so
+    // every run that was already scrubbed correctly must be untouched by the
+    // wire premise. Asserted on the whole `content`, not on its decoded text:
+    // byte-identical is the claim.
+    let mut led = Ledger::new();
+    let reply = wire_result(&format!("api_key={SECRET}"));
+    let mut gw = gateway_scrubbing(CountingTransport::new(&reply), SECRET);
+
+    gw.call(
+        "run-t13",
+        &ToolCall::new("read_secret", json!({})),
+        &mut led,
+    )
+    .expect("read_secret runs");
+
+    assert_eq!(
+        replay_tool_calls(&led, "run-t13").expect("the run replays")[0].content,
+        wire_result("api_key=***")
+    );
+}
+
+#[test]
+fn an_awkward_secret_in_the_arguments_is_still_scrubbed_by_the_literal_needle() {
+    // The other half of the same function, and deliberately *not* changed with
+    // it. `redact_call` scrubs the `Value` and `call_captured` serializes
+    // afterwards, so here the needle really is the secret as written. Pinned so
+    // a later edit making the two lines "consistent" fails rather than passes.
+    let mut led = Ledger::new();
+    let mut gw = gateway_scrubbing(CountingTransport::new(&wire_result("nothing")), AWKWARD);
+
+    gw.call(
+        "run-t14",
+        &ToolCall::new("read_secret", json!({ "token": AWKWARD })),
+        &mut led,
+    )
+    .expect("read_secret runs");
+
+    let attempt: serde_json::Value = serde_json::from_str(&led.log("run-t14")[0].payload)
+        .expect("the ToolCall step is a captured call");
+    assert_eq!(attempt["args"], json!({ "token": "***" }));
 }
 
 #[test]
