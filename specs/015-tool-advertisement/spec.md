@@ -124,7 +124,10 @@ this slice must not need to, and SC-007 pins it.
   Because no `tool_calls` are ever *sent*, there is no dangling call id to satisfy and the history
   stays a valid OpenAI sequence (`user`, `assistant`, `user`). Changing it would reopen
   `native_loop.rs`'s explicit anti-injection decision, which Constitution VI backs. Recorded as a
-  residual, not fixed here.
+  residual, not fixed here. **Closed by slice 022**, which found that decision's origin (slices 005
+  and 006) to say something narrower than this reference implies, and closed the residual on a
+  measured information-loss defect rather than on the compatibility grounds sketched here — those
+  turned out to be near-empty. See `specs/022-tool-result-wire-format/spec.md`.
 - **Machinery with no caller in the shipped binary is acceptable for this half**, on slice 005's
   precedent. Slice 014's "the fix has a caller in the shipped binary" language was about a **fix**.
 - **The Windows leg is observed locally; the macOS and Linux legs are unobserved** until the

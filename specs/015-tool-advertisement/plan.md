@@ -136,7 +136,11 @@ user-role text via `tool_message`, and `ChatMessage` sends only `{role, content}
 `tool_calls` into the assistant history. **Because no `tool_calls` are ever sent, there is no
 dangling call id to satisfy and the history stays a valid OpenAI message sequence** (`user`,
 `assistant`, `user`). Changing this would reopen `native_loop.rs`'s explicit anti-injection decision,
-which Constitution VI backs. Out of scope; recorded as a residual in the spec.
+which Constitution VI backs. Out of scope; recorded as a residual in the spec. **Closed by slice
+022**, whose `spec.md` quotes that decision's origin in full: it was never "`role:"tool"` is
+unsafe", but "`User` + a label is the cheapest thing safer than `System` or `Assistant`, and the
+real fix is a typed variant, deferred". The dangling-id argument above is answered structurally
+there.
 
 ### Deferred to slice 016 (recorded here so the split is legible)
 

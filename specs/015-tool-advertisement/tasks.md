@@ -287,10 +287,12 @@ Deliberately not done, so no one helpfully does it. Identical to the spec's list
       `git` and `shell`** — say so in its close-out rather than claiming the item done.
 - [ ] **raw-wire-byte capture** — a `StepKind` for the provider's literal request and response bytes.
       Carried unchanged from slices 011, 012, 013 and 014.
-- [ ] **`role: "tool"` / `tool_call_id` conversation replay**, which would reopen
+- [x] **`role: "tool"` / `tool_call_id` conversation replay**, which would reopen
       `native_loop.rs`'s anti-injection decision deliberately rather than by accident. Recorded as a
       residual in this slice's spec: the current user-role feedback produces a valid OpenAI sequence
       precisely because no `tool_calls` are ever sent, so there is no dangling id to satisfy.
+      **Done in slice 022**, deliberately as this item asked — and the dangling-id argument is
+      discharged by a test over the serialized request rather than by the absence of the array.
 - [ ] **reconcile slices 008 and 014 on `serde_json/preserve_order`.** 008 is right and 014 is wrong;
       the tree should not carry both. See the gate-run note above.
 - [ ] **streaming (SSE)** with incremental ACP `AgentMessageChunk` notifications.

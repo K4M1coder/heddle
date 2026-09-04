@@ -13,7 +13,7 @@
 
 use skein_connectors::{local_connector, FsRoot, LocalConnector};
 use skein_core::{
-    Ledger, LoopBudget, LoopController, Message, NativeLoop, ProgressProbe, Redactor, Role,
+    Exit, Ledger, LoopBudget, LoopController, Message, NativeLoop, ProgressProbe, Redactor, Role,
     StepKind, ToolAccess, ToolGateway, ToolPolicy, TurnRequest,
 };
 use skein_gateway::{LocalEndpoint, OpenAiCompatClient};
@@ -274,9 +274,9 @@ fn escaped(text: &str) -> String {
     quoted.trim_matches('"').to_string()
 }
 
-fn captured_requests(ledger: &Ledger) -> Vec<TurnRequest> {
+fn captured_requests(ledger: &Ledger, run_id: &str) -> Vec<TurnRequest> {
     ledger
-        .log("run-fs")
+        .log(run_id)
         .into_iter()
         .filter(|s| s.kind == StepKind::LlmRequest)
         .map(|s| serde_json::from_str(&s.payload).expect("a captured TurnRequest"))
@@ -341,7 +341,7 @@ fn a_model_asks_for_a_file_and_gets_its_real_contents_through_the_governed_gatew
     );
 
     // 4. The same thing, seen from the chain rather than from the wire.
-    let requests = captured_requests(&ledger);
+    let requests = captured_requests(&ledger, "run-fs");
     assert_eq!(requests.len(), 2, "one request per iteration");
     assert_eq!(
         requests[1]
@@ -452,7 +452,7 @@ fn two_reads_in_one_turn_are_answered_by_id_through_the_real_chain() {
 /// The last message of the run's final captured request: what the model was
 /// told about the tool it asked for.
 fn tool_feedback(ledger: &Ledger) -> String {
-    let told = captured_requests(ledger)
+    let told = captured_requests(ledger, "run-fs")
         .last()
         .expect("a second request")
         .messages
@@ -756,6 +756,102 @@ fn a_live_model_calls_a_real_fs_tool() {
     assert!(
         results.iter().any(|p| p.contains(&escaped(FILE_CONTENTS))),
         "the real file's contents must have reached the chain: {results:?}"
+    );
+    ledger
+        .verify_chain("run-live")
+        .expect("a live run's chain verifies");
+}
+
+/// The multi-call shape against a real model, which is the only place the
+/// slice's own claim can be checked end to end: a provider that accepts the
+/// echoed `tool_calls`, and a model that answers from ids rather than from the
+/// order it happened to read in. `#[ignore]`d for the same reason its sibling
+/// above is — `cargo test --workspace` must stay green with nothing listening.
+///
+/// ```text
+/// $env:SKEIN_LIVE_MODEL = "gemma4:latest"
+/// cargo test -p skein-connectors --test governed_fs_run -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore = "needs a real tool-capable local provider; set SKEIN_LIVE_MODEL to run"]
+fn a_live_model_reads_two_files_and_is_answered_by_id() {
+    let Some(model_name) = std::env::var_os("SKEIN_LIVE_MODEL") else {
+        eprintln!("SKEIN_LIVE_MODEL is unset; skipping the live two-file test");
+        return;
+    };
+    let model_name = model_name.to_string_lossy().to_string();
+    let base_url = std::env::var("SKEIN_MODEL_BASE_URL")
+        .unwrap_or_else(|_| "http://localhost:11434/v1".to_string());
+    // Distinct contents, so a misattributed pairing is visible in the answer
+    // rather than merely unproven.
+    let Harness {
+        _dir,
+        root: _root,
+        connector,
+    } = harness(&[("alpha.txt", "7"), ("gamma.txt", "4")]);
+
+    let redactor = Redactor::new(Vec::new());
+    let mut loops = NativeLoop::new(
+        OpenAiCompatClient::new(
+            LocalEndpoint::parse(&base_url).expect("a loopback base URL"),
+            &model_name,
+            Duration::from_secs(120),
+        ),
+        NoGroundTruth,
+        ToolGateway::new(connector, chat_policy(), redactor.clone()),
+        redactor,
+    );
+    let mut ledger = Ledger::new();
+    let mut controller = LoopController::new(LoopBudget::new(6, 1_000_000, 6));
+
+    let run = loops
+        .run(
+            "run-live",
+            Message::user_text(
+                "Read the files alpha.txt and gamma.txt. Reply with one line per file, \
+                 in the form <name>=<contents>.",
+            ),
+            &mut ledger,
+            &mut controller,
+        )
+        .unwrap_or_else(|e| panic!("{base_url} did not complete a run for {model_name:?}: {e}"));
+
+    for step in ledger.log("run-live") {
+        eprintln!("{:>20}  {}", format!("{:?}", step.kind), step.payload);
+    }
+    eprintln!("exit = {:?}\nanswer = {:?}", run.exit, run.final_message);
+
+    let reads = ledger
+        .log("run-live")
+        .iter()
+        .filter(|s| s.kind == StepKind::ToolResult)
+        .count();
+    assert_eq!(
+        reads,
+        2,
+        "the model was told it can read files and did not read both; a model that cannot \
+         drive two calls is a model-selection finding, not a defect: {:?}",
+        ledger.log("run-live")
+    );
+    assert_eq!(run.exit, Exit::FinalOutput);
+
+    // The point of the whole slice, seen on a real conversation: every answer
+    // the provider was sent names a call the provider itself asked for.
+    let answered: Vec<String> = captured_requests(&ledger, "run-live")
+        .into_iter()
+        .flat_map(|r| r.messages)
+        .filter(|m| m.role == Role::Tool)
+        .map(|m| m.tool_call_id.expect("a live tool answer names its call"))
+        .collect();
+    let asked: Vec<String> = captured_requests(&ledger, "run-live")
+        .into_iter()
+        .flat_map(|r| r.messages)
+        .flat_map(|m| m.tool_calls)
+        .map(|c| c.id)
+        .collect();
+    assert!(
+        !answered.is_empty() && answered.iter().all(|id| asked.contains(id)),
+        "asked {asked:?}, answered {answered:?}"
     );
     ledger
         .verify_chain("run-live")
