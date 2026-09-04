@@ -259,9 +259,10 @@ impl Redactor {
     /// other two fields.
     ///
     /// Scrubbing is deterministic, so a redacted id still pairs an echoed call
-    /// with the `Role::Tool` message answering it — as long as both sides name
-    /// it through this method. `NativeLoop::mediate` is the one caller that has
-    /// to hold up its end.
+    /// with the `Role::Tool` message answering it — but only if the answer
+    /// scrubs the id too. `NativeLoop::mediate` is the only place that names
+    /// one, and it passes the id through [`Redactor::redact`] for exactly this
+    /// reason.
     pub fn redact_call(&self, call: &ToolCall) -> ToolCall {
         ToolCall {
             id: self.redact(&call.id),
