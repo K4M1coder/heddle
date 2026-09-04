@@ -46,7 +46,11 @@ pub(crate) fn record_path(profile: &str) -> Result<PathBuf, String> {
 pub(crate) fn read(profile: &str) -> Result<Option<Vec<PathBuf>>, String> {
     let path = record_path(profile)?;
     match std::fs::read_to_string(&path) {
-        Ok(text) => Ok(Some(parse(&text))),
+        // An empty or truncated file collapses to `None` rather than to an
+        // empty list: a record naming no directory says exactly what no record
+        // says, and letting the two shapes differ would put a profile in a
+        // listing with no line of its own.
+        Ok(text) => Ok(Some(parse(&text)).filter(|paths: &Vec<PathBuf>| !paths.is_empty())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(format!(
             "{}: the grant record is unreadable: {e}",

@@ -25,6 +25,7 @@
 mod acp;
 mod chat;
 mod ledger;
+mod sandbox;
 mod secret;
 mod wiring;
 
@@ -58,6 +59,12 @@ enum Command {
     Secret {
         #[command(subcommand)]
         command: SecretCommand,
+    },
+    /// Inspect or remove the app container profiles and directory grants that
+    /// `--allow-run` sessions leave on this machine.
+    Sandbox {
+        #[command(subcommand)]
+        command: SandboxCommand,
     },
     /// Ask a local model one question, recording the run on the silo's chain.
     Chat {
@@ -157,6 +164,39 @@ enum LedgerCommand {
     },
 }
 
+/// Present on every platform, and it refuses with a reason off Windows rather
+/// than being absent.
+///
+/// The opposite of the rule a *tool* follows, deliberately. A model calling an
+/// allowlisted-but-disabled tool gets a fatal run, so a tool must not be
+/// advertised where it cannot work; a subcommand is read by a human, and one
+/// that is simply missing is indistinguishable from a stale binary or a typo.
+#[derive(Subcommand)]
+enum SandboxCommand {
+    /// One tab-separated line per directory a profile was granted, with what
+    /// its permissions say right now.
+    List,
+    /// Revoke a profile's grants and delete it. Exactly one selector, always:
+    /// a bare `prune` is a usage error, never a machine-wide delete.
+    Prune {
+        #[command(flatten)]
+        selector: PruneSelector,
+    },
+}
+
+/// The selector is a clap group rather than a hand-written check, so both
+/// "neither" and "both" are refused by the parser before `run` is entered.
+#[derive(Args)]
+#[group(required = true, multiple = false)]
+struct PruneSelector {
+    /// One profile, named as `skein sandbox list` prints it.
+    #[arg(long, value_name = "NAME")]
+    profile: Option<String>,
+    /// Every profile skein made on this machine.
+    #[arg(long)]
+    all: bool,
+}
+
 #[derive(Subcommand)]
 enum SecretCommand {
     /// Store a secret. The value is read from stdin, never from a flag.
@@ -196,6 +236,12 @@ fn run(cli: Cli) -> Result<()> {
         Command::Secret { command } => match command {
             SecretCommand::Set { reference } => secret::set(&reference),
             SecretCommand::Delete { reference } => secret::delete(&reference),
+        },
+        Command::Sandbox { command } => match command {
+            SandboxCommand::List => sandbox::list(),
+            SandboxCommand::Prune { selector } => {
+                sandbox::prune(selector.profile.as_deref(), selector.all)
+            }
         },
         Command::Chat { silo, chat } => chat::chat(&silo, &chat),
         Command::AcpAgent {
