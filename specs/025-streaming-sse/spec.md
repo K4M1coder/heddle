@@ -47,12 +47,19 @@ records the driving session in full.
    turn with no metering — deliberately, so Constitution VIII stays enforceable. Flipping `stream`
    without `stream_options` breaks every run. With it, a final event carrying `"choices":[]` and the
    provider's own `usage` arrives immediately before `data: [DONE]`.
-3. **Ollama delivers tool calls whole, in one delta, and the accumulator concatenates anyway.** The
-   measurement contradicts the assumption this slice was requested under. The accumulator is keyed by
-   the delta's own `index` and appends, because `skein-cli/src/wiring.rs` documents a LiteLLM sidecar
-   as a supported deployment ("a different `--base-url` and no code change") and LiteLLM proxying a
-   real OpenAI or Anthropic model *does* fragment `arguments` across chunks. The whole-arrival case is
-   the degenerate case of the same three lines. **Both shapes are tested.**
+3. **Ollama delivers each tool call whole, and the accumulator concatenates anyway.** The
+   accumulator is keyed by the delta's own `index` and appends, because `skein-cli/src/wiring.rs`
+   documents a LiteLLM sidecar as a supported deployment ("a different `--base-url` and no code
+   change") and LiteLLM proxying a real OpenAI or Anthropic model *does* fragment `arguments` across
+   chunks. The whole-arrival case is the degenerate case of the same three lines.
+
+   **Three framings are tested, because three were seen.** `plan.md` §0.2(4) recorded all calls
+   arriving in one delta; re-driving `qwen3.8:27b` during implementation produced two complete calls
+   in two **separate** events with `index` 0 and 1. Both halves that the design rests on held — each
+   call complete within its event, each carrying an explicit `index` — but the observed shape lies
+   between the plan's two cases and is exactly what an accumulator that *replaced* its call list per
+   event, rather than merging into it, would fail on while passing everything else. See
+   `tasks.md` *Deviations* 1.
 4. **`delta.reasoning` is discarded.** Ollama sends it in *both* modes and the non-streamed
    `ChoiceMessage` never had such a field, so it was already being ignored. Absorbing it now would put
    text into `TurnResponse.message` the non-streamed path never had, and would show an editor a
@@ -105,7 +112,11 @@ records the driving session in full.
 - **FR-016** The stream reader MUST be explicitly bounded. `ureq`'s `Body::as_reader()` is unlimited
   by default, so the 10 MiB cap `read_to_string` applied MUST be restored deliberately.
 - **FR-017** Reading MUST be lossy-UTF-8 and MUST keep line terminators, so the capture is
-  byte-faithful and a non-UTF-8 byte does not error where it previously became U+FFFD.
+  byte-faithful and a non-UTF-8 byte does not error the read where it previously became a
+  substitution.
+- **FR-018** A 200 that is not an event stream at all MUST be refused **showing its body**, and a
+  well-framed stream whose events never carry a `choices[0]` MUST be refused as such — neither may
+  fall through to the metering refusal, which would name the wrong problem.
 
 ## Success criteria
 
@@ -136,7 +147,9 @@ records the driving session in full.
   chain.
 - **SC-011** Against a real local provider, a streamed turn accumulates a correct answer, the captured
   `response` begins `data:` and carries the provider's own `usage`, and a streamed **tool call**
-  accumulates correctly.
+  accumulates correctly — with every call the provider framed surviving into the `TurnResponse`.
+- **SC-012** A 200 carrying an HTML page is refused naming that body; a stream of nothing but the
+  metering event is refused as `no choices[0]`.
 
 ## The rejected-alternatives register
 
@@ -173,6 +186,13 @@ records the driving session in full.
   `MAX_BODY_SIZE = 10 MiB`; `Body::as_reader()` is documented "not limited by default". The stream
   path uses `with_config().limit(MAX_STREAM_BODY).reader()` with the same number, so the property
   slice 023 recorded as an accepted assumption still holds and is now stated in one named constant.
+- **Assumption — the lossy step is ours rather than ureq's.** `read_to_string` applied
+  `lossy_utf8(true)`, substituting `?`; the stream reader takes bytes and applies
+  `String::from_utf8_lossy`, substituting U+FFFD. Both are lossy and neither errors, so slice 023's
+  recorded assumption is preserved, but the substitute character differs.
+- **Note — the empty-delta guard lives in the gateway, not in the sink.** One guard for one failure
+  mode: the gateway is where the measurement lives and it protects every sink rather than the one
+  that remembered to check.
 - **Assumption — chain growth is roughly 48× for model I/O.** Measured, accepted deliberately
   (`plan.md` D5), bounded by the reader limit. If it becomes a real constraint it is a silo retention
   concern (design §7), not a per-run switch.
