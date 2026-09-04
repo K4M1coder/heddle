@@ -12,8 +12,8 @@ use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo};
 use skein_acp::{project_updates, CancellableModel, SessionParts, SkeinAgent};
 use skein_core::{
     CapturedResult, Ledger, LoopBudget, Message, ModelClient, ProgressProbe, Redactor, Result,
-    Role, StepKind, ToolAccess, ToolCall, ToolOutcome, ToolPolicy, ToolSpec, ToolTransport,
-    TurnRequest, TurnResponse,
+    Role, StepKind, TextSink, ToolAccess, ToolCall, ToolOutcome, ToolPolicy, ToolSpec,
+    ToolTransport, TurnRequest, TurnResponse,
 };
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -32,6 +32,26 @@ struct ScriptedModel {
     /// Set for the cancellation test: blocks each turn until the test releases it.
     gate: Option<std::sync::mpsc::Receiver<()>>,
     started: Option<std::sync::mpsc::Sender<()>>,
+    /// Set for the streaming tests: pushed one at a time before the turn
+    /// returns, standing in for what a real provider produces mid-turn.
+    deltas: Vec<String>,
+    sink: Option<Box<dyn TextSink>>,
+}
+
+impl ScriptedModel {
+    /// The plain case: a script and a counter, with nothing gated and nothing
+    /// streamed. The two sites that need more spell only what they need, with
+    /// `..ScriptedModel::playing(…)`.
+    fn playing(script: Vec<TurnResponse>, calls: Arc<AtomicUsize>) -> ScriptedModel {
+        ScriptedModel {
+            script,
+            calls,
+            gate: None,
+            started: None,
+            deltas: Vec::new(),
+            sink: None,
+        }
+    }
 }
 
 impl ModelClient for ScriptedModel {
@@ -43,9 +63,27 @@ impl ModelClient for ScriptedModel {
         if let Some(gate) = &self.gate {
             let _ = gate.recv();
         }
+        // Before the return, which is the whole property under test: a client
+        // that only learns the text from the value `turn` produces cannot have
+        // shown it any earlier than `turn` returning.
+        if let Some(sink) = &mut self.sink {
+            for delta in &self.deltas {
+                sink.on_text(delta);
+            }
+        }
         Ok(self.script[n.min(self.script.len() - 1)].clone())
     }
+
+    fn set_text_sink(&mut self, sink: Box<dyn TextSink>) {
+        self.sink = Some(sink);
+    }
 }
+
+/// The collaborators the doubles above compose into, and the agent built from
+/// them. Named because the two fixtures below otherwise spell four type
+/// parameters in full to say one thing.
+type ScriptedParts = SessionParts<ScriptedModel, StaticProbe, CountingTransport>;
+type ScriptedAgent<F> = SkeinAgent<ScriptedModel, StaticProbe, CountingTransport, F>;
 
 struct StaticProbe(bool);
 
@@ -218,16 +256,10 @@ fn factory(
     tool_calls: Arc<AtomicUsize>,
     allowed: Vec<(String, ToolAccess)>,
     approved: Vec<String>,
-) -> impl FnMut() -> Result<SessionParts<ScriptedModel, StaticProbe, CountingTransport>> + Send + 'static
-{
+) -> impl FnMut() -> Result<ScriptedParts> + Send + 'static {
     move || {
         Ok(SessionParts {
-            client: ScriptedModel {
-                script: script.clone(),
-                calls: model_calls.clone(),
-                gate: None,
-                started: None,
-            },
+            client: ScriptedModel::playing(script.clone(), model_calls.clone()),
             probe: StaticProbe(true),
             transport: CountingTransport {
                 calls: tool_calls.clone(),
@@ -303,12 +335,10 @@ async fn a8_the_session_runs_in_the_ledger_the_operator_injected() {
     let mut once = Some(seeded);
     let agent = SkeinAgent::new(move || {
         Ok(SessionParts {
-            client: ScriptedModel {
-                script: vec![finishes("all done")],
-                calls: Arc::new(AtomicUsize::new(0)),
-                gate: None,
-                started: None,
-            },
+            client: ScriptedModel::playing(
+                vec![finishes("all done")],
+                Arc::new(AtomicUsize::new(0)),
+            ),
             probe: StaticProbe(true),
             transport: CountingTransport {
                 calls: Arc::new(AtomicUsize::new(0)),
@@ -349,20 +379,108 @@ async fn a8_the_session_runs_in_the_ledger_the_operator_injected() {
         .expect("the run landed in that same chain and verifies");
 }
 
+/// A session whose model streams `deltas` before finishing with their
+/// concatenation — which is what a real provider does, and what makes "the
+/// client saw the answer twice" a failure this fixture can express.
+fn streaming_agent(
+    deltas: Vec<&str>,
+    secrets: Vec<String>,
+) -> ScriptedAgent<impl FnMut() -> Result<ScriptedParts> + Send + 'static> {
+    let deltas: Vec<String> = deltas.into_iter().map(String::from).collect();
+    SkeinAgent::new(move || {
+        Ok(SessionParts {
+            client: ScriptedModel {
+                deltas: deltas.clone(),
+                ..ScriptedModel::playing(
+                    vec![finishes(&deltas.concat())],
+                    Arc::new(AtomicUsize::new(0)),
+                )
+            },
+            probe: StaticProbe(true),
+            transport: CountingTransport {
+                calls: Arc::new(AtomicUsize::new(0)),
+                content: "unused".into(),
+            },
+            policy: ToolPolicy::new(Vec::new(), Vec::new()),
+            redactor: Redactor::new(secrets.clone()),
+            budget: LoopBudget::new(8, 10_000, 8),
+            ledger: Ledger::new(),
+        })
+    })
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a11_a_streaming_model_reaches_the_client_one_delta_at_a_time() {
+    let deltas = vec!["The ", "answer ", "is ", "42."];
+    let observed = Observed::default();
+
+    let stop = with_facade(
+        streaming_agent(deltas.clone(), Vec::new()),
+        Answer::Allow,
+        observed.clone(),
+        async |cx: ConnectionTo<Agent>| {
+            let session_id = open_session(&cx).await?;
+            let response = cx
+                .send_request(prompt(&session_id, "go"))
+                .block_task()
+                .await?;
+            Ok(response.stop_reason)
+        },
+    )
+    .await;
+
+    assert_eq!(stop, StopReason::EndTurn);
+    // Equality, not `len() > 1`: a fifth entry holding the whole answer would
+    // be the projection re-sending text the client already has, which is what
+    // an editor renders as the answer appearing twice.
+    assert_eq!(
+        observed.chunks(),
+        deltas,
+        "one chunk per delta, in order, and nothing after them"
+    );
+}
+
 /// The one secret this session is configured to keep out of its chain.
 const SECRET: &str = "sk-SECRET-abc123";
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a12_a_secret_in_a_streamed_delta_reaches_the_client_redacted() {
+    // The live transcript is a second path out of the process, and it does not
+    // go through the chain — so the redaction it needs is its own, applied per
+    // delta as the delta is sent.
+    let observed = Observed::default();
+
+    with_facade(
+        streaming_agent(vec!["your key ", SECRET, " is fine"], vec![SECRET.into()]),
+        Answer::Allow,
+        observed.clone(),
+        async |cx: ConnectionTo<Agent>| {
+            let session_id = open_session(&cx).await?;
+            cx.send_request(prompt(&session_id, "remind me"))
+                .block_task()
+                .await?;
+            Ok(())
+        },
+    )
+    .await;
+
+    // Per-delta equality, not a `contains` over the whole transcript: the
+    // scrubbed *concatenation* would satisfy a looser assertion while arriving
+    // in one lump after the turn, which is precisely the behaviour this slice
+    // replaces. Only the exact three entries prove the redaction happened on
+    // the streamed path.
+    assert_eq!(observed.chunks(), vec!["your key ", "***", " is fine"]);
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a10_a_secret_is_redacted_from_a_sessions_chain_and_from_the_client_transcript() {
     let observed = Observed::default();
     let agent = SkeinAgent::new(move || {
         Ok(SessionParts {
-            client: ScriptedModel {
-                script: vec![finishes(&format!("your key {SECRET} is fine"))],
-                calls: Arc::new(AtomicUsize::new(0)),
-                gate: None,
-                started: None,
-            },
+            client: ScriptedModel::playing(
+                vec![finishes(&format!("your key {SECRET} is fine"))],
+                Arc::new(AtomicUsize::new(0)),
+            ),
             probe: StaticProbe(true),
             transport: CountingTransport {
                 calls: Arc::new(AtomicUsize::new(0)),
@@ -427,12 +545,10 @@ async fn a9_a_factory_that_fails_makes_session_new_fail_and_leaves_the_connectio
             return Err(skein_core::SkeinError::Storage("the silo is locked".into()));
         }
         Ok(SessionParts {
-            client: ScriptedModel {
-                script: vec![finishes("all done")],
-                calls: Arc::new(AtomicUsize::new(0)),
-                gate: None,
-                started: None,
-            },
+            client: ScriptedModel::playing(
+                vec![finishes("all done")],
+                Arc::new(AtomicUsize::new(0)),
+            ),
             probe: StaticProbe(true),
             transport: CountingTransport {
                 calls: Arc::new(AtomicUsize::new(0)),
@@ -737,10 +853,9 @@ async fn a7_session_cancel_ends_the_run_and_reports_cancelled() {
         let (started, gate) = once.take().expect("one session only");
         Ok(SessionParts {
             client: ScriptedModel {
-                script: script.clone(),
-                calls: calls.clone(),
                 gate: Some(gate),
                 started: Some(started),
+                ..ScriptedModel::playing(script.clone(), calls.clone())
             },
             probe: StaticProbe(true),
             transport: CountingTransport {
@@ -927,12 +1042,7 @@ fn x1_cancellable_model_stops_delegating_once_the_flag_is_set() {
     let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let calls = Arc::new(AtomicUsize::new(0));
     let mut model = CancellableModel::new(
-        ScriptedModel {
-            script: vec![finishes("all done")],
-            calls: calls.clone(),
-            gate: None,
-            started: None,
-        },
+        ScriptedModel::playing(vec![finishes("all done")], calls.clone()),
         cancelled.clone(),
     );
     let req = TurnRequest {

@@ -5,7 +5,9 @@
 //! `provider_error_leaves_the_chain_verifiable` already covers. A model call
 //! already in flight completes: cancellation is not mid-turn.
 
-use skein_core::{ModelClient, Result, SkeinError, TurnRequest, TurnResponse, WireExchange};
+use skein_core::{
+    ModelClient, Result, SkeinError, TextSink, TurnRequest, TurnResponse, WireExchange,
+};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -34,5 +36,14 @@ impl<C: ModelClient> ModelClient for CancellableModel<C> {
     /// erroring — a traceability gap with nothing to notice it (Constitution V).
     fn take_wire_exchange(&mut self) -> Option<WireExchange> {
         self.inner.take_wire_exchange()
+    }
+
+    /// Forwarded for the same reason, and with a sharper consequence: the
+    /// session installs its sink *through* this decorator, so inheriting the
+    /// default would swallow it and leave the client waiting for the whole turn
+    /// — the exact defect streaming exists to remove, and one nothing would
+    /// report.
+    fn set_text_sink(&mut self, sink: Box<dyn TextSink>) {
+        self.inner.set_text_sink(sink)
     }
 }

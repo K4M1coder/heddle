@@ -11,9 +11,11 @@
 
 pub mod cancel;
 pub mod permission;
+pub mod stream;
 
 pub use cancel::CancellableModel;
 pub use permission::AcpPermissionTransport;
+pub use stream::AcpTextSink;
 
 use agent_client_protocol::schema::v1::{
     AgentCapabilities, CancelNotification, Content as ToolContent, ContentBlock, ContentChunk,
@@ -59,6 +61,10 @@ pub struct SkeinSession<C: ModelClient, P: ProgressProbe, T: ToolTransport> {
     budget: LoopBudget,
     prompts: u32,
     cancelled: Arc<AtomicBool>,
+    /// How many deltas this session's model pushed to the client during the
+    /// run that just ended. Non-zero means the transcript is already live, and
+    /// the chain-derived projection must not repeat it.
+    streamed: Arc<AtomicU64>,
 }
 
 type NativeLoop<C, P, T> =
@@ -67,6 +73,19 @@ type NativeLoop<C, P, T> =
 impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> SkeinSession<C, P, T> {
     fn new(id: SessionId, parts: SessionParts<C, P, T>, connection: ConnectionTo<Client>) -> Self {
         let cancelled = Arc::new(AtomicBool::new(false));
+        let streamed = Arc::new(AtomicU64::new(0));
+        // Installed here because this is the one place holding both the
+        // connection and the session id, and installed *through*
+        // `CancellableModel` so the decorator's forward is the path in use
+        // rather than a claim about one. A session cannot be built without a
+        // sink.
+        let mut client = CancellableModel::new(parts.client, cancelled.clone());
+        client.set_text_sink(Box::new(AcpTextSink::new(
+            connection.clone(),
+            id.clone(),
+            parts.redactor.clone(),
+            streamed.clone(),
+        )));
         // Cloned rather than split: the gateway and the loop both write into
         // this session's one chain, so they must scrub the one secret set the
         // operator configured.
@@ -77,17 +96,20 @@ impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> SkeinSession<C, P, T> {
         );
         SkeinSession {
             id,
-            engine: skein_core::NativeLoop::new(
-                CancellableModel::new(parts.client, cancelled.clone()),
-                parts.probe,
-                gateway,
-                parts.redactor,
-            ),
+            engine: skein_core::NativeLoop::new(client, parts.probe, gateway, parts.redactor),
             ledger: parts.ledger,
             budget: parts.budget,
             prompts: 0,
             cancelled,
+            streamed,
         }
+    }
+
+    /// Whether the run that just ended delivered its text live. The prompt
+    /// handler asks before projecting the chain, so a client is never told the
+    /// same words twice.
+    pub fn streamed(&self) -> bool {
+        self.streamed.load(Ordering::SeqCst) > 0
     }
 
     /// The chain every run of this session appended to, for inspection and
@@ -98,9 +120,10 @@ impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> SkeinSession<C, P, T> {
 
     /// Runs one prompt to completion and returns its run id and stop reason.
     fn run(&mut self, prompt: Message) -> Result<(String, StopReason)> {
-        // A cancellation applies to the turn it arrived during, not to the ones
-        // after it.
+        // A cancellation applies to the turn it arrived during, and a delta
+        // count to the run it was produced by; neither carries into the next.
         self.cancelled.store(false, Ordering::SeqCst);
+        self.streamed.store(0, Ordering::SeqCst);
         self.prompts += 1;
         let run_id = format!("{}#{}", self.id, self.prompts);
 
@@ -355,7 +378,20 @@ where
                             Ok((run_id, stop)) => {
                                 // Sent before the response, so a client that has
                                 // its answer has also seen the run that produced it.
+                                // `project_updates` is deliberately left
+                                // alone: it still means "the complete
+                                // chain-derived transcript", so a model that
+                                // does not stream produces exactly what it
+                                // produced before. The filter is here, at the
+                                // one call site where the two paths could
+                                // collide.
+                                let streamed = session.streamed();
                                 for update in project_updates(session.ledger(), &run_id) {
+                                    if streamed
+                                        && matches!(update, SessionUpdate::AgentMessageChunk(_))
+                                    {
+                                        continue;
+                                    }
                                     let _ = cx.send_notification(SessionNotification::new(
                                         session_id.clone(),
                                         update,
