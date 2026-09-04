@@ -184,7 +184,11 @@ model benchmark that fails on model choice.
 
 ## Risks
 
-- **Ledger payload shape changes.** `LlmRequest`/`LlmResponse` payloads gain fields. Mitigated by
+- **Ledger payload shape changes.** `LlmRequest`/`LlmResponse` payloads gain fields, and so does the
+  `ToolCall` step's: `ToolCall::id` has `#[serde(default)]` but no `skip_serializing_if`, so a call
+  made without an id records `"id":""` rather than omitting the key. That is deliberate — an id is
+  part of what was attempted, and a step that silently dropped it would be the same information loss
+  this slice exists to close, one layer down. Mitigated by
   `#[serde(default)]` + `skip_serializing_if` everywhere, so a turn with no tools serializes
   byte-identically and old chains still deserialize — the same both-directions-across-a-revert
   argument `TurnRequest::tools` already makes. `verify_chain` hashes payload strings and is

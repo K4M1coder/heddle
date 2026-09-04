@@ -69,8 +69,10 @@ byte-identical bytes on the wire and byte-identical payloads in the chain.
   turn's tool calls, each with a non-empty id.
 - **FR-002** Every tool result MUST be fed back on a message with `Role::Tool` carrying the
   `tool_call_id` of the call it answers.
-- **FR-003** `Role::Tool` MUST be unreachable except through the single constructor the loop uses;
-  no operator prompt, model output or tool body may produce one.
+- **FR-003** No *content* may produce a `Role::Tool` message: not an operator's prompt, not a
+  model's output, not a tool's body. The loop is the only producer, through one constructor. (This
+  is a claim about data, not about what a caller inside this workspace could write by hand —
+  `Message`'s fields are public, and a struct literal is code, which is reviewed.)
 - **FR-004** Every `ToolCall` leaving `skein-gateway` MUST have a non-empty id: the provider's, or a
   positionally synthesized one when the provider omits it.
 - **FR-005** Every `role:"tool"` message on the wire MUST carry a `tool_call_id` that appears in an
