@@ -135,7 +135,16 @@ slice, with a different justification. The three exits are an answer, a set flag
 | variant | means | must do |
 |---|---|---|
 | `Timeout` | nobody has answered yet — the normal case, 20 times a second, for the whole life of the dialog | continue |
-| `Disconnected` | the `Sender` is gone: the connection dropped the callback, and no answer will ever come | return the closed-connection refusal |
+| `Disconnected` | the `Sender` is gone: a callback was dropped uninvoked, and no answer will ever come | return the closed-connection refusal |
+
+**A measurement from S4 that narrows the second row.** A *closed connection* does not produce
+`Disconnected`: ACP invokes the pending callback with an `Err` instead of dropping it, so the failure
+arrives as an answer and is refused as `"acp permission request failed: …"`. `Disconnected` remains
+reachable only if a callback is dropped uninvoked, and its arm cannot be omitted regardless —
+`recv_timeout` has two error variants and this slice refuses to waive either. What the S4 control
+therefore pins is the *observable* requirement: a dead connection ends the wait promptly and is
+reported as neither cancellation. Recorded rather than quietly rewritten, because the first draft of
+FR-008 asserted the arm that S4 showed is not on that path.
 
 Written as `_ => continue`, a dead connection spins this thread forever. Written as
 `_ => Err("acp connection closed")` — the shape today's code has, because today the only error `recv`
@@ -269,8 +278,9 @@ string, two doc comments, and the tests.
   at `lib.rs:103`.
 - **S4** controls — the properties D2's loop puts at risk and nothing else would catch: a client that
   answers only after **many** poll slices, flag never set, is still honoured (FR-007 — the
-  `Disconnected`-collapse mistake); and a dropped connection is still `"acp connection closed"`
-  (FR-008 — the `Timeout`-collapse mistake would hang instead). Plus `p1`/`p2`/`p3` unmodified.
+  `Disconnected`-collapse mistake); and a connection that dies under the open question ends the wait
+  and is reported as neither cancellation (FR-008, **as corrected by its own measurement** — see
+  D2). Plus `p1`/`p2`/`p3` unmodified.
 - **S5** docs — `cancel.rs`'s module doc ("two others, all three") and `SessionParts.cancelled`'s doc
   ("three places") are both now wrong: there is a fourth reader. Not compiler-checked, and required.
 - **S6** RED-by-revert, **both directions**: remove the pre-request check and record its red; restore;
@@ -300,9 +310,10 @@ edit.
   permission request one poll slice after it is asked. It is the mistake a mechanical conversion of
   the existing line produces, and it would pass nothing: `p1` would fail. S4's slow-answer control is
   the assertion that pins it deliberately rather than incidentally.
-- **The `Timeout` collapse.** A wildcard arm continuing the loop spins forever on a dead connection.
-  S4's dropped-connection control catches it — and would *hang* rather than fail without S1's bound,
-  which is a second reason S1 comes first.
+- **The `Timeout` collapse.** A wildcard arm continuing the loop spins forever on a `Disconnected`
+  channel. S4's measurement showed a *closed connection* is not that channel state, so this risk is
+  now guarded only by the compiler's exhaustiveness — which is precisely why no `_` arm exists to
+  waive it. Recorded as a residual in `tasks.md` rather than claimed as tested.
 - **A red that is a hang.** S1 before S2, non-negotiable, and FR-011 states it as a requirement of
   the suite rather than as a convention of this slice.
 - **The flag not being reset.** Unchanged and not this slice's: `SkeinSession::run` already clears it

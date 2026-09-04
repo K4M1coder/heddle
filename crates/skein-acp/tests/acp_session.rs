@@ -2,8 +2,8 @@
 //! transport, driving the existing governed loop.
 
 use agent_client_protocol::schema::v1::{
-    ContentBlock, InitializeRequest, NewSessionRequest, PermissionOptionKind, PromptRequest,
-    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
+    ContentBlock, InitializeRequest, NewSessionRequest, PermissionOptionId, PermissionOptionKind,
+    PromptRequest, RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
     SelectedPermissionOutcome, SessionId, SessionNotification, SessionUpdate, StopReason,
     TextContent, ToolCallStatus,
 };
@@ -16,7 +16,7 @@ use skein_core::{
     ToolTransport, TurnRequest, TurnResponse,
 };
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
@@ -1013,132 +1013,319 @@ async fn a13_a_cancel_arriving_mid_stream_ends_the_turn_and_reports_cancelled() 
 // Unit level.
 // ---------------------------------------------------------------------------
 
-/// Drives `AcpPermissionTransport::call` directly against a real ACP client
-/// that answers with `outcome`.
-///
-/// Every wait here is bounded. A permission request is the one wait in the
-/// product with no deadline of its own, so a client that never answers one
-/// must fail this harness as a failure rather than hang the test binary.
-async fn ask_permission(
-    outcome: PermissionOutcome,
-    tool_calls: Arc<AtomicUsize>,
-) -> Result<ToolOutcome> {
-    let (agent_side, client_side) = tokio::io::duplex(65536);
-    let (agent_read, agent_write) = tokio::io::split(agent_side);
-    let (client_read, client_write) = tokio::io::split(client_side);
+/// The refusal a session cancellation produces. Deliberately **not** the
+/// sentence ACP's own `Cancelled` outcome produces: a chain reader has to be
+/// able to tell "the client withdrew the question" from "the session ended
+/// while the question was open".
+const SESSION_CANCELLED: &str = "session cancelled while awaiting acp permission";
 
-    let client = tokio::spawn(async move {
-        Client
-            .builder()
-            .on_receive_request(
-                async move |request: RequestPermissionRequest, responder, _cx| {
-                    let response = match outcome {
-                        PermissionOutcome::Cancelled => {
-                            RequestPermissionResponse::new(RequestPermissionOutcome::Cancelled)
-                        }
-                        PermissionOutcome::Selected(kind) => {
-                            let option = request
-                                .options
-                                .iter()
-                                .find(|o| o.kind == kind)
-                                .expect("the option kind is offered");
-                            RequestPermissionResponse::new(RequestPermissionOutcome::Selected(
-                                SelectedPermissionOutcome::new(option.option_id.clone()),
-                            ))
-                        }
-                    };
-                    responder.respond(response)
-                },
-                agent_client_protocol::on_receive_request!(),
-            )
-            .connect_to(ByteStreams::new(
-                client_write.compat_write(),
-                client_read.compat(),
-            ))
-            .await
-    });
+/// `permission.rs` polls the answer channel every 50 ms. Twenty slices of
+/// slack for a loaded runner, and still two orders of magnitude below the
+/// unbounded wait this slice removed.
+const CANCEL_LATENCY: Duration = Duration::from_secs(1);
 
-    let agent_side = Agent.builder().connect_with(
-        ByteStreams::new(agent_write.compat_write(), agent_read.compat()),
-        async |cx: ConnectionTo<Client>| {
-            let (tx, rx) = std::sync::mpsc::channel();
-            std::thread::spawn(move || {
-                let mut transport = skein_acp::AcpPermissionTransport::new(
-                    CountingTransport {
-                        calls: tool_calls,
-                        content: "file contents".into(),
-                    },
-                    cx,
-                    SessionId::new("unit"),
-                );
-                let _ = tx.send(transport.call(&ToolCall::new("read_file", serde_json::json!({}))));
-            });
-            Ok(
-                tokio::task::spawn_blocking(move || rx.recv_timeout(OBSERVE_TIMEOUT))
-                    .await
-                    .expect("join"),
-            )
-        },
-    );
-
-    // Two bounds, and the outer one is the looser of the two so that a `call`
-    // which never returns is reported by the inner bound, which knows what was
-    // being waited for. The outer catches the connection future itself wedging.
-    let called = tokio::time::timeout(2 * OBSERVE_TIMEOUT, agent_side)
-        .await
-        .expect("the agent side finished")
-        .expect("the agent side ran");
-
-    client.abort();
-    called.expect("`AcpPermissionTransport::call` returned")
+/// What the scripted client does with the one permission request it receives.
+#[derive(Clone, Copy)]
+enum ClientScript {
+    Selected(PermissionOptionKind),
+    /// ACP's own outcome: the client withdraws the question itself.
+    Cancelled,
+    /// Answers `allow-once`, but only after many poll slices have passed — a
+    /// person who reads the question before agreeing to it.
+    AllowsAfter(Duration),
+    /// Receives the request and never answers it — which is what a person
+    /// staring at an open dialog looks like from the agent's side.
+    NeverAnswers,
+    /// Never answers, and closes the connection once the request has arrived.
+    ClosesTheConnection,
+    /// Never answers, and cancels the session the moment the request arrives,
+    /// so the cancellation is triggered by delivery rather than by a guess
+    /// about timing.
+    CancelsTheSession,
 }
 
-#[derive(Clone, Copy)]
-enum PermissionOutcome {
-    Selected(PermissionOptionKind),
-    Cancelled,
+/// One direct drive of `AcpPermissionTransport::call` against a real ACP
+/// client, and the two counters the agent side cannot observe for itself.
+struct Asked {
+    script: ClientScript,
+    /// The flag the transport is built with — this session's, in production.
+    /// A test sets it before [`Asked::call`] to model a session already
+    /// cancelled when the tool call reached the gate; `CancelsTheSession` has
+    /// the client set it to model one cancelled while the request is open.
+    cancelled: Arc<AtomicBool>,
+    tool_calls: Arc<AtomicUsize>,
+    requests: Arc<AtomicUsize>,
+}
+
+impl Asked {
+    fn new(script: ClientScript) -> Asked {
+        Asked {
+            script,
+            cancelled: Arc::new(AtomicBool::new(false)),
+            tool_calls: Arc::new(AtomicUsize::new(0)),
+            requests: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    /// Ground truth for "did the tool actually run".
+    fn tool_calls(&self) -> usize {
+        self.tool_calls.load(Ordering::SeqCst)
+    }
+
+    /// Ground truth for "was the client asked at all".
+    fn requests(&self) -> usize {
+        self.requests.load(Ordering::SeqCst)
+    }
+
+    /// Drives one `AcpPermissionTransport::call` to completion.
+    ///
+    /// Every wait here is bounded. A permission request is the one wait in the
+    /// product with no deadline of its own, so a client that never answers one
+    /// must fail this harness as a failure rather than hang the test binary.
+    async fn call(&self) -> Result<ToolOutcome> {
+        let (agent_side, client_side) = tokio::io::duplex(65536);
+        let (agent_read, agent_write) = tokio::io::split(agent_side);
+        let (client_read, client_write) = tokio::io::split(client_side);
+
+        let script = self.script;
+        let asked = self.requests.clone();
+        let arrived = self.requests.clone();
+        let cancels = self.cancelled.clone();
+        let client = tokio::spawn(async move {
+            Client
+                .builder()
+                .on_receive_request(
+                    async move |request: RequestPermissionRequest, responder, _cx| {
+                        asked.fetch_add(1, Ordering::SeqCst);
+                        let answer = match script {
+                            ClientScript::Selected(kind) => {
+                                Some(RequestPermissionOutcome::Selected(
+                                    SelectedPermissionOutcome::new(offered(&request, kind)),
+                                ))
+                            }
+                            ClientScript::Cancelled => Some(RequestPermissionOutcome::Cancelled),
+                            ClientScript::AllowsAfter(delay) => {
+                                tokio::time::sleep(delay).await;
+                                Some(RequestPermissionOutcome::Selected(
+                                    SelectedPermissionOutcome::new(offered(
+                                        &request,
+                                        PermissionOptionKind::AllowOnce,
+                                    )),
+                                ))
+                            }
+                            ClientScript::CancelsTheSession => {
+                                cancels.store(true, Ordering::SeqCst);
+                                None
+                            }
+                            ClientScript::NeverAnswers | ClientScript::ClosesTheConnection => None,
+                        };
+                        match answer {
+                            Some(outcome) => {
+                                responder.respond(RequestPermissionResponse::new(outcome))
+                            }
+                            // Dropped unanswered: the question is in front of a
+                            // person and stays there.
+                            None => Ok(()),
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .connect_with(
+                    ByteStreams::new(client_write.compat_write(), client_read.compat()),
+                    async move |_cx| {
+                        // The client's connection closes when this returns.
+                        // `ClosesTheConnection` is the one script that wants
+                        // that, and only once the question has arrived; every
+                        // other script must outlive the agent's call and is
+                        // ended by the abort below.
+                        if matches!(script, ClientScript::ClosesTheConnection) {
+                            while arrived.load(Ordering::SeqCst) == 0 {
+                                tokio::time::sleep(Duration::from_millis(5)).await;
+                            }
+                            return Ok(());
+                        }
+                        std::future::pending().await
+                    },
+                )
+                .await
+        });
+
+        let tool_calls = self.tool_calls.clone();
+        let cancelled = self.cancelled.clone();
+        let agent_side = Agent.builder().connect_with(
+            ByteStreams::new(agent_write.compat_write(), agent_read.compat()),
+            async |cx: ConnectionTo<Client>| {
+                let (tx, rx) = std::sync::mpsc::channel();
+                std::thread::spawn(move || {
+                    let mut transport = skein_acp::AcpPermissionTransport::new(
+                        CountingTransport {
+                            calls: tool_calls,
+                            content: "file contents".into(),
+                        },
+                        cx,
+                        SessionId::new("unit"),
+                        cancelled,
+                    );
+                    let _ =
+                        tx.send(transport.call(&ToolCall::new("read_file", serde_json::json!({}))));
+                });
+                Ok(
+                    tokio::task::spawn_blocking(move || rx.recv_timeout(OBSERVE_TIMEOUT))
+                        .await
+                        .expect("join"),
+                )
+            },
+        );
+
+        // Two bounds, and the outer one is the looser of the two so that a
+        // `call` which never returns is reported by the inner bound, which
+        // knows what was being waited for. The outer catches the connection
+        // future itself wedging.
+        let called = tokio::time::timeout(2 * OBSERVE_TIMEOUT, agent_side)
+            .await
+            .expect("the agent side finished")
+            .expect("the agent side ran");
+
+        client.abort();
+        called.expect("`AcpPermissionTransport::call` returned")
+    }
+}
+
+/// The option id the facade offered for `kind`, which is the whole of what a
+/// client is allowed to answer with.
+fn offered(request: &RequestPermissionRequest, kind: PermissionOptionKind) -> PermissionOptionId {
+    request
+        .options
+        .iter()
+        .find(|o| o.kind == kind)
+        .expect("the option kind is offered")
+        .option_id
+        .clone()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn p1_an_allow_answer_reaches_the_inner_transport() {
-    let calls = Arc::new(AtomicUsize::new(0));
-    let outcome = ask_permission(
-        PermissionOutcome::Selected(PermissionOptionKind::AllowOnce),
-        calls.clone(),
-    )
-    .await
-    .expect("the call was allowed");
+    let asked = Asked::new(ClientScript::Selected(PermissionOptionKind::AllowOnce));
+    let outcome = asked.call().await.expect("the call was allowed");
     assert_eq!(outcome.content, "file contents");
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(asked.tool_calls(), 1);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn p2_a_reject_answer_denies_without_reaching_the_transport() {
-    let calls = Arc::new(AtomicUsize::new(0));
-    let error = ask_permission(
-        PermissionOutcome::Selected(PermissionOptionKind::RejectOnce),
-        calls.clone(),
-    )
-    .await
-    .expect_err("the call was declined");
+    let asked = Asked::new(ClientScript::Selected(PermissionOptionKind::RejectOnce));
+    let error = asked.call().await.expect_err("the call was declined");
     assert!(
-        matches!(&error, skein_core::SkeinError::ToolDenied { tool, .. } if tool == "read_file"),
+        matches!(&error, SkeinError::ToolDenied { tool, .. } if tool == "read_file"),
         "expected ToolDenied, got {error:?}"
     );
-    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert_eq!(asked.tool_calls(), 0);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn p3_a_cancelled_answer_denies_without_reaching_the_transport() {
-    let calls = Arc::new(AtomicUsize::new(0));
-    let error = ask_permission(PermissionOutcome::Cancelled, calls.clone())
-        .await
-        .expect_err("the request was cancelled");
+    let asked = Asked::new(ClientScript::Cancelled);
+    let error = asked.call().await.expect_err("the request was cancelled");
+    // The client's own outcome, and it keeps its own sentence: this is the
+    // string `SESSION_CANCELLED` must not collide with.
     assert!(
-        matches!(&error, skein_core::SkeinError::ToolDenied { tool, .. } if tool == "read_file"),
-        "expected ToolDenied, got {error:?}"
+        matches!(&error, SkeinError::ToolDenied { tool, reason }
+            if tool == "read_file" && reason == "acp permission request cancelled"),
+        "expected the client-cancelled refusal, got {error:?}"
     );
-    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert_eq!(asked.tool_calls(), 0);
+}
+
+/// The slice's reason to exist: the client is asked, never answers, and the
+/// session is cancelled under the open question.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn p5_a_session_cancelled_while_the_request_is_outstanding_denies_the_call() {
+    let asked = Asked::new(ClientScript::CancelsTheSession);
+    let started = std::time::Instant::now();
+    let error = asked.call().await.expect_err("the session was cancelled");
+    let waited = started.elapsed();
+
+    assert_eq!(asked.requests(), 1, "the client was asked");
+    assert_eq!(asked.tool_calls(), 0, "the tool did not run");
+    assert!(
+        matches!(&error, SkeinError::ToolDenied { tool, reason }
+            if tool == "read_file" && reason == SESSION_CANCELLED),
+        "expected the session-cancelled refusal, got {error:?}"
+    );
+    // On the flag, not on a deadline: nothing else could have ended this wait,
+    // because the client never answered and never closed the connection.
+    assert!(
+        waited < CANCEL_LATENCY,
+        "the call was refused in {waited:?}, expected under {CANCEL_LATENCY:?}"
+    );
+}
+
+/// D2's `Disconnected`-collapse control. The wait must survive many poll
+/// slices with nothing to report: a wildcard arm returning the
+/// closed-connection refusal — which is what the untimed `recv()` this loop
+/// replaced turns into if it is converted mechanically — would refuse every
+/// permission request in the product 50 ms after it was asked, and no other
+/// test in the suite waits long enough to notice.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn p7_an_answer_given_after_many_poll_slices_is_still_honoured() {
+    let asked = Asked::new(ClientScript::AllowsAfter(Duration::from_millis(600)));
+    let outcome = asked.call().await.expect("the late answer was honoured");
+    assert_eq!(outcome.content, "file contents");
+    assert_eq!(asked.tool_calls(), 1);
+}
+
+/// A connection that dies under the open question must end the wait, and be
+/// reported as neither of the two cancellations.
+///
+/// **Measured, not assumed:** ACP does not drop a pending
+/// `on_receiving_result` callback when the transport closes — it *invokes* it
+/// with an `Err`. So this arrives down the answer channel as an answer, and the
+/// refusal names the transport. `RecvTimeoutError::Disconnected` is therefore
+/// not the path a closed connection takes; it is reachable only if a callback
+/// is dropped uninvoked, which nothing in this suite can provoke. The arm
+/// still cannot be omitted — `recv_timeout` has two error variants — and it
+/// keeps the message it had before this slice.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn p8_a_connection_that_closes_under_the_question_ends_the_wait() {
+    let asked = Asked::new(ClientScript::ClosesTheConnection);
+    let error = asked.call().await.expect_err("the connection closed");
+    assert_eq!(asked.requests(), 1, "the client was asked");
+    assert_eq!(asked.tool_calls(), 0, "the tool did not run");
+    let SkeinError::Tool(message) = &error else {
+        panic!("expected a transport failure, got {error:?}");
+    };
+    assert!(
+        message.starts_with("acp permission request failed:"),
+        "expected the transport's own words, got {message:?}"
+    );
+    // Neither cancellation: the session was never cancelled, and the client
+    // never withdrew the question.
+    assert!(
+        !message.contains("cancelled"),
+        "a dead connection was reported as a cancellation: {message:?}"
+    );
+}
+
+/// The other half of D4, and the one the in-loop check cannot cover: a session
+/// already cancelled must not put a question in front of a person at all.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn p6_a_session_cancelled_before_the_call_never_asks_the_client() {
+    let asked = Asked::new(ClientScript::NeverAnswers);
+    asked.cancelled.store(true, Ordering::SeqCst);
+
+    let error = asked.call().await.expect_err("the session was cancelled");
+
+    assert_eq!(
+        asked.requests(),
+        0,
+        "a cancelled session raised a permission request anyway"
+    );
+    assert_eq!(asked.tool_calls(), 0, "the tool did not run");
+    assert!(
+        matches!(&error, SkeinError::ToolDenied { tool, reason }
+            if tool == "read_file" && reason == SESSION_CANCELLED),
+        "expected the session-cancelled refusal, got {error:?}"
+    );
 }
 
 #[test]
@@ -1310,6 +1497,9 @@ async fn list_through_permission(asked: Arc<AtomicUsize>) -> Result<Vec<ToolSpec
                         ]),
                         cx,
                         SessionId::new("unit"),
+                        // `list` asks no permission, so it has no wait to
+                        // cancel. A never-set flag says that in the wiring.
+                        Arc::new(AtomicBool::new(false)),
                     );
                     let _ = tx.send(transport.list());
                 });

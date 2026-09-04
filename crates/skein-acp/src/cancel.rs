@@ -5,18 +5,26 @@
 //! `provider_error_leaves_the_chain_verifiable` already covers.
 //!
 //! This is the reader that applies to a turn which has not started. There are
-//! two others, all three on the **one** flag `SessionParts` carries:
+//! three others, all four on the **one** flag `SessionParts` carries:
 //! [`AcpTextSink::wants_more`], which the model's own producer asks per line of
 //! a stream, so a cancellation arriving mid-answer does not wait for that answer
-//! to finish; and `skein-sandbox`'s launcher, which polls it while a `proc_run`
+//! to finish; `skein-sandbox`'s launcher, which polls it while a `proc_run`
 //! child is executing, so a cancellation arriving mid-tool does not wait for
-//! that tool's timeout.
+//! that tool's timeout; and [`AcpPermissionTransport`], which polls it while a
+//! permission request is outstanding, so a cancellation arriving while the
+//! question is open does not wait for a person to answer it.
 //!
-//! The third one is why the flag is supplied to a session rather than minted by
-//! it: the tool transport is built from the same `Arc`, by the same caller, in
-//! the frame before the session exists.
+//! The last of those is the only wait among the four with no deadline of its
+//! own. The other three are bounded by a turn, a stream and `RUN_TIMEOUT`; a
+//! person deciding is bounded by nothing, which is why the flag is that wait's
+//! only exit other than the answer itself.
+//!
+//! `skein-sandbox`'s launcher is why the flag is supplied to a session rather
+//! than minted by it: the tool transport is built from the same `Arc`, by the
+//! same caller, in the frame before the session exists.
 //!
 //! [`AcpTextSink::wants_more`]: crate::AcpTextSink
+//! [`AcpPermissionTransport`]: crate::AcpPermissionTransport
 
 use skein_core::{
     ModelClient, Result, SkeinError, TextSink, TurnRequest, TurnResponse, WireExchange,

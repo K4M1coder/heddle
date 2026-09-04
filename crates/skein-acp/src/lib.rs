@@ -50,11 +50,12 @@ pub struct SessionParts<C, P, T> {
     /// This session's cancellation flag, **supplied rather than minted**.
     ///
     /// The session sets it from `session/cancel`, resets it per run, and reads
-    /// it from three places: before a turn, per line of a stream, and — since
-    /// the caller holds the same `Arc` — inside a tool call already in flight.
-    /// That last one is why it is injected: `transport` is built by the same
-    /// caller in the same frame, and a process launcher can only be stopped by
-    /// a flag it was given before the session existed.
+    /// it from four places: before a turn, per line of a stream, while a
+    /// permission request is outstanding, and — since the caller holds the same
+    /// `Arc` — inside a tool call already in flight. That last one is why it is
+    /// injected: `transport` is built by the same caller in the same frame, and
+    /// a process launcher can only be stopped by a flag it was given before the
+    /// session existed.
     pub cancelled: Arc<AtomicBool>,
 }
 
@@ -100,7 +101,7 @@ impl<C: ModelClient, P: ProgressProbe, T: ToolTransport> SkeinSession<C, P, T> {
         // this session's one chain, so they must scrub the one secret set the
         // operator configured.
         let gateway = ToolGateway::new(
-            AcpPermissionTransport::new(parts.transport, connection, id.clone()),
+            AcpPermissionTransport::new(parts.transport, connection, id.clone(), cancelled.clone()),
             parts.policy,
             parts.redactor.clone(),
         );

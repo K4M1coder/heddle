@@ -5,6 +5,12 @@
 //! `call_captured` has already consulted [`skein_core::ToolPolicy`] by the time
 //! `call` runs. A tool the policy refuses never becomes a permission request:
 //! the client can only further restrict, never widen (Constitution VI).
+//!
+//! This is the fourth reader of the session's cancellation flag, and the only
+//! wait in the product with no deadline of its own: the others are bounded by a
+//! turn, a stream, or `RUN_TIMEOUT`, while this one is bounded by a person
+//! deciding. It is therefore the one wait where the flag is the *only* way out
+//! other than the answer itself.
 
 use agent_client_protocol::schema::v1::{
     PermissionOption, PermissionOptionId, PermissionOptionKind, RequestPermissionOutcome,
@@ -12,30 +18,72 @@ use agent_client_protocol::schema::v1::{
 };
 use agent_client_protocol::{Client, ConnectionTo};
 use skein_core::{Result, SkeinError, ToolCall, ToolOutcome, ToolSpec, ToolTransport};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::RecvTimeoutError;
+use std::sync::Arc;
+use std::time::Duration;
 
 const ALLOW_ONCE: &str = "skein.allow-once";
 const REJECT_ONCE: &str = "skein.reject-once";
+
+/// How often the wait for an answer looks at the cancellation flag. The same
+/// slice `skein-sandbox`'s launcher polls its copy of the same flag at, for the
+/// same trade: below what a person holding a stop button notices, and one
+/// atomic load per slice on a thread whose only other activity is being blocked.
+const POLL_SLICE: Duration = Duration::from_millis(50);
 
 pub struct AcpPermissionTransport<T: ToolTransport> {
     inner: T,
     connection: ConnectionTo<Client>,
     session_id: SessionId,
+    cancelled: Arc<AtomicBool>,
+}
+
+/// How a wait for permission ended.
+///
+/// `RequestPermissionOutcome` cannot express the second case: it is the
+/// vocabulary for what a client *answered*, and its own `Cancelled` variant
+/// already means something else — the client withdrawing its own question.
+enum Answer {
+    Client(RequestPermissionOutcome),
+    /// The session was cancelled while the question was open, or before it was
+    /// asked. Any answer given later is dropped with the channel.
+    SessionCancelled,
 }
 
 impl<T: ToolTransport> AcpPermissionTransport<T> {
-    pub fn new(inner: T, connection: ConnectionTo<Client>, session_id: SessionId) -> Self {
+    pub fn new(
+        inner: T,
+        connection: ConnectionTo<Client>,
+        session_id: SessionId,
+        cancelled: Arc<AtomicBool>,
+    ) -> Self {
         AcpPermissionTransport {
             inner,
             connection,
             session_id,
+            cancelled,
         }
     }
 
-    /// Blocks this thread until the client answers. Legal because
-    /// `send_request` is a synchronous `&self` method and `on_receiving_result`
-    /// registers a callback rather than awaiting one: the connection's dispatch
-    /// task stays free to deliver the answer.
-    fn ask(&self, tool: &str) -> Result<RequestPermissionOutcome> {
+    /// Blocks this thread until the client answers, the session is cancelled,
+    /// or the connection closes. Legal because `send_request` is a synchronous
+    /// `&self` method and `on_receiving_result` registers a callback rather
+    /// than awaiting one: the connection's dispatch task stays free to deliver
+    /// the answer.
+    ///
+    /// **There is no deadline, and that is a decision.** A person may take
+    /// minutes over one of these questions. A clock on that decision would
+    /// refuse tool calls nobody cancelled, and would need a configuration
+    /// surface to be defensible.
+    fn ask(&self, tool: &str) -> Result<Answer> {
+        // Before the request, so a session that is already over does not put a
+        // question in front of a person only to withdraw it a poll later. The
+        // check inside the loop cannot do this one's job, and vice versa.
+        if self.cancelled.load(Ordering::SeqCst) {
+            return Ok(Answer::SessionCancelled);
+        }
+
         let (tx, rx) = std::sync::mpsc::channel();
         self.connection
             .send_request(RequestPermissionRequest::new(
@@ -66,9 +114,33 @@ impl<T: ToolTransport> AcpPermissionTransport<T> {
             })
             .map_err(|e| SkeinError::Tool(format!("acp permission request failed: {e}")))?;
 
-        rx.recv()
-            .map_err(|_| SkeinError::Tool("acp connection closed".into()))?
-            .map_err(|e| SkeinError::Tool(format!("acp permission request failed: {e}")))
+        loop {
+            if self.cancelled.load(Ordering::SeqCst) {
+                return Ok(Answer::SessionCancelled);
+            }
+            match rx.recv_timeout(POLL_SLICE) {
+                Ok(answered) => {
+                    return answered.map(Answer::Client).map_err(|e| {
+                        SkeinError::Tool(format!("acp permission request failed: {e}"))
+                    })
+                }
+                // Nobody has answered yet: the normal case, twenty times a
+                // second, for the whole life of the question.
+                Err(RecvTimeoutError::Timeout) => continue,
+                // The `Sender` went with the connection's callback, so no
+                // answer is ever coming.
+                //
+                // Both arms are written out and there is no `_`, because the
+                // two variants mean opposite things and a wildcard silently
+                // picks one of two bugs: folded into `Timeout`'s arm, a dead
+                // connection spins this thread forever; folded into this one,
+                // every permission request in the product is refused 50 ms
+                // after it is asked.
+                Err(RecvTimeoutError::Disconnected) => {
+                    return Err(SkeinError::Tool("acp connection closed".into()))
+                }
+            }
+        }
     }
 }
 
@@ -79,16 +151,24 @@ impl<T: ToolTransport> ToolTransport for AcpPermissionTransport<T> {
             reason,
         };
         match self.ask(&call.tool)? {
-            RequestPermissionOutcome::Selected(selected)
+            Answer::Client(RequestPermissionOutcome::Selected(selected))
                 if selected.option_id.0.as_ref() == ALLOW_ONCE =>
             {
                 self.inner.call(call)
             }
-            RequestPermissionOutcome::Selected(selected) => Err(denied(format!(
+            Answer::Client(RequestPermissionOutcome::Selected(selected)) => Err(denied(format!(
                 "acp client declined permission ({})",
                 selected.option_id
             ))),
-            _ => Err(denied("acp permission request cancelled".into())),
+            Answer::Client(_) => Err(denied("acp permission request cancelled".into())),
+            // Deliberately not the sentence above. That one is a client
+            // withdrawing its own question; this one is the session ending
+            // while the question was open. They land on the chain as the same
+            // shape, and a reader has to be able to tell whose behaviour to go
+            // and look at.
+            Answer::SessionCancelled => Err(denied(
+                "session cancelled while awaiting acp permission".into(),
+            )),
         }
     }
 

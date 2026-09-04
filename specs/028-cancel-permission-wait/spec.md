@@ -31,8 +31,9 @@ take minutes to read one, and this slice does not put a clock on that decision �
 out of it.
 
 **Nothing else about a permission answer changes.** Allow still allows, reject still rejects, a
-client-side `Cancelled` outcome still refuses with the sentence it always did, and a closed
-connection is still reported as a closed connection. A run nobody cancels behaves exactly as before.
+client-side `Cancelled` outcome still refuses with the sentence it always did, and a connection that
+dies under an open question is still refused in the transport's own words. A run nobody cancels
+behaves exactly as before.
 
 ## Four things a reader must know up front
 
@@ -41,9 +42,10 @@ connection is still reported as a closed connection. A run nobody cancels behave
    over by `SkeinSession::new`, which is the one frame that already holds both. No new port, no new
    channel, no widening of `ToolTransport`, and nothing new for `skein-cli` to wire.
 2. **The blocking `recv()` becomes a polled `recv_timeout` loop with no overall deadline.** The only
-   three ways out are an answer, a set flag, and a disconnected channel. `RecvTimeoutError` is
-   matched **exhaustively**: `Timeout` continues the loop and `Disconnected` ends it. There is no
-   wildcard arm, because the one that would be written by habit collapses two opposite meanings.
+   three ways out are an answer — including the error ACP delivers *as* an answer when the transport
+   dies — a set flag, and a disconnected channel. `RecvTimeoutError` is matched **exhaustively**:
+   `Timeout` continues the loop and `Disconnected` ends it. There is no wildcard arm, because the one
+   that would be written by habit collapses two opposite meanings.
 3. **A cancelled wait is a `ToolDenied`, and it says which of the two cancellations happened.** ACP
    already has a `RequestPermissionOutcome::Cancelled` — *the client* withdrew the question — which
    refuses with `"acp permission request cancelled"`. This slice's refusal is a different fact — *the
@@ -67,8 +69,15 @@ connection is still reported as a closed connection. A run nobody cancels behave
 - **FR-006** The inner transport MUST NOT be reached in either case.
 - **FR-007** There MUST be no overall deadline on a permission request. A client that answers after
   many poll slices, with the flag never set, MUST still have its answer honoured.
-- **FR-008** A closed connection MUST still be reported as `"acp connection closed"`, distinct from
-  both cancellations.
+- **FR-008** A connection that closes with a question outstanding MUST end the wait and MUST be
+  reported as a transport failure, distinct from **both** cancellations. *Measured during S4, and it
+  corrected this requirement's first draft:* ACP **invokes** a pending `on_receiving_result` callback
+  with an `Err` when the transport closes rather than dropping it, so a dead connection arrives down
+  the answer channel as an answer and is refused as `"acp permission request failed: …"`.
+  `RecvTimeoutError::Disconnected` is therefore not the path a closed connection takes — it is
+  reachable only if a callback is dropped uninvoked. Its arm keeps the `"acp connection closed"`
+  message it had before this slice and cannot be omitted, because `recv_timeout` has two error
+  variants.
 - **FR-009** The three existing answer paths — allow, reject, and the client's own `Cancelled`
   outcome — MUST be unchanged in behaviour and in message.
 - **FR-010** The three existing cancellation readers MUST be unchanged: `CancellableModel`'s pre-turn
