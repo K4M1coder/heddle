@@ -116,8 +116,10 @@ Note "GET $providerRoot/api/tags"
 try {
   $tags = Invoke-RestMethod -Uri "$providerRoot/api/tags" -TimeoutSec 5
 } catch {
-  # Deliberately not $_.Exception.Message: against a port nothing is listening
-  # on, Invoke-RestMethod reports an HttpClient timeout it never waited out.
+  # Deliberately not $_.Exception.Message. Against a refused port that text
+  # arrives in the OS display language — measured French on this machine, in a
+  # project whose content is English — and at a shorter timeout it has been
+  # measured to blame an HttpClient timeout for a connection refused instantly.
   Fail "nothing answered at $providerRoot. Skein only ever talks to a provider on this machine over http, so this has to be a local one: start it with 'ollama serve' (install with 'winget install --id Ollama.Ollama -e'), or point elsewhere with -BaseUrl."
 }
 
