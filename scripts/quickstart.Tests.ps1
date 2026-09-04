@@ -1,19 +1,58 @@
-# Pester tests for the placement logic in quickstart.ps1.
+# Pester tests for the pure logic in quickstart.ps1: where it points the agent,
+# which model it picks, and which provider it probes.
 #   Install-Module Pester -MinimumVersion 5.0 -Scope CurrentUser
 #   Invoke-Pester -Path scripts/quickstart.Tests.ps1
 #
-# quickstart.ps1 ships as a single file inside the bundle, so the function under
+# quickstart.ps1 ships as a single file inside the bundle, so the functions under
 # test cannot live in a module beside it and the script cannot be dot-sourced
-# without running the whole demo. The definition is lifted out of the real file
-# by the parser instead, which keeps the test honest about what is shipped.
+# without running the whole demo. The definitions are lifted out of the real file
+# by the parser instead, which keeps the tests honest about what is shipped.
 BeforeAll {
   $quickstart = Join-Path $PSScriptRoot 'quickstart.ps1'
   $ast = [System.Management.Automation.Language.Parser]::ParseFile($quickstart, [ref]$null, [ref]$null)
-  $definition = $ast.Find(
-    { param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Resolve-Placement' },
-    $true)
-  if (-not $definition) { throw "quickstart.ps1 defines no Resolve-Placement function" }
-  . ([scriptblock]::Create($definition.Extent.Text))
+  foreach ($name in 'Resolve-Placement', 'Get-ParameterBillions') {
+    $definition = $ast.Find(
+      { param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name },
+      $true)
+    if (-not $definition) { throw "quickstart.ps1 defines no $name function" }
+    . ([scriptblock]::Create($definition.Extent.Text))
+  }
+
+  # The local-provider default is four inline lines rather than a function, so
+  # what gets lifted is the pair of literals it is built from: the environment
+  # variable it reads and the string it falls back to. Both are pulled from the
+  # one assignment that establishes the default, so moving that assignment is a
+  # loud failure here rather than a quiet one.
+  $baseUrlDefault = @($ast.FindAll(
+    { param($node)
+      $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+      $node.Left.Extent.Text -eq '$BaseUrl' },
+    $true))
+  if ($baseUrlDefault.Count -ne 1) {
+    throw "quickstart.ps1 assigns `$BaseUrl $($baseUrlDefault.Count) times; this test lifts its default from exactly one"
+  }
+  $script:quickstartEnvVars = @($baseUrlDefault[0].Right.FindAll(
+      { param($node)
+        $node -is [System.Management.Automation.Language.VariableExpressionAst] -and
+        $node.VariablePath.DriveName -eq 'env' },
+      $true) |
+    ForEach-Object { $_.VariablePath.UserPath -replace '^env:', '' } |
+    Select-Object -Unique)
+  $script:quickstartBaseUrls = @($baseUrlDefault[0].Right.FindAll(
+      { param($node) $node -is [System.Management.Automation.Language.StringConstantExpressionAst] },
+      $true) |
+    ForEach-Object { $_.Value } |
+    Select-Object -Unique)
+
+  # Rust has no parser to reach for here, so the owning side is lifted by
+  # regex. Every match is collected rather than the first taken: a second
+  # environment variable or a second constant in wiring.rs would make a
+  # first-match lift quietly test the wrong one.
+  $wiring = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '../crates/skein-cli/src/wiring.rs')
+  $script:wiringEnvVars = @([regex]::Matches($wiring, 'std::env::var\("([^"]+)"\)') |
+    ForEach-Object { $_.Groups[1].Value })
+  $script:wiringBaseUrls = @([regex]::Matches($wiring, 'const DEFAULT_BASE_URL: &str = "([^"]+)"') |
+    ForEach-Object { $_.Groups[1].Value })
 }
 
 Describe 'Resolve-Placement' {
@@ -69,5 +108,34 @@ Describe 'Resolve-Placement' {
     }
 
     $placement.FsRoot | Should -Be (Resolve-Path -LiteralPath $script:bundleDir).Path
+  }
+}
+
+Describe 'Get-ParameterBillions' {
+  It 'orders by ascending billions, converting M to B, and sorts unparseable last' {
+    $sizes = '27.3B', '500M', 'bogus', '8.0B'
+
+    $ordered = $sizes | Sort-Object { Get-ParameterBillions $_ }
+
+    $ordered | Should -Be @('500M', '8.0B', '27.3B', 'bogus')
+  }
+
+  It 'reads M as thousandths of a B and gives an unreadable size no size at all' {
+    Get-ParameterBillions '8.0B' | Should -Be 8.0
+    Get-ParameterBillions '500M' | Should -Be 0.5
+    Get-ParameterBillions 'bogus' | Should -Be ([double]::PositiveInfinity)
+  }
+}
+
+Describe 'the local-provider default' {
+  # quickstart.ps1 probes the endpoint `skein chat` will reach for when the
+  # operator passes neither -BaseUrl nor the environment variable, and it names
+  # that endpoint in literals of its own. wiring.rs owns them; this is the only
+  # thing crossing the Rust/PowerShell boundary, so without it a rename or a
+  # second local-provider default diverges in silence and the probe checks a
+  # provider the CLI will not use.
+  It 'names the same environment variable and fallback URL as ModelArgs::endpoint' {
+    $script:quickstartEnvVars | Should -Be $script:wiringEnvVars
+    $script:quickstartBaseUrls | Should -Be $script:wiringBaseUrls
   }
 }
