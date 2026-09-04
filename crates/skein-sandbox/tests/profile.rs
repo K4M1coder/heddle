@@ -6,9 +6,8 @@
 //! `skein-connectors`' `tests/connector.rs`, where the catalogue is.
 #![cfg(windows)]
 
-mod guard;
-
 mod dacl;
+mod guard;
 
 use dacl::{allow_aces, granted_sids};
 use skein_sandbox::Sandbox;
