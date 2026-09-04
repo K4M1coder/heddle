@@ -337,6 +337,17 @@ impl ModelClient for OpenAiCompatClient {
                     truncated(&event)
                 )))
             }
+            Some(StreamFault::Cancelled) => {
+                // Above the `events == 0` refusal below, and that ordering is
+                // the decision: a cancellation landing before the first event
+                // leaves zero events, and that refusal's diagnostic was written
+                // for an interposing proxy's page. It would blame a proxy for
+                // the operator's own stop button.
+                return Err(SkeinError::Model(format!(
+                    "{} stopped mid-stream: the client cancelled the turn",
+                    self.endpoint.base_url
+                )));
+            }
             None => {}
         }
 
@@ -435,6 +446,8 @@ enum StreamFault {
     Unreadable(String),
     /// An event is framed as `data:` but its payload is not JSON.
     Unparseable(String),
+    /// The installed sink stopped wanting text, so the read ended early.
+    Cancelled,
 }
 
 /// Reads the event stream to its end, building the verbatim capture and the
@@ -458,6 +471,15 @@ fn drain(mut reader: impl BufRead, sink: &mut Option<Box<dyn TextSink>>) -> Answ
     };
     let mut line = Vec::new();
     loop {
+        // Before the read and not after it, so a cancellation costs one line
+        // rather than one whole stream; and per *line* rather than per event, so
+        // it is seen during a run of tool-call fragments or a reasoning model's
+        // empty deltas, where no `on_text` would be called for a long time. No
+        // sink means nobody to cancel, which is `skein chat`.
+        if sink.as_ref().is_some_and(|s| !s.wants_more()) {
+            answer.fault = Some(StreamFault::Cancelled);
+            break;
+        }
         line.clear();
         match reader.read_until(b'\n', &mut line) {
             Ok(0) => break,

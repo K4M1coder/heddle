@@ -10,11 +10,14 @@
 //!
 //! No test here needs a running Ollama. The one that does is `#[ignore]`d.
 
-use skein_core::{Content, Message, ModelClient, Role, SkeinError, ToolSpec, TurnRequest};
+use skein_core::{
+    Content, Message, ModelClient, Role, SkeinError, TextSink, ToolSpec, TurnRequest,
+};
 use skein_gateway::{LocalEndpoint, OpenAiCompatClient};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// Long enough that a slow CI runner never trips it, short enough that a client
@@ -995,6 +998,192 @@ fn an_unrecognised_response_body_is_refused() {
         turn_error(&garbled, "and this").contains("not-json-at-all"),
         "an unparseable event must show itself"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Mid-stream cancellation (spec 026).
+// ---------------------------------------------------------------------------
+
+/// Records every delta and leaves `wants_more` defaulted. The default is what a
+/// caller with nothing to cancel gets, and what every sink written before this
+/// slice gets, so this sink must read the stream to its end.
+struct RecordingSink(Arc<Mutex<Vec<String>>>);
+
+impl TextSink for RecordingSink {
+    fn on_text(&mut self, delta: &str) {
+        self.0.lock().unwrap().push(delta.to_string());
+    }
+}
+
+/// Records, and stops wanting text once `stop_after` deltas have arrived — the
+/// gateway-side shape of a client pressing stop. `seen` is the ground truth for
+/// what the read delivered before it ended.
+struct StoppingSink {
+    seen: Arc<Mutex<Vec<String>>>,
+    stop_after: usize,
+}
+
+impl TextSink for StoppingSink {
+    fn on_text(&mut self, delta: &str) {
+        self.seen.lock().unwrap().push(delta.to_string());
+    }
+
+    fn wants_more(&self) -> bool {
+        self.seen.lock().unwrap().len() < self.stop_after
+    }
+}
+
+/// Four deltas spelled so that stopping after two is visibly different from
+/// stopping after three, and a `[DONE]` that only an uncancelled read reaches.
+fn four_delta_answer() -> String {
+    sse(vec![
+        delta("The "),
+        delta("answer "),
+        delta("is "),
+        delta("42."),
+        finish("stop"),
+        usage(61),
+    ])
+}
+
+/// One turn against a stub with `sink` installed, returning the refusal message
+/// and the exchange the turn captured — the two things every test below asserts
+/// on, and both of which exist only because the read stopped short.
+fn cancelled_turn(stub: &Stub, sink: Box<dyn TextSink>) -> (String, skein_core::WireExchange) {
+    let mut model = client(stub.base_url(), "llama3.1");
+    model.set_text_sink(sink);
+    let message = match model.turn(&ask(vec![Message::user_text("what is the answer?")])) {
+        Ok(response) => panic!("expected a cancellation, got {response:?}"),
+        Err(SkeinError::Model(message)) => message,
+        Err(other) => panic!("expected SkeinError::Model, got {other:?}"),
+    };
+    let exchange = model
+        .take_wire_exchange()
+        .expect("a cancelled turn still reached a socket and still captured what arrived");
+    (message, exchange)
+}
+
+#[test]
+fn a_sink_that_stops_wanting_text_ends_the_read_mid_stream() {
+    let stub = Stub::serving(vec![Reply::ok(four_delta_answer())]);
+    let seen = Arc::new(Mutex::new(Vec::new()));
+
+    let (message, _) = cancelled_turn(
+        &stub,
+        Box::new(StoppingSink {
+            seen: seen.clone(),
+            stop_after: 2,
+        }),
+    );
+
+    // Equality, not a length bound: a read that stopped one line late would
+    // deliver "is " as well, and that is precisely the off-by-one worth
+    // catching.
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec!["The ", "answer "],
+        "the read must stop at the delta the sink stopped wanting more after"
+    );
+    assert!(
+        message.contains("cancelled") && message.contains(stub.base_url()),
+        "the refusal must name the cancellation and the endpoint, got: {message}"
+    );
+}
+
+#[test]
+fn a_cancelled_turns_capture_holds_what_arrived_and_no_done() {
+    // Spec 026 FR-005: the bytes that arrived are the evidence of the
+    // cancellation, and no field beside them says so.
+    let stub = Stub::serving(vec![Reply::ok(four_delta_answer())]);
+    let seen = Arc::new(Mutex::new(Vec::new()));
+
+    let (_, exchange) = cancelled_turn(
+        &stub,
+        Box::new(StoppingSink {
+            seen,
+            stop_after: 2,
+        }),
+    );
+
+    assert_eq!(exchange.status, 200);
+    assert!(
+        exchange.streamed,
+        "a cancelled read is still a read of an event stream"
+    );
+    assert!(
+        exchange.response.contains("The ") && exchange.response.contains("answer "),
+        "the capture must hold the bytes that did arrive, got: {:?}",
+        exchange.response
+    );
+    assert!(
+        !exchange.response.contains("42."),
+        "the capture must not hold bytes the read never absorbed, got: {:?}",
+        exchange.response
+    );
+    assert!(
+        !exchange.response.contains("[DONE]"),
+        "the missing terminator is what makes the capture itself the evidence, got: {:?}",
+        exchange.response
+    );
+}
+
+#[test]
+fn a_sink_that_stops_before_the_first_event_is_reported_as_cancelled_not_as_an_empty_stream() {
+    // Spec 026 FR-004. `an_unrecognised_response_body_is_refused` pins the
+    // "no SSE events" diagnostic, which was written for an interposing proxy's
+    // page. A cancellation landing before the first event leaves exactly zero
+    // events, so without the fault being raised first this turn would blame a
+    // proxy for the operator's own stop button.
+    let stub = Stub::serving(vec![Reply::ok(four_delta_answer())]);
+    let seen = Arc::new(Mutex::new(Vec::new()));
+
+    let (message, exchange) = cancelled_turn(
+        &stub,
+        Box::new(StoppingSink {
+            seen: seen.clone(),
+            stop_after: 0,
+        }),
+    );
+
+    assert!(seen.lock().unwrap().is_empty(), "no delta was ever wanted");
+    assert!(
+        message.contains("cancelled"),
+        "the refusal must name the cancellation, got: {message}"
+    );
+    assert!(
+        !message.contains("unrecognised"),
+        "a cancellation must not be reported as an unrecognised response, got: {message}"
+    );
+    assert!(
+        exchange.response.is_empty(),
+        "a read cancelled before its first line read nothing, got: {:?}",
+        exchange.response
+    );
+}
+
+#[test]
+fn a_sink_that_does_not_override_wants_more_reads_the_whole_stream() {
+    // Spec 026 FR-001: the default is `true`, so this slice is invisible to
+    // every sink written before it.
+    let stub = Stub::serving(vec![Reply::ok(four_delta_answer())]);
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let mut model = client(stub.base_url(), "llama3.1");
+    model.set_text_sink(Box::new(RecordingSink(seen.clone())));
+
+    let response = model
+        .turn(&ask(vec![Message::user_text("what is the answer?")]))
+        .expect("the stub answers");
+
+    assert_eq!(*seen.lock().unwrap(), vec!["The ", "answer ", "is ", "42."]);
+    assert_eq!(
+        response.message,
+        Message::assistant_text("The answer is 42.")
+    );
+    assert!(model
+        .take_wire_exchange()
+        .expect("the turn reached a socket")
+        .response
+        .contains("[DONE]"));
 }
 
 #[test]

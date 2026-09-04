@@ -81,6 +81,21 @@ pub struct WireExchange {
 /// [`LedgerStore`]: crate::ledger::LedgerStore
 pub trait TextSink: Send {
     fn on_text(&mut self, delta: &str);
+
+    /// Whether the consumer still wants what this turn has left to say.
+    ///
+    /// Defaulted to `true` because — as with [`ModelClient::take_wire_exchange`]'s
+    /// `None` — that is the *true* answer rather than a convenience: a consumer
+    /// with no way to stop always wants the rest.
+    ///
+    /// Separate from [`TextSink::on_text`] rather than folded into its return
+    /// value, because a client asks this between *pieces of a stream* and not
+    /// between pieces of text: a producer may go a long way — a run of tool-call
+    /// fragments, a reasoning model's empty content deltas — without a delta to
+    /// answer.
+    fn wants_more(&self) -> bool {
+        true
+    }
 }
 
 /// Synchronous in v0: this slice has no network, and a single-conversation turn
