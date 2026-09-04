@@ -59,7 +59,7 @@ impl Stub {
                 // racing ureq's pool.
                 let _ = socket.write_all(
                     format!(
-                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                         body.len()
                     )
                     .as_bytes(),
@@ -118,60 +118,78 @@ fn read_request(socket: &mut TcpStream) -> Option<String> {
     Some(raw)
 }
 
+/// SSE framing as the real provider writes it, with a bare `\n\n` separator and
+/// a terminating `[DONE]`. Spelled out here rather than shared across test
+/// binaries for the reason each of these files already records: they are one
+/// another's controls.
+fn sse(events: Vec<serde_json::Value>) -> String {
+    let mut raw = String::new();
+    for event in events {
+        raw.push_str(&format!("data: {event}\n\n"));
+    }
+    raw.push_str("data: [DONE]\n\n");
+    raw
+}
+
 /// A turn in which the model asks for one tool, shaped the way Ollama's
 /// OpenAI-compatible endpoint shapes one: `content: null`, and the arguments as
 /// a JSON *string* holding JSON.
 fn tool_call_reply(tool: &str, arguments: serde_json::Value) -> String {
-    serde_json::json!({
-        "choices": [{
-            "message": {
+    sse(vec![
+        serde_json::json!({
+            "choices": [{"index": 0, "delta": {
                 "role": "assistant",
-                "content": null,
+                "content": "",
                 "tool_calls": [{
+                    "index": 0,
                     "id": "call_1",
                     "type": "function",
                     "function": {"name": tool, "arguments": arguments.to_string()}
                 }]
-            },
-            "finish_reason": "tool_calls"
-        }],
-        "usage": {"total_tokens": 12}
-    })
-    .to_string()
+            }}]
+        }),
+        serde_json::json!({
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]
+        }),
+        serde_json::json!({"choices": [], "usage": {"total_tokens": 12}}),
+    ])
 }
 
 /// Two calls in one assistant turn, the way Ollama really answers when a model
 /// reads several files at once, each with the provider's own id.
 fn two_tool_calls_reply(calls: &[(&str, serde_json::Value)]) -> String {
-    serde_json::json!({
-        "choices": [{
-            "message": {
+    sse(vec![
+        serde_json::json!({
+            "choices": [{"index": 0, "delta": {
                 "role": "assistant",
-                "content": null,
+                "content": "",
                 "tool_calls": calls.iter().enumerate().map(|(i, (tool, arguments))| {
                     serde_json::json!({
+                        "index": i,
                         "id": format!("call_{i}"),
                         "type": "function",
                         "function": {"name": tool, "arguments": arguments.to_string()}
                     })
                 }).collect::<Vec<_>>()
-            },
-            "finish_reason": "tool_calls"
-        }],
-        "usage": {"total_tokens": 12}
-    })
-    .to_string()
+            }}]
+        }),
+        serde_json::json!({
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]
+        }),
+        serde_json::json!({"choices": [], "usage": {"total_tokens": 12}}),
+    ])
 }
 
 fn final_reply(content: &str) -> String {
-    serde_json::json!({
-        "choices": [{
-            "message": {"role": "assistant", "content": content},
-            "finish_reason": "stop"
-        }],
-        "usage": {"total_tokens": 9}
-    })
-    .to_string()
+    sse(vec![
+        serde_json::json!({
+            "choices": [{"index": 0, "delta": {"role": "assistant", "content": content}}]
+        }),
+        serde_json::json!({
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]
+        }),
+        serde_json::json!({"choices": [], "usage": {"total_tokens": 9}}),
+    ])
 }
 
 /// The run always ends on `final_output`, so this never decides anything. It

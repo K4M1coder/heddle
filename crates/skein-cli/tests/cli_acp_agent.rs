@@ -68,7 +68,7 @@ impl StubProvider {
                 }
                 let _ = socket.write_all(
                     format!(
-                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                         body.len()
                     )
                     .as_bytes(),
@@ -116,15 +116,29 @@ fn read_request(socket: &mut TcpStream) -> Option<String> {
     Some(String::from_utf8_lossy(&body).to_string())
 }
 
+/// SSE framing as the real provider writes it, with a bare `\n\n` separator and
+/// a terminating `[DONE]`. Spelled out here rather than shared across test
+/// binaries for the reason each of these files already records: they are one
+/// another's controls.
+fn sse(events: Vec<serde_json::Value>) -> String {
+    let mut raw = String::new();
+    for event in events {
+        raw.push_str(&format!("data: {event}\n\n"));
+    }
+    raw.push_str("data: [DONE]\n\n");
+    raw
+}
+
 fn reply(content: &str, finish_reason: &str, total_tokens: u64) -> String {
-    serde_json::json!({
-        "choices": [{
-            "message": {"role": "assistant", "content": content},
-            "finish_reason": finish_reason
-        }],
-        "usage": {"total_tokens": total_tokens}
-    })
-    .to_string()
+    sse(vec![
+        serde_json::json!({
+            "choices": [{"index": 0, "delta": {"role": "assistant", "content": content}}]
+        }),
+        serde_json::json!({
+            "choices": [{"index": 0, "delta": {}, "finish_reason": finish_reason}]
+        }),
+        serde_json::json!({"choices": [], "usage": {"total_tokens": total_tokens}}),
+    ])
 }
 
 fn skein(args: &[&str]) -> Output {
@@ -719,22 +733,24 @@ fn acp_agent_over_a_git_repository_advertises_the_git_tools_too() {
 /// A model turn that asks for one tool call. Copied from `cli_chat.rs` for the
 /// reason this file's header already records.
 fn tool_call_reply(tool: &str, arguments: serde_json::Value) -> String {
-    serde_json::json!({
-        "choices": [{
-            "message": {
+    sse(vec![
+        serde_json::json!({
+            "choices": [{"index": 0, "delta": {
                 "role": "assistant",
-                "content": null,
+                "content": "",
                 "tool_calls": [{
+                    "index": 0,
                     "id": "call_1",
                     "type": "function",
                     "function": {"name": tool, "arguments": arguments.to_string()}
                 }]
-            },
-            "finish_reason": "tool_calls"
-        }],
-        "usage": {"total_tokens": 12}
-    })
-    .to_string()
+            }}]
+        }),
+        serde_json::json!({
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]
+        }),
+        serde_json::json!({"choices": [], "usage": {"total_tokens": 12}}),
+    ])
 }
 
 /// The last message of the request the child sent, which is what the model was

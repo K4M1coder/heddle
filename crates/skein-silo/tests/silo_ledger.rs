@@ -387,6 +387,7 @@ fn s8_a_chain_of_pre_023_kinds_reopens_unchanged_and_extends_with_the_new_one() 
                 status: 200,
                 request: "{}".into(),
                 response: "{}".into(),
+                streamed: false,
             })
             .unwrap(),
         )
