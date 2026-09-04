@@ -290,3 +290,44 @@ crates/skein-acp/ crates/skein-mcp/ spikes/ rust-toolchain.toml Cargo.lock Cargo
 and the new `tests/guard/mod.rs` — **nothing in its `src/`**.
 
 ## Live verification (T10)
+
+Performed after rebase onto `dev` at `e0fa57a` (slice 023 merged), on this Windows machine.
+
+`crates/skein-cli/tests/cli_sandbox.rs`'s own `windows::a_real_grant_is_listed_and_pruned_through_the_binary`
+was re-run standalone and passed (`cargo test -p skein-cli --test cli_sandbox`: 3 passed, 0 failed) —
+a real `Sandbox::create`, then the real `skein sandbox list`/`prune` subprocess, then a real DACL
+read-back.
+
+Independently of that test, a throwaway `skein-sandbox` example called `Sandbox::create` directly
+over a real `--fs-root` and a real `--run-dir` (`D:\…\skein-t10-manual\{root,toolbin}`), removed
+afterward and never committed:
+
+```
+created S-1-15-2-4293476591-1125327610-642153627-346045329-3553146693-3959665346-2037894141
+```
+
+`icacls` before pruning named the AppContainer trustee (rendered by this machine's localised icacls
+as an unresolved "trust relationship" line) at `(F)` on `root` and `(RX)` on `toolbin` — confirming
+the two different masks D4/D5 grant.
+
+```
+> skein sandbox list | grep 4293476591
+skein-b04ff468c9ade33b  S-1-15-2-4293…  root     granted  …\skein-t10-manual\root
+skein-b04ff468c9ade33b  S-1-15-2-4293…  run-dir  granted  …\skein-t10-manual\toolbin
+
+> skein sandbox prune --profile skein-b04ff468c9ade33b
+revoked …\skein-t10-manual\root
+revoked …\skein-t10-manual\toolbin
+deleted profile skein-b04ff468c9ade33b
+```
+
+After pruning: `skein sandbox list` no longer names the profile; `icacls` on both directories shows
+only the pre-existing trustees (`EINSTEIN\CodexSandboxUsers`, `AUTORITE NT\Système`,
+`BUILTIN\Administrateurs`, the user) with the AppContainer line gone; and
+`%LOCALAPPDATA%\Packages\skein-b04ff468c9ade33b` no longer exists. Every trustee present before
+`Sandbox::create` is present, unchanged, after `prune` — the acceptance criterion met on a directory
+this session actually granted and revoked, not merely on `prune.rs`'s fixtures.
+
+`prune --all` against the 900+ legacy profiles this machine had accumulated before this slice existed
+was **not run** — an operator's own call, per the plan's step 6, and left for the operator to make
+deliberately rather than swept up inside a verification pass.
