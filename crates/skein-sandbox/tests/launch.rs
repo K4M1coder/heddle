@@ -74,6 +74,71 @@ fn a_sandboxed_process_reads_a_file_in_its_granted_root() {
     );
 }
 
+/// Past the cap the reader keeps reading, and this is the only test that makes
+/// it prove that.
+///
+/// The cap is not a stopping point, it is a *keeping* point — `drain` reads to
+/// EOF and discards past the cap. A reader that stopped at it instead leaves a
+/// child writing into a pipe nobody is emptying, and the child is then at the
+/// mercy of whether the read end is still open: held open it blocks in
+/// `WriteFile` until the wall clock kills it, and closed — which is what a
+/// reader thread returning early actually does, since the `File` drops with it
+/// — it dies on a broken pipe. Measured against a `break`-at-cap edit, this
+/// test sees the second: exit code 1 and `cmd.exe` reporting a write to a
+/// nonexistent pipe.
+///
+/// So the child emits four times the cap, and the wall clock is short so the
+/// first shape is a ten-second failure rather than a hang. Every other test in
+/// this file produces output far under the cap and could not tell the
+/// difference.
+///
+/// `text.len() + dropped_bytes == EMITTED` is the assertion that says *read to
+/// EOF* rather than merely *read something*: the count the model is shown has
+/// to be the real one, and it can only be real if every byte was accounted for.
+#[test]
+fn a_stream_past_the_cap_is_drained_to_the_end_and_the_drop_is_counted() {
+    const CAP: usize = 16 * 1024;
+    const EMITTED: usize = 4 * CAP;
+
+    let dir = TempDir::new().expect("a temp dir");
+    // ASCII, so `String::from_utf8_lossy` is byte-for-byte and `text.len()` is
+    // a byte count that can be compared against the cap.
+    std::fs::write(dir.path().join("big.txt"), "x".repeat(EMITTED)).expect("a file over the cap");
+    let sandbox = Sandbox::create(dir.path(), &[]).expect("the profile and the grant");
+    let _pruned_sandbox = guard::PrunedOnDrop::of(&sandbox);
+
+    let run = sandbox
+        .run(
+            &system32("cmd.exe"),
+            &args(&["/c", "type", "big.txt"]),
+            CAP,
+            Duration::from_secs(10),
+            &uncancelled(),
+        )
+        .expect("a child that overruns its pipe must still be waited out, not deadlocked");
+
+    assert_eq!(
+        run.exit_code, 0,
+        "the child ran to completion; stderr was {:?}",
+        run.stderr.text
+    );
+    assert_eq!(
+        run.stdout.text.len(),
+        CAP,
+        "the kept bytes stop at the cap exactly"
+    );
+    assert_eq!(
+        run.stdout.text.len() + run.stdout.dropped_bytes,
+        EMITTED,
+        "and every byte the child wrote is either kept or counted as dropped"
+    );
+    assert_eq!(
+        run.stderr.dropped_bytes, 0,
+        "the other stream is untouched by this: {:?}",
+        run.stderr.text
+    );
+}
+
 /// The working directory is the root and nothing else: `RunParams` has no `cwd`
 /// precisely so there is no second answer to this question.
 #[test]
