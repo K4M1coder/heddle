@@ -100,3 +100,94 @@ fn a_second_create_over_one_root_unions_rather_than_replaces() {
     );
     assert_eq!(lines.len(), 3, "no path is recorded twice, got {lines:?}");
 }
+
+/// `grants()` must report the **directory's** state, not the record's claim
+/// about it, which is why every assertion here about `Granted` is worth making
+/// on a sandbox that was only just created: if the state were copied off the
+/// record it would read `Granted` even where an `icacls` had already removed
+/// the ACE, and an operator would prune something that was not there.
+#[test]
+fn a_created_profile_is_listed_with_its_directories_and_their_live_state() {
+    let root = TempDir::new().expect("a temp root");
+    let toolbin = TempDir::new().expect("a temp run directory");
+
+    let sandbox = Sandbox::create(root.path(), &[toolbin.path().to_path_buf()])
+        .expect("the profile and both grants");
+
+    let listed = skein_sandbox::grants().expect("the profiles on this machine are listable");
+    let mine = listed
+        .iter()
+        .find(|grant| grant.profile == sandbox.profile())
+        .unwrap_or_else(|| panic!("the profile just created must be listed, got {listed:?}"));
+
+    assert_eq!(
+        mine.sid,
+        sandbox.string_sid(),
+        "the listed identity must be the one the sandbox launches under"
+    );
+
+    let dirs = mine
+        .dirs
+        .as_ref()
+        .expect("a profile created by this slice carries a record");
+    let root_entry = dirs
+        .iter()
+        .find(|dir| holds(std::slice::from_ref(&dir.path), root.path()))
+        .unwrap_or_else(|| panic!("the fs-root must be listed, got {dirs:?}"));
+    assert_eq!(root_entry.kind, skein_sandbox::GrantKind::Root);
+    assert_eq!(root_entry.state, skein_sandbox::GrantState::Granted);
+
+    let run_entry = dirs
+        .iter()
+        .find(|dir| holds(std::slice::from_ref(&dir.path), toolbin.path()))
+        .unwrap_or_else(|| panic!("the run directory must be listed, got {dirs:?}"));
+    assert_eq!(run_entry.kind, skein_sandbox::GrantKind::RunDir);
+    assert_eq!(run_entry.state, skein_sandbox::GrantState::Granted);
+}
+
+/// The shape of every profile made before this slice — a thousand of them on
+/// this machine. Listing them with no directories is the whole point: an
+/// operator who cannot see them cannot remove them.
+#[test]
+fn a_profile_with_no_record_is_listed_with_no_directories() {
+    let root = TempDir::new().expect("a temp root");
+    let sandbox = Sandbox::create(root.path(), &[]).expect("the profile and the grant");
+
+    std::fs::remove_file(record_of(sandbox.profile())).expect("the record is removable");
+
+    let listed = skein_sandbox::grants().expect("the profiles on this machine are listable");
+    let mine = listed
+        .iter()
+        .find(|grant| grant.profile == sandbox.profile())
+        .unwrap_or_else(|| panic!("a recordless profile must still be listed, got {listed:?}"));
+    assert_eq!(
+        mine.dirs, None,
+        "a profile with no record has no known directories, not an empty list of them"
+    );
+}
+
+/// A machine-wide assertion, and not a formality: `%LOCALAPPDATA%\Packages`
+/// holds hundreds of unrelated Store packages, and a scan that reported them
+/// would be offering an operator a `prune` on `Microsoft.WindowsCalculator`.
+#[test]
+fn nothing_but_a_skein_hash_name_is_listed() {
+    let listed = skein_sandbox::grants().expect("the profiles on this machine are listable");
+    assert!(
+        !listed.is_empty(),
+        "this machine has created profiles, so an empty listing means the scan found nothing"
+    );
+    for grant in &listed {
+        let hash = grant
+            .profile
+            .strip_prefix("skein-")
+            .unwrap_or_else(|| panic!("{} is not a skein profile", grant.profile));
+        assert!(
+            hash.len() == 16
+                && hash
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+            "{} is not skein- plus 16 lowercase hex characters",
+            grant.profile
+        );
+    }
+}

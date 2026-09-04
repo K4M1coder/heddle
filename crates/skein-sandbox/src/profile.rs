@@ -158,7 +158,7 @@ fn profile_name(root: &Path) -> String {
 
 /// # Safety
 /// `sid` must be a valid `PSID` for the duration of the call.
-unsafe fn string_sid(sid: PSID) -> Result<String, String> {
+pub(crate) unsafe fn string_sid(sid: PSID) -> Result<String, String> {
     let mut text = PWSTR::null();
     ConvertSidToStringSidW(sid, &mut text)
         .map_err(|e| format!("the app container identity does not render as a string SID: {e}"))?;
@@ -243,6 +243,6 @@ unsafe fn grant(dir: &Path, sid: PSID, access: u32) -> Result<(), String> {
     written
 }
 
-fn wide(text: &str) -> Vec<u16> {
+pub(crate) fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(std::iter::once(0)).collect()
 }
