@@ -16,6 +16,12 @@ skein-acp = { path = "../skein-acp" }
 skein-connectors = { path = "../skein-connectors" }
 skein-core = { path = "../skein-core" }
 skein-gateway = { path = "../skein-gateway" }
+# Unconditional, and reached directly rather than through `skein-connectors`:
+# `skein sandbox prune` is not an MCP tool, and routing it through the tool crate
+# would hide a non-tool capability behind the tool boundary. The measured cost
+# off Windows is zero new third-party packages — this crate's only non-Windows
+# dependency is `sha2`, already in the graph.
+skein-sandbox = { path = "../skein-sandbox" }
 skein-silo = { path = "../skein-silo" }
 clap.workspace = true
 serde_json.workspace = true

@@ -29,11 +29,15 @@
 #[cfg(windows)]
 mod argv;
 #[cfg(windows)]
+mod cleanup;
+#[cfg(windows)]
 mod launch;
 #[cfg(windows)]
 mod profile;
+#[cfg(windows)]
+mod record;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// The most arguments one launch may carry.
@@ -113,6 +117,114 @@ fn win32_path(path: &Path) -> String {
 #[cfg(not(windows))]
 const NO_BACKEND: &str = "a sandboxed process launcher has no backend on this platform; shell \
                           tools are Windows-only in v0";
+
+/// Which flag put a directory on a profile's record: the one workspace, or one
+/// of the executable directories.
+///
+/// It is the record's line order, not a second stored field — [`Sandbox::create`]
+/// writes the root first — so the two cannot drift apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GrantKind {
+    Root,
+    RunDir,
+}
+
+/// What the directory's DACL says **right now**, not what the record claims.
+///
+/// Computed with one `GetNamedSecurityInfoW` per directory. That cost is the
+/// point: a listing that echoed the record would report a grant an `icacls` had
+/// already removed, and an operator would prune something that was not there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GrantState {
+    Granted,
+    Clear,
+    Missing,
+}
+
+/// One directory a profile was recorded against, and its live state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GrantedDir {
+    pub path: PathBuf,
+    pub kind: GrantKind,
+    pub state: GrantState,
+}
+
+/// One AppContainer profile Skein created.
+///
+/// `dirs` is `None` when the profile carries no record — every profile made
+/// before this slice, and the shape [`prune`] reports as `unrecorded`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Grant {
+    pub profile: String,
+    pub sid: String,
+    pub dirs: Option<Vec<GrantedDir>>,
+}
+
+/// What one [`prune`] removed, per directory and then the profile itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pruned {
+    pub profile: String,
+    pub revoked: Vec<PathBuf>,
+    pub clear: Vec<PathBuf>,
+    pub missing: Vec<PathBuf>,
+    /// The profile carried no record, so its directories are unknown and none
+    /// was touched. Not an error: refusing these would leave every profile made
+    /// before this slice permanently unremovable.
+    pub unrecorded: bool,
+}
+
+/// Every AppContainer profile on this machine that Skein could have created,
+/// with the directories each was recorded against and their live DACL state.
+///
+/// A free function rather than a method: no [`Sandbox`] is alive at cleanup
+/// time, and off Windows the type is uninhabited.
+///
+/// `%LOCALAPPDATA%\Packages` is scanned for `skein-` plus 16 lowercase hex
+/// characters and nothing else, because `Win32::Security::Isolation` offers no
+/// enumeration API — the profile folder is the only self-naming, machine-wide
+/// artifact a created profile leaves behind.
+#[cfg(windows)]
+pub fn grants() -> std::result::Result<Vec<Grant>, String> {
+    cleanup::grants()
+}
+
+#[cfg(not(windows))]
+pub fn grants() -> std::result::Result<Vec<Grant>, String> {
+    Err(NO_CLEANUP.to_string())
+}
+
+/// Revokes `profile`'s AppContainer SID from each directory it was recorded
+/// against, then deletes the profile.
+///
+/// **It cannot remove an ACE it did not write, and that is structural rather
+/// than careful.** The name is refused unless it matches `skein-` plus 16
+/// lowercase hex, before any Win32 call is reached; the ACL write is one
+/// `REVOKE_ACCESS` entry naming one `TRUSTEE_IS_SID` — the SID derived from that
+/// very name — so no other trustee's ACE is *representable* in it; and each
+/// directory's live DACL is read first, so one carrying no such ACE is reported
+/// and not written at all.
+///
+/// Order is ACEs first and the profile last. Deleting the profile deletes the
+/// record with it, so the reverse order would orphan every ACE not yet revoked,
+/// with nothing left to say where they were.
+#[cfg(windows)]
+pub fn prune(profile: &str) -> std::result::Result<Pruned, String> {
+    cleanup::prune(profile)
+}
+
+#[cfg(not(windows))]
+pub fn prune(_profile: &str) -> std::result::Result<Pruned, String> {
+    Err(NO_CLEANUP.to_string())
+}
+
+/// The refusal [`grants`] and [`prune`] return off Windows.
+///
+/// Distinct from [`NO_BACKEND`] because the reason is one step further along:
+/// nothing on this platform ever *created* a profile, so there is nothing to
+/// find and nothing to remove. The refusal is the honest answer rather than a
+/// stub standing in for missing work.
+#[cfg(not(windows))]
+const NO_CLEANUP: &str = "there are no sandbox profiles to list or prune on this platform; the                           app container sandbox is Windows-only in v0";
 
 impl Sandbox {
     /// Creates — or reuses — the AppContainer profile for `root`, grants its
