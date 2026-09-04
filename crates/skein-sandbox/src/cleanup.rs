@@ -8,11 +8,11 @@
 //! Windows puts it.
 //!
 //! Nothing here consults the record to decide what it is *allowed* to touch.
-//! The record only ever says where to look; the name gate ([`is_skein_profile`])
-//! says what may be acted on, and it is the same gate on both sides of the
-//! module.
+//! The record only ever says where to look; the name gate
+//! ([`profile::is_skein_profile`]) says what may be acted on, and it is the
+//! same gate on both sides of the module.
 
-use crate::profile::{string_sid, wide};
+use crate::profile::{is_skein_profile, string_sid, wide, NAME_HASH_BYTES};
 use crate::{record, win32_path, Grant, GrantKind, GrantState, GrantedDir, Pruned};
 use std::ffi::c_void;
 use std::path::Path;
@@ -30,25 +30,6 @@ use windows::Win32::Security::{
     FreeSid, GetAce, ACCESS_ALLOWED_ACE, ACL, DACL_SECURITY_INFORMATION, NO_INHERITANCE,
     PSECURITY_DESCRIPTOR, PSID,
 };
-
-/// The length of `sha256`'s first `NAME_HASH_BYTES` rendered as hex, which is
-/// what `profile::profile_name` appends.
-const NAME_HASH_CHARS: usize = 16;
-
-/// The whole ownership claim, in one predicate.
-///
-/// `skein-` plus 16 lowercase hex characters is a namespace nothing else on a
-/// Windows machine produces, and it is the *only* thing either public function
-/// will act on. Nothing here consults the record, which is why a tampered
-/// record could not widen what [`prune`] is able to delete.
-fn is_skein_profile(name: &str) -> bool {
-    name.strip_prefix("skein-").is_some_and(|hash| {
-        hash.len() == NAME_HASH_CHARS
-            && hash
-                .bytes()
-                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
-    })
-}
 
 pub(crate) fn grants() -> Result<Vec<Grant>, String> {
     let packages = record::packages_dir()?;
@@ -110,8 +91,12 @@ fn describe(profile: &str) -> Result<Grant, String> {
 
 pub(crate) fn prune(profile: &str) -> Result<Pruned, String> {
     if !is_skein_profile(profile) {
+        // The count comes off the constant the name is minted from, so the
+        // sentence an operator is shown cannot describe a different shape than
+        // the gate above enforces.
         return Err(format!(
-            "{profile} is not a profile skein could have created: the name must be skein-              followed by 16 lowercase hexadecimal characters"
+            "{profile} is not a profile skein could have created: the name must be skein- followed by {} lowercase hexadecimal characters",
+            NAME_HASH_BYTES * 2
         ));
     }
 

@@ -28,7 +28,11 @@ use windows::Win32::Security::{
 /// An AppContainer name may be 64 characters; this is 22, so the derivation has
 /// room and never needs a length check. Eight bytes of SHA-256 is far more
 /// collision margin than a per-machine set of workspace directories needs.
-const NAME_HASH_BYTES: usize = 8;
+pub(crate) const NAME_HASH_BYTES: usize = 8;
+
+/// The prefix that separates a profile Skein minted from the hundreds of Store
+/// packages sitting beside it in `%LOCALAPPDATA%\Packages`.
+const NAME_PREFIX: &str = "skein-";
 
 /// What a `--run-dir` gets, and it is Windows' own answer rather than a guess.
 ///
@@ -149,11 +153,33 @@ fn already_exists() -> HRESULT {
 /// spellings of one directory reach this with the same bytes.
 fn profile_name(root: &Path) -> String {
     let digest = Sha256::digest(root.to_string_lossy().as_bytes());
-    let mut name = String::from("skein-");
+    let mut name = String::from(NAME_PREFIX);
     for byte in &digest[..NAME_HASH_BYTES] {
         name.push_str(&format!("{byte:02x}"));
     }
     name
+}
+
+/// The whole ownership claim, in one predicate: whether `name` is one
+/// [`profile_name`] could have produced.
+///
+/// It lives beside the function that mints the name because the two have to
+/// agree exactly, and until now nothing but a comment made them: `cleanup.rs`
+/// restated the length in hex characters rather than in bytes, so widening
+/// [`NAME_HASH_BYTES`] would have moved the gate out of step with the names
+/// profiles actually get — and compiled.
+///
+/// `skein-` plus 16 lowercase hex characters is a namespace nothing else on a
+/// Windows machine produces, and it is the *only* thing `grants` and `prune`
+/// will act on. Neither consults the record, which is why a tampered record
+/// could not widen what `prune` is able to delete.
+pub(crate) fn is_skein_profile(name: &str) -> bool {
+    name.strip_prefix(NAME_PREFIX).is_some_and(|hash| {
+        hash.len() == NAME_HASH_BYTES * 2
+            && hash
+                .bytes()
+                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+    })
 }
 
 /// # Safety
