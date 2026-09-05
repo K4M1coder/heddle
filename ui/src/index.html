@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Nothing here is fetched over the network: the whole document is local, and
+      the app's Content-Security-Policy in `src-tauri/tauri.conf.json` forbids
+      remote origins. Local-first is a build property, not a promise
+      (Constitution II).
+    -->
+    <title>Skein — Chat</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="chat">
+      <header class="chat__header">
+        <h1>Skein Chat</h1>
+        <p id="status" class="chat__status">Starting the agent…</p>
+      </header>
+
+      <ol id="transcript" class="transcript" aria-live="polite"></ol>
+
+      <form id="composer" class="composer">
+        <label class="visually-hidden" for="draft">Message</label>
+        <textarea
+          id="draft"
+          class="composer__input"
+          rows="3"
+          placeholder="Ask Skein something. Enter sends, Shift+Enter adds a line."
+        ></textarea>
+        <div class="composer__actions">
+          <button id="send" class="button button--primary" type="submit" disabled>
+            Send
+          </button>
+          <button
+            id="cancel"
+            class="button"
+            type="button"
+            disabled
+            title="Stops before the next step; a step already running finishes."
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

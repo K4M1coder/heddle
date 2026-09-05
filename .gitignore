@@ -12,3 +12,13 @@ protoharness.py
 target/
 Cargo.lock
 target/
+
+# Tauri's generated capability/permission schemas: a build product of
+# `tauri-build`, regenerated on every build, never hand-edited.
+ui/src-tauri/gen/
+
+# Archon keeps per-run telemetry outside the repo, but an older layout wrote
+# these here. They are local-only and must never be committed.
+.archon/artifacts/
+.archon/logs/
+.archon/state/
