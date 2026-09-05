@@ -17,9 +17,9 @@
 #![allow(dead_code)]
 
 use heddle_core::{
-    HeddleError, Ledger, Message, ModelClient, Redactor, Result, Step, StepKind, ToolAccess,
-    ToolCall, ToolGateway, ToolOutcome, ToolPolicy, ToolSpec, ToolTransport, TurnRequest,
-    TurnResponse,
+    HeddleError, Ledger, Message, ModelClient, NewTask, Redactor, Result, Step, StepKind, Task,
+    TaskId, TaskQuery, TaskStatus, TaskTracker, ToolAccess, ToolCall, ToolGateway, ToolOutcome,
+    ToolPolicy, ToolSpec, ToolTransport, TurnRequest, TurnResponse,
 };
 use heddle_workflow::WorkflowEngine;
 use serde_json::json;
@@ -229,4 +229,116 @@ pub fn approval_decisions(ledger: &Ledger, run_id: &str) -> Vec<(String, String)
 /// a call and state "nothing was appended" as an equality rather than a count.
 pub fn snapshot(ledger: &Ledger, run_id: &str) -> Vec<Step> {
     ledger.log(run_id).into_iter().cloned().collect()
+}
+
+/// An in-memory `TaskTracker` that remembers every call made to it.
+///
+/// A double rather than `heddle-silo`'s `LocalTracker` on purpose: this crate
+/// depends on `heddle-core` and nothing else (Constitution IV), and the claim
+/// under test is "the engine drives *a* tracker through the trait", which a
+/// concrete backend would weaken rather than strengthen. `creates` is what the
+/// resume test reads to prove a skipped node did not open a second task.
+pub struct RecordingTracker {
+    tasks: Vec<Task>,
+    pub creates: usize,
+    pub updates: usize,
+    next_id: usize,
+}
+
+impl RecordingTracker {
+    pub fn new() -> Self {
+        RecordingTracker {
+            tasks: Vec::new(),
+            creates: 0,
+            updates: 0,
+            next_id: 0,
+        }
+    }
+
+    /// The tracker's contents in creation order, as `(title, status)` — the
+    /// shape every assertion in `tracker.rs` is written against.
+    pub fn board(&self) -> Vec<(String, TaskStatus)> {
+        self.tasks
+            .iter()
+            .map(|t| (t.title.clone(), t.status.clone()))
+            .collect()
+    }
+
+    pub fn task(&self, id: &TaskId) -> Option<&Task> {
+        self.tasks.iter().find(|t| &t.id == id)
+    }
+}
+
+impl Default for RecordingTracker {
+    fn default() -> Self {
+        RecordingTracker::new()
+    }
+}
+
+impl TaskTracker for RecordingTracker {
+    fn create(&mut self, task: NewTask) -> Result<TaskId> {
+        self.creates += 1;
+        let id = TaskId::new(format!("t{}", self.next_id));
+        self.next_id += 1;
+        self.tasks.push(task.into_task(id.clone()));
+        Ok(id)
+    }
+
+    fn update(&mut self, id: &TaskId, status: TaskStatus) -> Result<()> {
+        self.updates += 1;
+        let task = self
+            .tasks
+            .iter_mut()
+            .find(|t| &t.id == id)
+            .ok_or_else(|| HeddleError::NotFound(format!("task {}", id.as_str())))?;
+        task.status = status;
+        Ok(())
+    }
+
+    fn list(&self, query: &TaskQuery) -> Result<Vec<Task>> {
+        Ok(self
+            .tasks
+            .iter()
+            .filter(|t| query.matches(t))
+            .cloned()
+            .collect())
+    }
+
+    fn requires_network(&self) -> bool {
+        false
+    }
+}
+
+/// The engine wired to a tracker. Separate from [`engine`] so the tests that
+/// predate task tracking keep constructing exactly what they constructed
+/// before, and "an untracked engine writes the same chain it always did" stays
+/// a property those tests assert rather than one this one asserts about itself.
+pub fn tracked_engine(
+    model: ScriptedModel,
+    transport: RecordingTransport,
+) -> WorkflowEngine<ScriptedModel, RecordingTransport, RecordingTracker> {
+    WorkflowEngine::with_tracker(
+        model,
+        gateway(transport),
+        Redactor::new(Vec::new()),
+        RecordingTracker::new(),
+    )
+}
+
+/// Every `node_id -> task_id` binding the chain records, in chain order. Read
+/// off the Ledger rather than out of the engine, because the binding's whole
+/// job is to survive the process that made it.
+pub fn task_bindings(ledger: &Ledger, run_id: &str) -> Vec<(String, String)> {
+    ledger
+        .log(run_id)
+        .iter()
+        .filter(|s| s.kind == StepKind::StateChange)
+        .filter_map(|s| serde_json::from_str::<serde_json::Value>(&s.payload).ok())
+        .filter_map(|v| {
+            Some((
+                v["node_id"].as_str()?.to_string(),
+                v["task_id"].as_str()?.to_string(),
+            ))
+        })
+        .collect()
 }

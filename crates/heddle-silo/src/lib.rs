@@ -10,19 +10,21 @@
 //!
 //! This is also the only crate in the product that names `rusqlite` or a
 //! credential store, so `heddle-core` discovers durable storage through
-//! `LedgerStore` and secrets through `SecretProvider`, never through a database
-//! type or an OS API.
+//! `LedgerStore`, secrets through `SecretProvider` and task tracking through
+//! `TaskTracker`, never through a database type or an OS API.
 
 mod ledger_store;
 mod secret;
+mod task_tracker;
 
 pub use ledger_store::SqliteLedgerStore;
 pub use secret::OsKeychain;
+pub use task_tracker::LocalTracker;
 
 use heddle_core::{HeddleError, Ledger, Result};
 use std::path::{Path, PathBuf};
 
-const LEDGER_FILE: &str = "ledger.sqlite3";
+const STORE_FILE: &str = "ledger.sqlite3";
 
 /// One silo's local storage, rooted at `<root>/<id>`.
 pub struct Silo {
@@ -45,11 +47,32 @@ impl Silo {
     /// The caller gets the same `Ledger` type `NativeLoop` and `ToolGateway`
     /// already take, so nothing downstream knows a database is involved.
     pub fn ledger(&self) -> Result<Ledger> {
-        Ledger::open(Box::new(SqliteLedgerStore::open(self.ledger_path())?))
+        Ledger::open(Box::new(SqliteLedgerStore::open(self.store_path())?))
     }
 
+    /// This silo's task board (design §4.13). Always available: it is this
+    /// file, so there is no backend to be unreachable and nothing to configure
+    /// before a workflow can record progress against it.
+    ///
+    /// Returned by value rather than cached, exactly as [`Silo::ledger`] is: a
+    /// caller that wants one keeps one, and a caller that wants two — a reader
+    /// and a writer — is not prevented from having them.
+    pub fn tracker(&self) -> Result<LocalTracker> {
+        LocalTracker::open(self.store_path())
+    }
+
+    /// The one SQLite file this silo holds — the Ledger's chain and the task
+    /// board both live in it, which is what keeps this module's opening
+    /// paragraph literally true.
+    pub fn store_path(&self) -> PathBuf {
+        self.dir.join(STORE_FILE)
+    }
+
+    /// The silo's database. Named for the Ledger because that is what it held
+    /// first and what every existing caller asks it for; [`Silo::store_path`]
+    /// is the same path under the name that now describes all of its contents.
     pub fn ledger_path(&self) -> PathBuf {
-        self.dir.join(LEDGER_FILE)
+        self.store_path()
     }
 }
 
