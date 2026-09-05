@@ -1,0 +1,56 @@
+- generic [ref=e4]:
+  - navigation "Projects" [ref=e5]:
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - generic [ref=e9]: Archon
+        - generic [ref=e10]: console
+      - generic [ref=e11]:
+        - generic [ref=e12]: Projects
+        - generic [ref=e13]: "0"
+      - generic [ref=e14]:
+        - generic [aria-hidden] [ref=e15]: ⌕
+        - textbox "Filter projects…" [ref=e16]
+    - button "All projects" [pressed] [ref=e18]
+    - generic [ref=e20]: No projects match “”.
+    - button "Add project" [ref=e23]:
+      - generic [aria-hidden] [ref=e24]: +
+    - generic [ref=e26]:
+      - link "Workflow Builder beta" [ref=e27] [cursor=pointer]:
+        - /url: /console/builder
+        - generic [ref=e33]: Workflow Builder
+        - generic [ref=e34]: beta
+      - link "Settings" [ref=e35] [cursor=pointer]:
+        - /url: /console/settings
+      - link "Workflows" [ref=e40] [cursor=pointer]:
+        - /url: /legacy/workflows
+      - link "Old UI" [ref=e46] [cursor=pointer]:
+        - /url: /legacy
+    - separator "Resize sidebar" [ref=e50]
+  - main [ref=e52]:
+    - generic [ref=e53]:
+      - generic [ref=e54]:
+        - generic [ref=e55]:
+          - generic [ref=e56]:
+            - heading "All projects" [level=1] [ref=e57]
+            - paragraph [ref=e58]: Every run, across every project.
+          - generic [ref=e59]:
+            - generic [aria-hidden] [ref=e60]: ⌕
+            - textbox "Search workflow, project, run id…" [ref=e61]
+        - generic [ref=e62]: Pick a project on the left to start a run.
+      - generic [ref=e64]:
+        - button "Running 0" [pressed] [ref=e65]:
+          - text: Running
+          - generic [ref=e66]: "0"
+        - button "Paused 0" [ref=e67]:
+          - text: Paused
+          - generic [ref=e68]: "0"
+        - button "Failed 0" [ref=e69]:
+          - text: Failed
+          - generic [ref=e70]: "0"
+        - button "Completed 0" [ref=e71]:
+          - text: Completed
+          - generic [ref=e72]: "0"
+        - button "All 0" [ref=e73]:
+          - text: All
+          - generic [ref=e74]: "0"
+      - paragraph [ref=e77]: Loading…

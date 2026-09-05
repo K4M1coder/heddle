@@ -366,7 +366,7 @@ fn there_is_no_launcher_and_no_proc_tool_off_windows() {
 
     let root = FsRoot::new(dir.path()).expect("a canonicalizable root");
     let carried = refusal(
-        EmbeddedServer::with_run(root, RunAccess::Allowed(RunDirs::none())),
+        EmbeddedServer::with_run(root, RunAccess::Allowed(RunDirs::none()), uncancelled()),
         "asking for a launcher here must fail rather than serve a missing tool",
     );
     assert!(
