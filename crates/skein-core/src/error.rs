@@ -35,6 +35,13 @@ pub enum SkeinError {
     /// not the model behind it and not the tool behind it.
     #[error("protocol: {0}")]
     Protocol(String),
+    /// A capability the type system names but this build does not implement —
+    /// a workflow node kind reserved by spec 002's vocabulary whose executor is
+    /// a later slice. Distinct from [`SkeinError::NotFound`], which is about a
+    /// thing that could have existed: this is about a thing that will, and the
+    /// caller's retry after a future release is the sensible response.
+    #[error("unsupported: {0}")]
+    Unsupported(String),
 }
 
 pub type Result<T> = std::result::Result<T, SkeinError>;

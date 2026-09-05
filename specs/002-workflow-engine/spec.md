@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-15
 
-**Status**: Draft
+**Status**: Planned
 
 **Input**: Epic 6 (`_bmad-output/planning-artifacts/epics.md`); design §4.12, §4.13, §5.5.
 
