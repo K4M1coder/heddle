@@ -1619,9 +1619,25 @@ fn acp_agent_refuses_a_run_dir_that_does_not_exist_before_serving() {
         "",
         "stdout is the protocol; nothing may go there"
     );
+    // Off Windows there is no sandboxed launcher backend at all (ADR-0006),
+    // so that platform-capability refusal fires before the path is ever
+    // looked at -- a more fundamental gate, and the same ordering the
+    // egress checks elsewhere in this workspace already use (the most
+    // fundamental refusal fires first, regardless of what else is wrong).
+    // The invariant this test actually cares about -- a refused run opens
+    // no chain -- holds on every platform; only the expected wording
+    // differs.
+    #[cfg(windows)]
     assert!(
         stderr(&out).contains("no-such-toolchain"),
         "the refusal must name the path the operator gave, got:\n{}",
+        stderr(&out)
+    );
+    #[cfg(not(windows))]
+    assert!(
+        stderr(&out).contains("no backend on this platform"),
+        "off Windows the platform-capability refusal must fire before the \
+         path is checked, got:\n{}",
         stderr(&out)
     );
     assert!(
