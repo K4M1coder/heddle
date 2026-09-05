@@ -1,13 +1,13 @@
-# Tasks: `skein-gateway` — the first real `ModelClient`, and `skein chat` (v0 slice)
+# Tasks: `heddle-gateway` — the first real `ModelClient`, and `heddle chat` (v0 slice)
 
 **Spec:** `specs/012-model-gateway/spec.md` · TDD (red→green), product code in
-`crates/skein-gateway` and `crates/skein-cli` plus one additive error variant in
-`crates/skein-core`, branch `012-model-gateway` cut from `dev` after slice 011 merged.
+`crates/heddle-gateway` and `crates/heddle-cli` plus one additive error variant in
+`crates/heddle-core`, branch `012-model-gateway` cut from `dev` after slice 011 merged.
 
 ## Constitution Check (ADR-0004 D1 solo-v0 bar)
-- I Headless core ✅ the gateway is a library behind `ModelClient`, and `skein chat` is its complete
+- I Headless core ✅ the gateway is a library behind `ModelClient`, and `heddle chat` is its complete
   client — the first command that runs the governed loop. The one place the CLI needed something the
-  API lacked (a name for "the engine stopped this run") is closed by *adding to `SkeinError`*, not
+  API lacked (a name for "the engine stopped this run") is closed by *adding to `HeddleError`*, not
   by reaching around it · II Local-first ✅ **two independent locks**: `LocalEndpoint::parse` refuses
   anything but loopback before a socket exists, and `ureq` with no TLS feature cannot speak HTTPS at
   all (measured: `TlsRequired`). Foreign host names are refused **without** being resolved, so no
@@ -16,8 +16,8 @@
   before any product code; T3's red observed before T4, T10's before T11, T12's before its variant.
   T5/T6/T7's guards are preconditions of T4's tests compiling, so their reds were observed by
   **mutation** instead — see `## Observed red`, which records that deviation and why a surviving
-  mutant is a stronger check than an absent name) · IV Inverted coupling ✅ (`skein-gateway` is the only crate naming
-  HTTP or the OpenAI wire format; `skein-core` does not depend on it and its dependency list is
+  mutant is a stronger check than an absent name) · IV Inverted coupling ✅ (`heddle-gateway` is the only crate naming
+  HTTP or the OpenAI wire format; `heddle-core` does not depend on it and its dependency list is
   unchanged at five crates)
 - V Traceability ✅ (`NativeLoop` appends `LlmRequest`/`LlmResponse`/`BudgetSpent` unchanged; the
   `BudgetSpent` payload is the provider's **real** metering, asserted against the stub's own number.
@@ -48,9 +48,9 @@
       and a compiled probe crate **outside** the repository, *before* any product code; measured,
       not copied — see below
 - [x] **T2** control baseline: `cargo test --workspace` before any edit — **82**
-- [x] **T3** RED — `crates/skein-gateway/tests/openai_compat.rs` with the `std::net::TcpListener`
-      stub helper, against the not-yet-existing `skein_gateway::{LocalEndpoint, OpenAiCompatClient}`
-- [x] **T4** GREEN — `crates/skein-gateway/` (`Cargo.toml`, `src/lib.rs`) + two root
+- [x] **T3** RED — `crates/heddle-gateway/tests/openai_compat.rs` with the `std::net::TcpListener`
+      stub helper, against the not-yet-existing `heddle_gateway::{LocalEndpoint, OpenAiCompatClient}`
+- [x] **T4** GREEN — `crates/heddle-gateway/` (`Cargo.toml`, `src/lib.rs`) + two root
       `[workspace.dependencies]` lines
 - [x] **T5** the loopback allowlist (`LocalEndpoint::parse`), red observed by mutation
 - [x] **T6** token accounting (D8's three cases), red observed by mutation
@@ -58,14 +58,14 @@
 - [x] **T8** end to end through `NativeLoop` against a two-response stub, still with no Ollama; no
       product code, so non-vacuity checked by mutation
 - [x] **T9** the optional `#[ignore]`d live test against a real Ollama
-- [x] **T10** RED — `crates/skein-cli/tests/cli_chat.rs`, process tests of the real binary
-- [x] **T11** GREEN — `crates/skein-cli/src/chat.rs`, the `Chat` arm, and the `main.rs` docstring
+- [x] **T10** RED — `crates/heddle-cli/tests/cli_chat.rs`, process tests of the real binary
+- [x] **T11** GREEN — `crates/heddle-cli/src/chat.rs`, the `Chat` arm, and the `main.rs` docstring
       correction
-- [x] **T12** RED→GREEN — `SkeinError::Unfinished` with its own test; landed **before** T11, which
+- [x] **T12** RED→GREEN — `HeddleError::Unfinished` with its own test; landed **before** T11, which
       cannot compile without it
 - [x] **T13** gates: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D
-      warnings`, `cargo test --workspace`, `cargo build --workspace`, + run `skein chat --help` and
-      `skein chat` against a real local Ollama
+      warnings`, `cargo test --workspace`, `cargo build --workspace`, + run `heddle chat --help` and
+      `heddle chat` against a real local Ollama
 - [x] **T14** control diff, dependency drift, close-out
 
 ## Pinned `ureq` surface (T1)
@@ -183,12 +183,12 @@ claims to pin. In every case the product code was then restored byte for byte �
 `git diff --stat` on `src/lib.rs` against the preceding commit is **empty** for all three, so
 those commits are tests only, which is checkable from the history.
 
-- **T3** `cargo test -p skein-gateway --test openai_compat` against a `Cargo.toml` + empty
+- **T3** `cargo test -p heddle-gateway --test openai_compat` against a `Cargo.toml` + empty
   `src/lib.rs` skeleton — the genuine absent-name red, the same shape as slices 007–010:
-  - `error[E0432]: unresolved imports skein_gateway::LocalEndpoint,
-    skein_gateway::OpenAiCompatClient` — *no `LocalEndpoint` in the root*, *no
+  - `error[E0432]: unresolved imports heddle_gateway::LocalEndpoint,
+    heddle_gateway::OpenAiCompatClient` — *no `LocalEndpoint` in the root*, *no
     `OpenAiCompatClient` in the root*
-  - `error: could not compile skein-gateway (test "openai_compat") due to 1 previous error`
+  - `error: could not compile heddle-gateway (test "openai_compat") due to 1 previous error`
 - **T5** mutation: the scheme and host checks deleted from `LocalEndpoint::parse`, the URL parse
   left in place. **3 passed, 2 failed.**
   - `an_https_base_url_is_refused` — `https://api.openai.com/v1 was accepted as
@@ -228,15 +228,15 @@ those commits are tests only, which is checkable from the history.
   - `an_end_to_end_run_against_a_stub_provider_lands_on_the_chain` — `left: [{assistant:
     "thinking out lou"}]`, `right: [{user: "what is the answer?"}, {assistant: "thinking out
     lou"}]`
-- **T10** `cargo test -p skein-cli --test cli_chat` before `skein chat` existed: **6 failed,
+- **T10** `cargo test -p heddle-cli --test cli_chat` before `heddle chat` existed: **6 failed,
   0 passed** — the same shape as slice 011's T5, a red on output and exit codes rather than on a
   compile error, because clap rejects an unknown subcommand at runtime.
   - `chat_answers_from_a_local_provider_and_records_the_run` — `left: ""`, `right: "the answer is
     42\n"`
   - `chat_fails_loudly_when_no_provider_is_listening` — `left: Some(2), right: Some(1)`: clap
     exits **2** on `unrecognized subcommand 'chat'` where the command's own contract is 1.
-- **T12** `cargo test -p skein-core --test core`:
-  - `error[E0599]: no variant named Unfinished found for enum SkeinError`
+- **T12** `cargo test -p heddle-core --test core`:
+  - `error[E0599]: no variant named Unfinished found for enum HeddleError`
   - T12 consequently landed **before** T11 rather than after it as the plan ordered:
     `chat.rs` cannot compile without the variant, so "added when T10's budget-exit test demands
     it" and "after T11" cannot both hold. The plan's own wording — *"added when T10's budget-exit
@@ -249,7 +249,7 @@ a remote (SC-001).
 
 - `cargo fmt --all -- --check` — clean.
 - `cargo clippy --workspace --all-targets -- -D warnings` — clean, no lint raised on the new crate
-  or on `skein-cli`'s new module.
+  or on `heddle-cli`'s new module.
 - `cargo test --workspace` — **105 passing, 1 ignored, 0 failed**: 82 pre-existing + 23 new. Per
   binary: `acp_session` 13, `cli_chat` **6**, `cli_ledger` 8, `cli_secret` 2, `core` **14**,
   `native_loop` 18, `tool_gateway` 9, `governed_run` **2**, `openai_compat` **14 + 1 ignored**,
@@ -273,15 +273,15 @@ a remote (SC-001).
      Exactly slice 011's own deviation, for the same reason: shipping a documented resolution rule
      with no test, where the failure mode (silently defaulting somewhere) is invisible and a
      process test costs four lines, is the worse of the two deviations.
-  6. `an_unfinished_run_names_the_run_and_the_exit_that_stopped_it` — the `SkeinError::Unfinished`
+  6. `an_unfinished_run_names_the_run_and_the_exit_that_stopped_it` — the `HeddleError::Unfinished`
      message, which the plan's validation list anticipated conditionally ("if T12 lands").
 
   None is one of the three shapes the plan excludes as padding: there is no test of `ureq` itself,
   no test of `--help` text, and no unit test of an inner formatter standing in for a behaviour
   test.
-- `cargo build --workspace` — clean; `target/debug/skein.exe` exists (8.9 MB) and runs.
-  `skein chat --help` prints `Usage: skein chat [OPTIONS] --silo <ID> --model <NAME>` with all ten
-  options — **`skein chat`, not `skein.exe chat`**, the `bin_name` property slice 011's T1 pinned,
+- `cargo build --workspace` — clean; `target/debug/heddle.exe` exists (8.9 MB) and runs.
+  `heddle chat --help` prints `Usage: heddle chat [OPTIONS] --silo <ID> --model <NAME>` with all ten
+  options — **`heddle chat`, not `heddle.exe chat`**, the `bin_name` property slice 011's T1 pinned,
   still holding with a new subcommand.
 - **SC-007, the structural TLS claim, measured rather than asserted.**
   `cargo tree -e normal,build,dev --prefix none` over the whole workspace matches **zero**
@@ -290,28 +290,28 @@ a remote (SC-001).
 
 ### The headline claim, checked by running it
 
-`skein chat` against the **real** Ollama on this host (`lfm2.5:latest`, one of three installed
+`heddle chat` against the **real** Ollama on this host (`lfm2.5:latest`, one of three installed
 models), then read back with slice 011's commands — two binaries, two slices, one chain:
 
 ```
-$ skein chat --root <tmp> --silo live --model lfm2.5:latest \
+$ heddle chat --root <tmp> --silo live --model lfm2.5:latest \
     --prompt "In one short sentence: what is a hash chain?"
 EXITCODE=0
 stdout: A hash chain is a sequence of data blocks where each block's input includes the hash of
         the previous block, forming a linked cryptographic proof.
 stderr: run chat-1788422518058-68972
 
-$ skein ledger log --root <tmp> --silo live
+$ heddle ledger log --root <tmp> --silo live
 chat-1788422518058-68972	0	iteration_boundary	a9a57189f94fae27463a7de818267d5cd89fadcd23995e453e959d7a22886dfc
 chat-1788422518058-68972	1	llm_request	07954f4aa51d870c5dece3dafd7b971c14cb6186c11cc0af2dd5b6d2ba634ca8
 chat-1788422518058-68972	2	llm_response	820ae542b8ee7d6ca18ffad1cb74aa65770d8e009b6d529efdd30889d6895d1f
 chat-1788422518058-68972	3	budget_spent	388fe0bf2a3850c816977432938717514d2e3187a9afebd439316733cee86bfc
 chat-1788422518058-68972	4	exit	1f594a9c3a6f63983c8688e634950191290c999c30a236bb268f0f9326677748
 
-$ skein ledger verify --root <tmp> --silo live
+$ heddle ledger verify --root <tmp> --silo live
 chat-1788422518058-68972	ok	5 steps
 
-$ skein ledger show --root <tmp> --silo live 388fe0bf…86bfc
+$ heddle ledger show --root <tmp> --silo live 388fe0bf…86bfc
 kind	budget_spent
 payload
 202
@@ -331,7 +331,7 @@ live lfm2.5:latest @ http://localhost:11434/v1
   final_output = true
 ```
 
-and, with the variable unset, `SKEIN_LIVE_MODEL is unset; skipping the live provider test` — so the
+and, with the variable unset, `HEDDLE_LIVE_MODEL is unset; skipping the live provider test` — so the
 `#[ignore]` gate degrades to a skip rather than a failure on a machine with no model.
 
 ### The Principle II refusals, also run by hand
@@ -339,17 +339,17 @@ and, with the variable unset, `SKEIN_LIVE_MODEL is unset; skipping the live prov
 Three invocations of the shipped binary, all exit **1**:
 
 ```
-$ skein chat … --base-url https://api.openai.com/v1
+$ heddle chat … --base-url https://api.openai.com/v1
 error: model provider: base URL "https://api.openai.com/v1" is not a local provider: scheme
-"https" is refused; Skein v0 talks to local providers over http only, and no TLS backend is
+"https" is refused; Heddle v0 talks to local providers over http only, and no TLS backend is
 compiled in
 
-$ skein chat … --base-url http://192.168.1.10:11434/v1
+$ heddle chat … --base-url http://192.168.1.10:11434/v1
 error: model provider: base URL "http://192.168.1.10:11434/v1" is not a local provider:
 192.168.1.10 is not a loopback address; reaching a provider off this machine needs the egress
 policy layer, which does not exist yet
 
-$ skein chat … --base-url http://ollama.example.com/v1
+$ heddle chat … --base-url http://ollama.example.com/v1
 error: model provider: base URL "http://ollama.example.com/v1" is not a local provider: host name
 "ollama.example.com" is refused without being resolved, because the query would itself leave this
 machine; use a loopback address or localhost
@@ -362,12 +362,12 @@ asserts.
 
 ## Control diff (T14)
 
-`git diff dev --stat -- crates/skein-mcp/ crates/skein-acp/ crates/skein-silo/ spikes/ .github/
+`git diff dev --stat -- crates/heddle-mcp/ crates/heddle-acp/ crates/heddle-silo/ spikes/ .github/
 rust-toolchain.toml` is **empty** (SC-005), `spikes/` included per ADR-0004 D2 — so specs 005, 008,
 009 and 010's suites, 32 of the 82 baseline tests, are live controls run against this slice's
-`skein-core`.
+`heddle-core`.
 
-`git diff dev --stat -- crates/skein-core/` is `src/error.rs | 6 +` and `tests/core.rs | 18 +` —
+`git diff dev --stat -- crates/heddle-core/` is `src/error.rs | 6 +` and `tests/core.rs | 18 +` —
 **one added error variant and one added test, 24 insertions and 0 deletions** (SC-006). No existing
 variant, signature or test body changed, so all 82 baseline tests stayed live controls on the core
 addition.
@@ -379,12 +379,12 @@ covered `crates/**` and `Cargo.toml` — both confirmed by reading, neither edit
 `git diff dev --stat` over the branch is **2724 insertions and 12 deletions** across 15 files.
 Unlike slice 011, this slice **does** delete, and all twelve lines are accounted for:
 
-- `crates/skein-cli/src/main.rs` — the two-line docstring claiming *"v0 has no `chat` and no
+- `crates/heddle-cli/src/main.rs` — the two-line docstring claiming *"v0 has no `chat` and no
   `acp-agent` because the workspace has no real `ModelClient` to put behind them"*. That sentence
-  is now false, so it is rewritten rather than left; plus the `use skein_core::Result` line, now
-  importing `SkeinError` too, and one doc comment reworded from "a ledger command reads" to "a
+  is now false, so it is rewritten rather than left; plus the `use heddle_core::Result` line, now
+  importing `HeddleError` too, and one doc comment reworded from "a ledger command reads" to "a
   command reads or writes", which `SiloArgs` now also is.
-- `crates/skein-cli/src/ledger.rs` — the seven-line `--root`/`$SKEIN_ROOT` resolution, lifted out
+- `crates/heddle-cli/src/ledger.rs` — the seven-line `--root`/`$HEDDLE_ROOT` resolution, lifted out
   of the private `open_ledger` and onto `SiloArgs::root()` where `chat` and the three `ledger`
   commands share one implementation. `chat` needs the identical rule and a second copy would be
   the drift `kind_name`'s own docstring warns about; the eight `cli_ledger` tests are the
@@ -403,21 +403,21 @@ of the working tree's cached lock. Those six-to-seven are excluded below.
 
 - **`ureq` adds exactly seven external crates, and the same seven on every target** — `ureq 3.4.0`,
   `ureq-proto 0.6.1`, `http 1.5.0`, `httparse 1.10.1`, `percent-encoding 2.3.2`, `utf8-zero 0.8.1`,
-  `base64 0.23.1` — plus the new `skein-gateway` workspace member itself.
+  `base64 0.23.1` — plus the new `heddle-gateway` workspace member itself.
   `cargo tree -e normal,build,dev [--target …] --prefix none | sort -u | wc -l`:
 
   | Target | before | after | added |
   |---|---|---|---|
-  | `x86_64-pc-windows-msvc` (host) | 141 | 149 | the seven above + `skein-gateway` |
-  | `x86_64-unknown-linux-gnu` | 140 | 148 | the seven above + `skein-gateway` |
-  | `aarch64-apple-darwin` | 142 | 150 | the seven above + `skein-gateway` |
+  | `x86_64-pc-windows-msvc` (host) | 141 | 149 | the seven above + `heddle-gateway` |
+  | `x86_64-unknown-linux-gnu` | 140 | 148 | the seven above + `heddle-gateway` |
+  | `aarch64-apple-darwin` | 142 | 150 | the seven above + `heddle-gateway` |
 
   Nothing was removed on any target. There is no `#[cfg]` in either new file and no target-gated
   dependency, which is why the added set is identical on all three legs.
 - **T1's prediction of seven held exactly.** `bytes 1.12.1`, `log 0.4.34` and `itoa 1.0.18` appear
   in `ureq`'s standalone probe graph but are already in the workspace, so they cost nothing — the
   same lesson slice 011 recorded, that a standalone probe overstates cost because it cannot see
-  what the workspace already resolves. The direct `http` edge in `skein-gateway/Cargo.toml` adds a
+  what the workspace already resolves. The direct `http` edge in `heddle-gateway/Cargo.toml` adds a
   *name*, not a package: `ureq-proto` already pulls `http 1.5.0`.
 - **`base64 0.23.1` joins the existing `base64 0.22.1`**, confirmed present in the same graph. A
   second major is not unprecedented here: slice 011 measured `syn 2.0.119` and `syn 3.0.4` already
@@ -432,9 +432,9 @@ of the working tree's cached lock. Those six-to-seven are excluded below.
   MSRV and does nothing else. No crate ships a `.c` file, so there is no C amalgamation and no
   `pkg-config`. `docs/DEVELOPMENT.md`'s "Machine prerequisites" is unchanged by this slice; the
   one edit T14 makes to that file corrects the stale "Local inference" row.
-- **`skein-gateway` has five direct dependencies** — `skein-core`, `serde`, `serde_json`, `ureq`,
+- **`heddle-gateway` has five direct dependencies** — `heddle-core`, `serde`, `serde_json`, `ureq`,
   `http` — and **no dev-dependencies at all**: the wire tests are `std` sockets, so the slice adds
-  no test harness. **`skein-cli` gains exactly one**, `skein-gateway`, bringing it to five. Neither
+  no test harness. **`heddle-cli` gains exactly one**, `heddle-gateway`, bringing it to five. Neither
   crate takes `tokio`: every path in this slice is synchronous, which is the whole reason `ureq`
   was chosen over `reqwest`.
 
@@ -442,8 +442,8 @@ of the working tree's cached lock. Those six-to-seven are excluded below.
 
 Deliberately not done, so no one helpfully does it:
 
-- **`skein acp-agent`** — the next slice. Needs a stdio `ConnectTo<Agent>`, a `tokio` runtime inside
-  `skein-cli`, a `SessionParts` factory and a subprocess ACP end-to-end test.
+- **`heddle acp-agent`** — the next slice. Needs a stdio `ConnectTo<Agent>`, a `tokio` runtime inside
+  `heddle-cli`, a `SessionParts` factory and a subprocess ACP end-to-end test.
 - **Cloud providers, of any kind.** Structurally impossible in this build (no TLS), and it stays
   that way until an egress-policy layer exists.
 - **LAN-reachable local providers** (`http://192.168.…`). Refused per ADR-0002 D4's loopback
@@ -470,11 +470,11 @@ Deliberately not done, so no one helpfully does it:
   for the dependency decision and left exactly as it is.
 
 ## Next slice (not this feature)
-- [ ] **`skein acp-agent`** — the stdio ACP server, now that a real `ModelClient` exists to put
-      behind it. `SkeinAgent::new(factory)` already requires `C: ModelClient + Send + 'static` and
+- [ ] **`heddle acp-agent`** — the stdio ACP server, now that a real `ModelClient` exists to put
+      behind it. `HeddleAgent::new(factory)` already requires `C: ModelClient + Send + 'static` and
       `OpenAiCompatClient` satisfies it; what is missing is the transport, the `tokio` runtime in
-      `skein-cli`, a `SessionParts` factory and a subprocess end-to-end test.
-- [ ] **redaction on the `LlmRequest`/`LlmResponse` path**, so `skein ledger show` cannot print a
+      `heddle-cli`, a `SessionParts` factory and a subprocess end-to-end test.
+- [ ] **redaction on the `LlmRequest`/`LlmResponse` path**, so `heddle ledger show` cannot print a
       conversation secret. Carried from slice 011 and now *reachable*, because a real conversation
       exists: `ToolCall`/`ToolResult` payloads pass through the `Redactor` in
       `ToolGateway::call_captured`, but `NativeLoop::run` appends model I/O **raw**. The fix belongs
@@ -486,7 +486,7 @@ Deliberately not done, so no one helpfully does it:
       value arrives as a `SecretRef` resolved through `SecretProvider` (Principle VI), never a
       literal and never a plaintext config value. About five lines, deliberately not written yet.
 - [ ] **tool advertisement** — a `tools` field on `TurnRequest`, which needs tool *discovery* from
-      the Tool Gateway first. Until it lands, a `skein chat` run produces no tool calls and the
+      the Tool Gateway first. Until it lands, a `heddle chat` run produces no tool calls and the
       loop's tool mediation stays proven by the `ScriptedModel` suites.
 - [ ] **streaming (SSE)**, together with ACP `AgentMessageChunk` notifications.
 - [ ] **sampling parameters** — temperature, top-p, seed. `TurnRequest` cannot express them and no

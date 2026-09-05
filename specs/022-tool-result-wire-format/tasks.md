@@ -6,8 +6,8 @@ cut from `dev` at `6873137`.
 
 ## Constitution Check (ADR-0004 D1 solo-v0 bar)
 
-- **I Headless core** ✅ no CLI of its own, no new flag, no new command. `skein chat` and
-  `skein acp-agent` are unchanged and stay the authoritative clients; what changes is the shape of
+- **I Headless core** ✅ no CLI of its own, no new flag, no new command. `heddle chat` and
+  `heddle acp-agent` are unchanged and stay the authoritative clients; what changes is the shape of
   the conversation the core replays, which no caller names.
 - **II Local-first** ✅ untouched, and it is *why* one of this slice's motivations was refused. The
   originating "a stricter hosted provider may reject this" premise is refuted precisely because
@@ -15,10 +15,10 @@ cut from `dev` at `6873137`.
   new network-capable code, no new dependency, no `Cargo.toml` change.
 - **III Test-First** ✅ each step's outcome is recorded verbatim under `## Observed red`, and where a
   step had **no** red the entry says so and why rather than dressing one up.
-- **IV Inverted coupling** ✅ `skein-core` gains nothing that names a protocol. `Message` grows two
+- **IV Inverted coupling** ✅ `heddle-core` gains nothing that names a protocol. `Message` grows two
   fields that describe a *conversation*, not a wire; the OpenAI spelling of them
   (`{"role":"tool","tool_call_id":…}`, `arguments` as a JSON string) exists only in
-  `skein-gateway`, which stays the one crate naming the chat-completions format. The `Option<String>`
+  `heddle-gateway`, which stays the one crate naming the chat-completions format. The `Option<String>`
   id fallback lives at that port too (D3), so no other crate reasons about a provider that omits one.
 - **V Traceability** ✅ no new `StepKind` and no change to `Ledger`, `ToolGateway` or `Approval`. The
   `LlmRequest`/`LlmResponse` payloads gain fields that are `#[serde(default)]` +
@@ -52,9 +52,9 @@ cut from `dev` at `6873137`.
       chain
 - [x] **T4** RED — the wire: exact bytes for `role:"tool"` and an echoed assistant, the parsed id,
       and D3's synthesized fallback
-- [x] **T5** GREEN — `skein-core`: D1 (`content.rs`), D2 + `Redactor::redact_call` (`tool.rs`), D4
+- [x] **T5** GREEN — `heddle-core`: D1 (`content.rs`), D2 + `Redactor::redact_call` (`tool.rs`), D4
       (`native_loop.rs`)
-- [x] **T6** GREEN — `skein-gateway`: D3 and D5, and slice 015's now-false residual entries
+- [x] **T6** GREEN — `heddle-gateway`: D3 and D5, and slice 015's now-false residual entries
       corrected (see *Deviations* 1)
 - [x] **T7** the existing assertions that genuinely change — seven test files, eighteen sites
 - [x] **T8** live verification against a real local model — **part of this run**
@@ -87,18 +87,18 @@ The behavioural evidence that the old shape was *wrong* is not in this suite at 
 0/6-vs-6/6 measurement recorded in `spec.md`'s finding 4, which no deterministic test can carry
 without becoming a model benchmark.
 
-**T1 — the multi-call round-trip.** `cargo test -p skein-core --test native_loop two_calls_in_one_turn`:
+**T1 — the multi-call round-trip.** `cargo test -p heddle-core --test native_loop two_calls_in_one_turn`:
 
 ```
-error[E0599]: no associated function or constant named `with_id` found for struct `skein_core::ToolCall`
-   --> crates\skein-core\tests\native_loop.rs:633:27
+error[E0599]: no associated function or constant named `with_id` found for struct `heddle_core::ToolCall`
+   --> crates\heddle-core\tests\native_loop.rs:633:27
 error[E0609]: no field `tool_calls` on type `&Message`
-   --> crates\skein-core\tests\native_loop.rs:658:14
+   --> crates\heddle-core\tests\native_loop.rs:658:14
 error[E0599]: no variant, associated function, or constant named `Tool` found for enum `Role`
-   --> crates\skein-core\tests\native_loop.rs:667:39
+   --> crates\heddle-core\tests\native_loop.rs:667:39
 error[E0609]: no field `tool_call_id` on type `&Message`
-   --> crates\skein-core\tests\native_loop.rs:669:20
-error: could not compile `skein-core` (test "native_loop") due to 6 previous errors
+   --> crates\heddle-core\tests\native_loop.rs:669:20
+error: could not compile `heddle-core` (test "native_loop") due to 6 previous errors
 ```
 
 **T2 — the safety property.** The forged-label test adds three more of the same on `native_loop.rs`;
@@ -106,21 +106,21 @@ the wire invariant is red in the other crate too:
 
 ```
 error[E0599]: no method named `with_tool_calls` found for struct `Message`
-   --> crates\skein-gateway\tests\openai_compat.rs:312:41
+   --> crates\heddle-gateway\tests\openai_compat.rs:312:41
 error[E0599]: no associated function or constant named `tool_result` found for struct `Message`
-   --> crates\skein-gateway\tests\openai_compat.rs:324:22
-error: could not compile `skein-gateway` (test "openai_compat") due to 5 previous errors
+   --> crates\heddle-gateway\tests\openai_compat.rs:324:22
+error: could not compile `heddle-gateway` (test "openai_compat") due to 5 previous errors
 ```
 
-**T3 — redaction across the echo.** `error: could not compile skein-core (test "native_loop") due to
+**T3 — redaction across the echo.** `error: could not compile heddle-core (test "native_loop") due to
 15 previous errors`, the new ones being `no field tool_calls on type Message` and `no variant … Tool`
 at the new test's assertions. This test's red is the most clearly structural of the four: before this
 slice the arguments never re-entered a request at all, so there was no echo for a redactor to have
 missed. It does not prove a fixed leak; it pins that the new path cannot open one.
 
-**T4 — the wire.** `error: could not compile skein-gateway (test "openai_compat") due to 12 previous
+**T4 — the wire.** `error: could not compile heddle-gateway (test "openai_compat") due to 12 previous
 errors`, including `error[E0560]: struct Message has no field named tool_call_id` and
-`error[E0609]: no field id on type &skein_core::ToolCall`.
+`error[E0609]: no field id on type &heddle_core::ToolCall`.
 
 **T7 — the pre-existing assertions, as a red before they were touched.** After T5/T6 landed and
 before any existing test was reworded, `cargo test --workspace --no-fail-fast` reported **19 failing
@@ -137,8 +137,8 @@ Run on 2026-09-04 against **`gemma4:latest`** on this machine's Ollama, through 
 and `gamma.txt` = `4`. Nothing below the model is a double.
 
 ```
-$env:SKEIN_LIVE_MODEL = "gemma4:latest"
-cargo test -p skein-connectors --test governed_fs_run a_live_model_reads_two_files -- --ignored --nocapture
+$env:HEDDLE_LIVE_MODEL = "gemma4:latest"
+cargo test -p heddle-connectors --test governed_fs_run a_live_model_reads_two_files -- --ignored --nocapture
 ```
 
 The model emitted **two calls in one turn**, with its own ids, and the second request replayed them
@@ -183,7 +183,7 @@ Every other target is unchanged in count. `cargo fmt --all --check` and
 ## Deviations from the plan, stated
 
 1. **The gateway module doc never carried the claim T6 said to correct.** The plan directed a fix to
-   `skein-gateway`'s module doc for *"the tool-result feedback path is deliberately left as it is"*.
+   `heddle-gateway`'s module doc for *"the tool-result feedback path is deliberately left as it is"*.
    That sentence is not there and never was: it lives only in `specs/015-tool-advertisement/plan.md`
    and, in a variant wording, in that slice's `spec.md`. Verified by grep. The three `specs/015-…`
    entries now point at this slice; the gateway source needed no doc change beyond the new types'
@@ -201,7 +201,7 @@ Every other target is unchanged in count. `cargo fmt --all --check` and
    the new live test — which runs as `run-live` — silently read an empty list rather than failing.
    The live run caught it (`asked [], answered []`) and the helper was parameterized; its five
    existing callers pass `"run-fs"` and assert exactly what they did before.
-5. **One commit, not several.** `Role::Tool` and `skein-gateway`'s exhaustive `match` on `Role` are
+5. **One commit, not several.** `Role::Tool` and `heddle-gateway`'s exhaustive `match` on `Role` are
    inseparable: any split puts a non-compiling or test-red commit in the history. The migration is
    one commit, which is what `plan.md`'s rollback paragraph already assumes.
 
@@ -216,7 +216,7 @@ it was written.
 
 Proven inherited rather than asserted: the same command in a scratch worktree detached at `dev`
 `6873137`, before any commit of this slice, fails identically with a byte-identical payload. And
-`git diff dev -- crates/skein-core/src/tool.rs` shows no change to the `CapturedResult` construction
+`git diff dev -- crates/heddle-core/src/tool.rs` shows no change to the `CapturedResult` construction
 or to the `StepKind::ToolResult` append, so this slice cannot have altered that payload's shape. Left
 unfixed deliberately: it is outside this slice's scope and belongs to whoever owns that test next.
 

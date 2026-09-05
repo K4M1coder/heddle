@@ -1,4 +1,4 @@
-//! Where the desktop app gets the flags it launches `skein acp-agent` with.
+//! Where the desktop app gets the flags it launches `heddle acp-agent` with.
 //!
 //! v0 has no settings screen (that is a follow-up slice), and it has no config
 //! file either — for the same reason `SiloArgs::root` refuses to guess one:
@@ -7,31 +7,31 @@
 //! refuses to start when a required variable is absent, naming it.
 //!
 //! Nothing here invents a configuration surface. Every value below becomes a
-//! flag `skein acp-agent` already parses (`crates/skein-cli/src/main.rs`).
+//! flag `heddle acp-agent` already parses (`crates/heddle-cli/src/main.rs`).
 
 use crate::session::AgentLaunch;
 use std::path::{Path, PathBuf};
 
-/// The `skein` binary, overridable for a developer running an unbundled build.
-const BIN: &str = "SKEIN_UI_BIN";
-/// The silo root, exactly as `skein --root` / `$SKEIN_ROOT` means it.
-const ROOT: &str = "SKEIN_ROOT";
+/// The `heddle` binary, overridable for a developer running an unbundled build.
+const BIN: &str = "HEDDLE_UI_BIN";
+/// The silo root, exactly as `heddle --root` / `$HEDDLE_ROOT` means it.
+const ROOT: &str = "HEDDLE_ROOT";
 /// Which silo the window's sessions land in.
-const SILO: &str = "SKEIN_UI_SILO";
+const SILO: &str = "HEDDLE_UI_SILO";
 /// The model name. `--model` has no default in the CLI and gets none here.
-const MODEL: &str = "SKEIN_UI_MODEL";
-/// The provider base URL. `skein-gateway` can only reach loopback either way.
-const BASE_URL: &str = "SKEIN_MODEL_BASE_URL";
+const MODEL: &str = "HEDDLE_UI_MODEL";
+/// The provider base URL. `heddle-gateway` can only reach loopback either way.
+const BASE_URL: &str = "HEDDLE_MODEL_BASE_URL";
 /// The one directory an agent may work in. Absent means the session has no
-/// tools at all — `crates/skein-cli/src/wiring.rs`'s "no root, no tools".
-const FS_ROOT: &str = "SKEIN_UI_FS_ROOT";
+/// tools at all — `crates/heddle-cli/src/wiring.rs`'s "no root, no tools".
+const FS_ROOT: &str = "HEDDLE_UI_FS_ROOT";
 
 /// The default silo, so a first run needs two variables rather than three.
 const DEFAULT_SILO: &str = "ui";
 
 /// Reads `env` and builds the child's launch, or explains what is missing.
 ///
-/// `exe_dir` is where the app's own executable lives; the `skein` binary is
+/// `exe_dir` is where the app's own executable lives; the `heddle` binary is
 /// expected beside it, which is what a bundled app ships and what a `cargo
 /// build` layout already produces. Never a hardcoded developer path.
 pub fn launch_from_env(
@@ -46,7 +46,7 @@ pub fn launch_from_env(
 
     let binary = match env(BIN) {
         Some(path) if !path.trim().is_empty() => PathBuf::from(path),
-        _ => exe_dir.join(format!("skein{}", std::env::consts::EXE_SUFFIX)),
+        _ => exe_dir.join(format!("heddle{}", std::env::consts::EXE_SUFFIX)),
     };
     let root = required(ROOT)?;
     let model = required(MODEL)?;
@@ -175,16 +175,16 @@ mod tests {
         let launch = launch_from_env(env_of(&minimal()), Path::new("/app")).expect("a launch");
         assert_eq!(
             launch.command(),
-            Path::new("/app").join(format!("skein{}", std::env::consts::EXE_SUFFIX))
+            Path::new("/app").join(format!("heddle{}", std::env::consts::EXE_SUFFIX))
         );
     }
 
     #[test]
     fn an_explicit_binary_overrides_the_default() {
         let mut pairs = minimal();
-        pairs.push((BIN, "/opt/skein-dev"));
+        pairs.push((BIN, "/opt/heddle-dev"));
         let launch = launch_from_env(env_of(&pairs), Path::new("/app")).expect("a launch");
-        assert_eq!(launch.command(), Path::new("/opt/skein-dev"));
+        assert_eq!(launch.command(), Path::new("/opt/heddle-dev"));
     }
 
     #[test]

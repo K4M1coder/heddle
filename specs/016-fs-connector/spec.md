@@ -2,7 +2,7 @@
 
 **Feature Branch:** `016-fs-connector` · **Created:** 2026-09-03 · **Status:** Implemented (v0
 slice) **Input:** `specs/015-tool-advertisement/tasks.md` "Next slice" — *"the `fs` connector (slice
-016) — a new `crates/skein-connectors` holding a root-bounded embedded rmcp filesystem server, opt-in
+016) — a new `crates/heddle-connectors` holding a root-bounded embedded rmcp filesystem server, opt-in
 via `--fs-root`, wired into both commands with named allowlists. This is what gives this slice a
 caller"* · ADR-0004 D3's sixth v0 item (*"MCP tools (fs/git/shell)"*) · Constitution II
 (**local-first**, NON-NEGOTIABLE), III (**test-first**), IV (**inverted coupling**), V
@@ -11,14 +11,14 @@ capability without a real need**) · design §4.3, §5.4.
 
 Slice 015 built the request path: `ToolGateway::advertise` discovers a transport's catalogue, filters
 it to the allowlist, and `NativeLoop::run` stamps the result into every `TurnRequest` of a run, which
-`skein-gateway` puts on the wire in OpenAI's `tools` shape. It shipped with **no caller in the
+`heddle-gateway` puts on the wire in OpenAI's `tools` shape. It shipped with **no caller in the
 shipped binary**: both loop-running commands still wired `NoTools` behind an empty policy, so
 `advertise` returned empty and no `tools` key was serialized anywhere.
 
 This slice gives it something to advertise. It adds one workspace member,
-`crates/skein-connectors`, holding a **root-bounded embedded MCP filesystem server** and the
+`crates/heddle-connectors`, holding a **root-bounded embedded MCP filesystem server** and the
 `ToolTransport` that reaches it in-process, and one flag, `--fs-root`, that wires it into
-`skein chat` and `skein acp-agent`. After this slice a local model can ask to read a file, the
+`heddle chat` and `heddle acp-agent`. After this slice a local model can ask to read a file, the
 governed gateway can decide, the server can do it, and the chain records the whole exchange.
 
 ## What this slice changes for a user
@@ -30,17 +30,17 @@ wire**. SC-010 pins this against the real binary.
 **With `--fs-root <DIR>`:** the run gains up to three tools, named to the model with the JSON Schema
 the server itself derived from its real parameter types:
 
-| tool | args | `ToolAccess` | `skein chat` | `skein acp-agent` |
+| tool | args | `ToolAccess` | `heddle chat` | `heddle acp-agent` |
 |---|---|---|---|---|
 | `fs_read` | `path` | `ReadOnly` | allowlisted | allowlisted |
 | `fs_list` | `path` | `ReadOnly` | allowlisted | allowlisted |
 | `fs_write` | `path`, `content` | `Mutating` | **not allowlisted** | allowlisted **and** `approved` |
 
-**The asymmetry is the point, not an oversight.** `skein chat` is non-interactive: Constitution VI
+**The asymmetry is the point, not an oversight.** `heddle chat` is non-interactive: Constitution VI
 requires confirmation for a destructive action and there is nobody to ask. Rather than ship a tool
 that could only ever be denied, `chat` does not allowlist `fs_write` at all — so it is a genuinely
 unlisted tool there and the deny-by-default refusal is provable end to end (SC-006).
-`skein acp-agent` has a human behind an editor, so `fs_write` goes in `approved`: the policy stops
+`heddle acp-agent` has a human behind an editor, so `fs_write` goes in `approved`: the policy stops
 gating it and `AcpPermissionTransport` becomes the confirmation gate. That is not a weakening.
 `ToolGateway::call_captured` consults the policy **before** the transport, so a `Mutating` tool
 absent from `approved` never reaches the ACP permission prompt at all — putting it in `approved` is
@@ -53,9 +53,9 @@ the only way to reach the human.
    with **923 total downloads**, last published **2025-09-22**, from a single-author repository — not
    proven and not maintained. The reference `@modelcontextprotocol/server-filesystem` is a **Node
    package**, so depending on it would put a Node runtime and an out-of-process child on
-   `skein chat`'s critical path and hand the loopback-only build property back at runtime. What this
+   `heddle chat`'s critical path and hand the loopback-only build property back at runtime. What this
    slice needs is three tools over one canonicalized directory: **~150 lines against the official
-   `rmcp` SDK**, in exactly the shape `crates/skein-mcp/tests/rmcp_gateway.rs`'s `DownstreamServer`
+   `rmcp` SDK**, in exactly the shape `crates/heddle-mcp/tests/rmcp_gateway.rs`'s `DownstreamServer`
    already proves works against the real `RmcpToolTransport`.
 2. **`FsRoot::resolve` refuses an absolute argument *before* joining, and that ordering is the whole
    containment guarantee.** `Path::join` with an absolute path **discards the base**:
@@ -83,10 +83,10 @@ the only way to reach the human.
 
 ## Functional requirements
 
-- **FR-001** `crates/skein-connectors` is a new workspace member depending on `rmcp` (`server` +
-  `macros`), `tokio` (`rt-multi-thread`), `schemars`, `serde`, `serde_json`, `skein-core` and
-  `skein-mcp`. It is the **only** crate in the product that names MCP as a **server**.
-- **FR-002** `skein-mcp`'s docstring invariant is amended, in both crates, from *"the only crate in
+- **FR-001** `crates/heddle-connectors` is a new workspace member depending on `rmcp` (`server` +
+  `macros`), `tokio` (`rt-multi-thread`), `schemars`, `serde`, `serde_json`, `heddle-core` and
+  `heddle-mcp`. It is the **only** crate in the product that names MCP as a **server**.
+- **FR-002** `heddle-mcp`'s docstring invariant is amended, in both crates, from *"the only crate in
   the product that names the MCP protocol"* to **the only crate naming MCP as a client**. An
   invariant left stale is worse than one restated.
 - **FR-003** `FsRoot::new(path)` canonicalizes at construction and **fails loudly** on a path that
@@ -114,7 +114,7 @@ the only way to reach the human.
   torn down while the runtime driving the server task is still alive.
 - **FR-011** `fs_connector(root)` is the one constructor. No method of `LocalConnector` may be called
   from inside a tokio context: `Runtime::block_on` panics when a runtime is already entered.
-- **FR-012** `skein-cli` gains `wiring::ToolArgs { fs_root: Option<PathBuf> }`, flattened into
+- **FR-012** `heddle-cli` gains `wiring::ToolArgs { fs_root: Option<PathBuf> }`, flattened into
   `ChatArgs` and the `AcpAgent` command as `--fs-root`, with `transport()`, `chat_policy()` and
   `agent_policy()`. `ConfiguredTools::{None, Fs(Box<LocalConnector>)}` implements `ToolTransport`;
   the `Fs` variant is boxed because `LocalConnector` holds a `Runtime` and `NoTools` is zero-sized,
@@ -145,16 +145,16 @@ the only way to reach the human.
   the run survives.
 - **SC-008** A configured secret that is the **contents of a file on disk**, read through the
   connector, appears in **no** Ledger payload of the run, and at least one payload contains `***`.
-- **SC-009** `skein chat --fs-root <dir>` (the **real binary**) sends `tools` on the wire and reads a
+- **SC-009** `heddle chat --fs-root <dir>` (the **real binary**) sends `tools` on the wire and reads a
   real file under the root.
-- **SC-010** `skein chat` without `--fs-root` sends **no `tools` key** and behaves exactly as before.
-- **SC-011** `skein chat --fs-root <nonexistent>` exits 1 with **no ledger file created**.
-- **SC-012** `skein acp-agent --fs-root <dir>` starts, drives a session, and lists the flag in
+- **SC-010** `heddle chat` without `--fs-root` sends **no `tools` key** and behaves exactly as before.
+- **SC-011** `heddle chat --fs-root <nonexistent>` exits 1 with **no ledger file created**.
+- **SC-012** `heddle acp-agent --fs-root <dir>` starts, drives a session, and lists the flag in
   `--help`.
 - **SC-013** All 132 pre-existing tests pass with **no assertion changed or removed**. The only edits
   to pre-existing test files are the two `StubProvider` helpers becoming observable, which SC-009 and
   SC-010 cannot be written without.
-- **SC-014** `git diff dev -- crates/skein-silo/ spikes/ .github/ rust-toolchain.toml` is **empty**.
+- **SC-014** `git diff dev -- crates/heddle-silo/ spikes/ .github/ rust-toolchain.toml` is **empty**.
 
 ## Assumptions and residuals
 
@@ -170,8 +170,8 @@ the only way to reach the human.
   existing one-client-per-session shape. Sessions are few in v0; the cost is stated rather than
   hidden.
 - **`Runtime::block_on` panics inside an entered tokio runtime**, so both call sites were traced:
-  `skein chat` builds the connector on the main thread, and `skein acp-agent` builds it inside
-  `SkeinAgent::open`, which runs under `futures::executor::block_on`, not a tokio context. Restated
+  `heddle chat` builds the connector on the main thread, and `heddle acp-agent` builds it inside
+  `HeddleAgent::open`, which runs under `futures::executor::block_on`, not a tokio context. Restated
   in `LocalConnector`'s docstring.
 - **ADR-0004 D3 closes for `fs` and remains open for `git` and `shell`.** Said here rather than
   claiming the item done.
@@ -194,8 +194,8 @@ Deliberately not done, so nobody helpfully does it:
   scrubbing, and no access-scope hierarchy. An allowlist of command *names* is not an allowlist of
   *effects*: `git`, `npm`, `cargo` and `python` all reach arbitrary code through arguments and config
   files, so an allowlisted-binary shell tool is an unrestricted shell with extra steps.
-  Constitution VI requires confirmation for destructive actions and `skein chat` has nobody to ask.
-  And Constitution II is NON-NEGOTIABLE about egress: `skein-gateway` makes local-only a property of
+  Constitution VI requires confirmation for destructive actions and `heddle chat` has nobody to ask.
+  And Constitution II is NON-NEGOTIABLE about egress: `heddle-gateway` makes local-only a property of
   the *build* by compiling in no TLS backend, and a shell tool would hand that guarantee back at
   runtime, silently, the first time a model ran `curl`. **Shell gets its own slice, after an
   access-scope boundary exists.**
@@ -210,4 +210,4 @@ Deliberately not done, so nobody helpfully does it:
 - **`role: "tool"` / `tool_call_id` conversation replay**, `strict: true`, `tool_choice`, parallel
   tool calls, streaming (SSE) — all carried unchanged from slice 015.
 - **Raw wire-byte capture**, provider authentication, a config file, `--json` output.
-- **`crates/skein-silo/`, `spikes/`** (ADR-0004 D2), **`.github/`, `rust-toolchain.toml`.**
+- **`crates/heddle-silo/`, `spikes/`** (ADR-0004 D2), **`.github/`, `rust-toolchain.toml`.**

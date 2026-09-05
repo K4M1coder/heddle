@@ -10,7 +10,7 @@ a real need**) · design §4.5 (the Gateway as "traceability chokepoint"), §4.1
 Spike 1's criterion C1.
 
 The Ledger recorded `StepKind::LlmRequest` from a `TurnRequest` and `StepKind::LlmResponse` from a
-`TurnResponse` — **both skein-core's own types**, on this side of the `ModelClient` port. The bytes
+`TurnResponse` — **both heddle-core's own types**, on this side of the `ModelClient` port. The bytes
 that actually crossed the socket were built and consumed entirely inside `OpenAiCompatClient::turn`
 and dropped when it returned. This slice puts them on the chain.
 
@@ -20,7 +20,7 @@ and dropped when it returned. This slice puts them on the chain.
 chain read the input to the translation and the output of it, never the wire between them. A bug in
 `ChatRequest`'s `Serialize`, a provider answering a shape `ChatResponse` silently ignores, a
 mistranslation in `impl From<&Message> for ChatMessage` — none of them was visible anywhere in the
-product. Now `skein ledger show` on the new step prints the exact bytes, and they can be read against
+product. Now `heddle ledger show` on the new step prints the exact bytes, and they can be read against
 the `LlmRequest` and `LlmResponse` steps that bracket them.
 
 **A failed turn now leaves the bytes that caused the failure.** A provider answering HTTP 500, or
@@ -32,7 +32,7 @@ slice buys.
 **A turn that never reached a socket still records nothing.** A connection refused or a timeout
 leaves no exchange, so the chain never claims bytes crossed when none did.
 
-**No CLI flag, no new command, no config key.** `skein ledger log` and `skein ledger show` render
+**No CLI flag, no new command, no config key.** `heddle ledger log` and `heddle ledger show` render
 the new kind with **no CLI change at all**, because `kind_name` derives the column from
 `serde_json::to_value` rather than matching the enum.
 
@@ -135,7 +135,7 @@ the new kind with **no CLI change at all**, because `kind_name` derives the colu
   ureq's `Body::read_to_string`, which applies a 10 MB limit and `lossy_utf8(true)`, so a non-UTF-8
   byte becomes U+FFFD and a larger body is cut. **Both properties already govern what `ChatResponse`
   is parsed from**; this slice neither introduces nor worsens them, and the captured bytes are
-  exactly the bytes skein-core acted on — which is the auditable claim that matters. `gzip` is not a
+  exactly the bytes heddle-core acted on — which is the auditable claim that matters. `gzip` is not a
   factor: `ureq` is declared with `default-features = false`, so no content-encoding is decoded.
 - **Assumption — chain and memory growth roughly doubles for model I/O.** Accepted deliberately
   (`plan.md` D5), bounded by ureq's existing 10 MB body limit. If chain size becomes a real
@@ -162,10 +162,10 @@ the new kind with **no CLI change at all**, because `kind_name` derives the colu
 - **Any general network-tracing subsystem**, any on/off flag, any config key, any sampling or
   retention policy for the new step.
 - **Fixing the `ToolResult` JSON-escape redaction hole**, recorded as a residual above.
-- **Replay from `WireExchange`**, a `skein ledger diff` comparing raw and translated payloads, or
+- **Replay from `WireExchange`**, a `heddle ledger diff` comparing raw and translated payloads, or
   any ACP `SessionUpdate` for the new kind. No caller. The new kind is deliberately inert on the ACP
   transcript: raw provider bytes are audit evidence, not something to stream to an editor.
 - **Streaming (SSE).**
 - **`spikes/`** (ADR-0004 D2) — read as evidence for C1's actual wording, left byte-identical.
-- **A PR.** No real remote; the bare mirror under `D:/claudecode/skein-origin.git` exists only for
+- **A PR.** No real remote; the bare mirror under `D:/claudecode/heddle-origin.git` exists only for
   Archon's worktree isolation.

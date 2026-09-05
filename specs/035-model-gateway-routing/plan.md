@@ -5,8 +5,8 @@
 
 ## Constitution Check (ADR-0004 D1 solo-v0 bar)
 
-- **I Headless core** ✅ `skein chat` gains three flags and stays the authoritative client. The
-  routing decision lives in `skein-gateway` and is reachable through its public API; the CLI holds
+- **I Headless core** ✅ `heddle chat` gains three flags and stays the authoritative client. The
+  routing decision lives in `heddle-gateway` and is reachable through its public API; the CLI holds
   no policy of its own beyond turning flags into arguments.
 - **II Local-first** ✅ NON-NEGOTIABLE and *strengthened*, not relaxed. `ureq` keeps
   `default-features = false`, so no TLS backend is compiled in and the structural guarantee is
@@ -17,13 +17,13 @@
   red`. T5/T6 had **no** red because the guard was written during T2, and that entry says so rather
   than dressing one up — it carries a **measured mutation** instead, which is a stronger guarantee
   than a red because it keeps working after the fact.
-- **IV Inverted coupling** ✅ `skein-core` gains nothing and is unchanged. `skein-gateway` remains
+- **IV Inverted coupling** ✅ `heddle-core` gains nothing and is unchanged. `heddle-gateway` remains
   the only crate naming HTTP, gains one parse-only dependency (`toml`), and does **not** gain a
-  dependency on `skein-silo` — the router takes `&dyn SecretProvider` and the tests implement that
-  trait directly rather than reusing `skein-silo`'s keychain-backed fixture.
+  dependency on `heddle-silo` — the router takes `&dyn SecretProvider` and the tests implement that
+  trait directly rather than reusing `heddle-silo`'s keychain-backed fixture.
 - **V Traceability** ✅ unchanged machinery, unchanged shape. No new `StepKind`, no change to
   `ToolGateway`, `Approval` or `Redactor`. A routed run lands the same five steps on the chain as a
-  `--base-url` run, asserted by running `skein ledger verify` inside the CLI test.
+  `--base-url` run, asserted by running `heddle ledger verify` inside the CLI test.
 - **VI Security** ✅ deny-by-default is structural in three places: `--allow-egress` is off by
   default; the refusal returns `Result<T>` rather than `Result<Option<T>>` so a caller cannot
   downgrade it; and the credential is a `SecretValue` whose one `expose()` call site builds a header
@@ -37,20 +37,20 @@
 ## Architecture
 
 ```
-skein chat --provider <name>
+heddle chat --provider <name>
         │
         ▼
-wiring::ProviderArgs::client(timeout)            [skein-cli]
+wiring::ProviderArgs::client(timeout)            [heddle-cli]
         │   None when --provider absent → the pre-existing ModelArgs path, file never read
         ▼
-ProviderTable::from_path(--providers-file)       [skein-gateway::route]
+ProviderTable::from_path(--providers-file)       [heddle-gateway::route]
         │
         ▼
 Router::client_for(name, &LazyKeychain, allow_egress, timeout)
         │
-        ├─ 1. table.find(name)              → SkeinError::Model listing configured names
-        ├─ 2. EGRESS CHECK                  → SkeinError::Model naming provider + --allow-egress
-        ├─ 3. requires_network() check      → SkeinError::Model (ADR-0002 D4)
+        ├─ 1. table.find(name)              → HeddleError::Model listing configured names
+        ├─ 2. EGRESS CHECK                  → HeddleError::Model naming provider + --allow-egress
+        ├─ 3. requires_network() check      → HeddleError::Model (ADR-0002 D4)
         ├─ 4. credential resolve            → SecretProvider::resolve → SecretValue
         └─ 5. endpoint parse + construct
                  Local → LocalEndpoint::parse  (loopback guard, unchanged)
@@ -105,28 +105,28 @@ the message's only actionable content.
 
 | File | Action | Lines |
 |------|--------|-------|
-| `crates/skein-gateway/src/route.rs` | CREATE | +294 |
-| `crates/skein-gateway/tests/provider_routing.rs` | CREATE | +560 |
-| `crates/skein-gateway/src/lib.rs` | UPDATE | +138/−25 |
-| `crates/skein-gateway/Cargo.toml` | UPDATE | +3 |
+| `crates/heddle-gateway/src/route.rs` | CREATE | +294 |
+| `crates/heddle-gateway/tests/provider_routing.rs` | CREATE | +560 |
+| `crates/heddle-gateway/src/lib.rs` | UPDATE | +138/−25 |
+| `crates/heddle-gateway/Cargo.toml` | UPDATE | +3 |
 | `Cargo.toml` (workspace) | UPDATE | +9 |
-| `crates/skein-cli/src/wiring.rs` | UPDATE | +103 |
-| `crates/skein-cli/src/chat.rs` | UPDATE | +24/−6 |
-| `crates/skein-cli/src/main.rs` | UPDATE | +6 |
-| `crates/skein-cli/tests/cli_chat.rs` | UPDATE | +291 |
+| `crates/heddle-cli/src/wiring.rs` | UPDATE | +103 |
+| `crates/heddle-cli/src/chat.rs` | UPDATE | +24/−6 |
+| `crates/heddle-cli/src/main.rs` | UPDATE | +6 |
+| `crates/heddle-cli/tests/cli_chat.rs` | UPDATE | +291 |
 | `specs/035-model-gateway-routing/{spec,plan,tasks}.md` | CREATE | — |
 | `README.md` | UPDATE | Current status |
 
-**Unchanged, and asserted so:** `crates/skein-core`, `crates/skein-mcp`, `crates/skein-acp`,
-`crates/skein-silo`, `crates/skein-sandbox`, `crates/skein-connectors`.
+**Unchanged, and asserted so:** `crates/heddle-core`, `crates/heddle-mcp`, `crates/heddle-acp`,
+`crates/heddle-silo`, `crates/heddle-sandbox`, `crates/heddle-connectors`.
 
 ## Risks
 
 | Risk | Outcome |
 |------|---------|
-| `toml` pulls a transitive TLS crate, silently breaking spec 012 SC-007 | **Resolved by measurement.** `cargo tree -e normal -p skein-gateway` matches 0 of `rustls\|native-tls\|webpki\|openssl` after the addition. `toml` adds five parse-only packages. The fallback (hand-rolling the flat parser) was not needed. |
+| `toml` pulls a transitive TLS crate, silently breaking spec 012 SC-007 | **Resolved by measurement.** `cargo tree -e normal -p heddle-gateway` matches 0 of `rustls\|native-tls\|webpki\|openssl` after the addition. `toml` adds five parse-only packages. The fallback (hand-rolling the flat parser) was not needed. |
 | A reader mistakes the `Cloud`-route-on-loopback tests for a bug | Mitigated in three places: the test file's module docstring, `ProviderKind::Cloud`'s docstring, and spec.md point 1 / Assumptions. |
 | `--provider` and `--base-url` both given: ambiguous precedence | `--provider` wins, no merge, documented in `--provider`'s `--help`. Not enforced by clap `conflicts_with`, because the two flags live in different `Args` structs and only one is flattened into `acp-agent`. |
 | `--model` still required when `--provider` is given | Accepted for v0 and recorded in spec.md Assumptions and on the next-slice list. The clap-level fix names an argument `acp-agent` does not have. |
 | Scope creep toward a `ModeSupervisor` | One `bool`, one flag. No `Mode` type exists in the diff. |
-| `SkeinError::Model(String)` makes refusal reasons distinguishable only by message text | Accepted, matching spec 012's established trade-off for every gateway failure. Tests assert on message content, as the existing ones do. A struct variant is the right change *when a caller needs to match on the reason*, not before. |
+| `HeddleError::Model(String)` makes refusal reasons distinguishable only by message text | Accepted, matching spec 012's established trade-off for every gateway failure. Tests assert on message content, as the existing ones do. A struct variant is the right change *when a caller needs to match on the reason*, not before. |

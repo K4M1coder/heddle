@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Skein — development environment bootstrap (macOS / Linux)
+# Heddle — development environment bootstrap (macOS / Linux)
 # Idempotent: safe to re-run. Run from the repo root right after `git clone`.
 #   ./scripts/bootstrap.sh [--with-ollama]
 set -euo pipefail

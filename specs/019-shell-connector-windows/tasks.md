@@ -6,7 +6,7 @@ cut from `dev` at `b82f37a`.
 
 ## Constitution Check (ADR-0004 D1 solo-v0 bar)
 - I Headless core ✅ the launcher is a library crate with no CLI of its own and the tool is a method
-  on the existing embedded server; `skein acp-agent` gains one flag and stays the authoritative
+  on the existing embedded server; `heddle acp-agent` gains one flag and stays the authoritative
   client · II Local-first ✅ NON-NEGOTIABLE and **strengthened**: the AppContainer profile carries
   zero capability SIDs and the launch passes `CapabilityCount: 0`, so WFP has no permit filter to
   match on and the sandboxed child reaches no network at all — proven hermetically against a
@@ -14,12 +14,12 @@ cut from `dev` at `b82f37a`.
 - III Test-First ✅ every step's red was observed and recorded verbatim under `## Observed red`
   before its green. T4 is deliberately the earliest behavioural step because it validates the whole
   DACL/traversal model at once, and its red had to be an unwritten-code red rather than an ACL one
-  · IV Inverted coupling ✅ `skein-core` gains nothing and depends on nothing new. `skein-sandbox`
-  depends on no Skein crate at all — it is a leaf — and `skein-connectors` reaches it the way it
+  · IV Inverted coupling ✅ `heddle-core` gains nothing and depends on nothing new. `heddle-sandbox`
+  depends on no Heddle crate at all — it is a leaf — and `heddle-connectors` reaches it the way it
   reaches `git2`: one module, one `#[cfg]`, no type of the dependency in any public signature
 - V Traceability ✅ unchanged machinery, newly exercised: a `proc_run` call lands `ToolCall` →
   `Approval` → `ToolResult` on the chain like any other, and both governed end-to-end runs are read
-  back **in a second process** through `skein ledger verify` at 12 and 11 steps. No new `StepKind`
+  back **in a second process** through `heddle ledger verify` at 12 and 11 steps. No new `StepKind`
 - VI Security ✅ **the principle this slice is shaped by.** Deny-by-default is structural and not
   merely policy: two independent opt-ins (`--fs-root` *and* `--allow-run`), a server route disabled
   unless both are present, a CLI allowlist that must agree with it, and then the per-call human
@@ -34,7 +34,7 @@ cut from `dev` at `b82f37a`.
 - Cross-platform ⚠️ **This slice is intentionally Windows-only.** ADR-0006 authorizes shipping
   `shell` on one OS first; the Constitution's "no OS-specific call without `#[cfg]` + an equivalent"
   is met on the `#[cfg]` and **not** on the equivalent, which is deferred to a Linux (Landlock) and
-  a macOS (Seatbelt) slice each. On the macOS and Linux CI legs `skein-sandbox` compiles to a crate
+  a macOS (Seatbelt) slice each. On the macOS and Linux CI legs `heddle-sandbox` compiles to a crate
   whose only reachable behaviour is a loud refusal, and `proc_run` is absent from every catalogue —
   verified by a `#[cfg(not(windows))]` test that runs on two of the three legs.
 
@@ -44,16 +44,16 @@ cut from `dev` at `b82f37a`.
 - [x] **T1** control baseline: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --
       -D warnings`, `cargo test --workspace`, each re-measured rather than quoted
 - [x] **T2** manifests, before any behaviour: `windows` and `win32job` in `[workspace.dependencies]`,
-      `crates/skein-sandbox` with the D6 signatures and `todo!()` Windows bodies
+      `crates/heddle-sandbox` with the D6 signatures and `todo!()` Windows bodies
 - [x] **T3** RED→GREEN — the AppContainer profile and the ACL grant (`tests/profile.rs`)
 - [x] **T4** RED→GREEN — the launcher walking skeleton (`tests/launch.rs`)
 - [x] **T5** RED→GREEN — the escape reproductions (`tests/escape.rs`)
 - [x] **T6** RED→GREEN — argv quoting (`src/argv.rs`'s own test module; see **Deviations**)
-- [x] **T7** RED→GREEN — the tool (`skein-connectors`, `tests/run_server.rs`)
+- [x] **T7** RED→GREEN — the tool (`heddle-connectors`, `tests/run_server.rs`)
 - [x] **T8** RED→GREEN — the absence gates (`tests/connector.rs`)
-- [x] **T9** RED→GREEN — `skein-cli` wiring
+- [x] **T9** RED→GREEN — `heddle-cli` wiring
 - [x] **T10** RED→GREEN — the governed end-to-end pair (`cli_acp_agent.rs`)
-- [x] **T11** one `#[ignore]`d live-model test gated on `SKEIN_LIVE_MODEL`
+- [x] **T11** one `#[ignore]`d live-model test gated on `HEDDLE_LIVE_MODEL`
       (`tests/governed_proc_run.rs`)
 - [x] **T12** gates, dependency drift, control diff, close-out
 - [x] **T13** hand-verification against live Ollama — performed after merge; see
@@ -78,11 +78,11 @@ the expected figure and is why the baseline is re-measured rather than quoted.
 
 ## Observed red
 
-**T3** — `cargo test -p skein-sandbox --test profile`, both tests:
+**T3** — `cargo test -p heddle-sandbox --test profile`, both tests:
 
 ```
 thread 'a_sandbox_derives_an_appcontainer_sid_and_grants_it_the_root' panicked at
-crates\skein-sandbox\src\lib.rs:98:9:
+crates\heddle-sandbox\src\lib.rs:98:9:
 not yet implemented: T3
 test result: FAILED. 0 passed; 2 failed
 ```
@@ -93,11 +93,11 @@ took two compile errors in the *test's* own Win32 helper, both fixed before the 
 `HLOCAL` implements neither `From<*mut u16>` nor `From<*mut c_void>` in windows 0.61, so the frees
 are written `HLOCAL(text.0 as *mut c_void)` rather than `.into()`.
 
-**T4** — `cargo test -p skein-sandbox --test launch`, both tests:
+**T4** — `cargo test -p heddle-sandbox --test launch`, both tests:
 
 ```
 thread 'a_sandboxed_process_reads_a_file_in_its_granted_root' panicked at
-crates\skein-sandbox\src\lib.rs:153:9:
+crates\heddle-sandbox\src\lib.rs:153:9:
 not yet implemented: T4
 test result: FAILED. 0 passed; 2 failed
 ```
@@ -128,7 +128,7 @@ about, and each recorded because the failure mode names nothing like the cause:
    path from the child's own environment. Sorting the block case-insensitively is required too — a
    block is searched, not scanned. Neither is in the plan; both are now in the code's own comments.
 
-**T5** — `cargo test -p skein-sandbox --test escape -- --test-threads=1`:
+**T5** — `cargo test -p heddle-sandbox --test escape -- --test-threads=1`:
 
 ```
 test a_sandboxed_process_cannot_reach_the_network ... ok
@@ -165,12 +165,12 @@ counts **16 before the suite and 16 after**, so no descendant outlives the job.
 **Deviations** below — and all four passed on their first run, against the real
 `CommandLineToArgvW` as the oracle.
 
-**T7** — `cargo test -p skein-connectors --test run_server`:
+**T7** — `cargo test -p heddle-connectors --test run_server`:
 
 ```
-error[E0432]: unresolved imports `skein_connectors::RunAccess`, `skein_connectors::RunParams`,
-              `skein_connectors::RUN_OUTPUT_BYTE_CAP`
-error[E0432]: unresolved import `skein_sandbox`
+error[E0432]: unresolved imports `heddle_connectors::RunAccess`, `heddle_connectors::RunParams`,
+              `heddle_connectors::RUN_OUTPUT_BYTE_CAP`
+error[E0432]: unresolved import `heddle_sandbox`
 error[E0599]: no associated function or constant named `with_run` found for struct `EmbeddedServer`
 error[E0599]: no method named `proc_run` found for reference `&EmbeddedServer`
 ```
@@ -185,7 +185,7 @@ reason. A test that had accepted either message would not have noticed containme
 **T8** — no red, and the reason is structural rather than an omission: the plan orders T8 after T7,
 and T8's Windows tests name `local_connector_with_run`, so they cannot compile — let alone fail an
 assertion — before T7's green exists. What matters here was measured instead, and it is FR-016's
-stop condition: **`cargo test -p skein-connectors` immediately after T7's green, before T8 was
+stop condition: **`cargo test -p heddle-connectors` immediately after T7's green, before T8 was
 written, passed 6/6 in `connector` and 7/7 in `fs_server` with every assertion byte-identical to
 `dev`** — including `the_connector_lists_the_three_tools_with_their_derived_schemas` and
 `the_connector_lists_the_git_tools_only_when_the_root_is_a_repository`. The gate holds; no
@@ -196,7 +196,7 @@ compiled on this machine (see **Deviations**): `Result::expect_err` requires `T:
 the off-Windows `Sandbox` — an uninhabited type — nor `EmbeddedServer` derives it. The test matches
 on the result through a local helper instead of asking the product for a trait only a test wants.
 
-**T9** — `cargo test -p skein-cli --test cli_acp_agent acp_agent_documents`:
+**T9** — `cargo test -p heddle-cli --test cli_acp_agent acp_agent_documents`:
 
 ```
 test acp_agent_documents_the_fs_root_flag ... ok
@@ -206,7 +206,7 @@ test result: FAILED. 1 passed; 1 failed
 ```
 
 The one assertion that can be red before the flag exists, and it was. After the wiring, both pass —
-and `--allow-run` appears in `skein acp-agent --help` on **every** platform, deliberately: the flag
+and `--allow-run` appears in `heddle acp-agent --help` on **every** platform, deliberately: the flag
 is present and refuses loudly on Linux and macOS rather than being silently absent, which is what
 "fail clearly, never silently degrade" means for a flag.
 
@@ -219,7 +219,7 @@ is that slice 018's two `fs_write` tests, which pass no `--allow-run`, stayed gr
 `cli_acp_agent` went 11/11 with the harness change and before either new test was added.
 
 **T11** — no red and none possible: an `#[ignore]`d test asserts nothing until a human sets
-`SKEIN_LIVE_MODEL`. Verified only that it compiles and is skipped.
+`HEDDLE_LIVE_MODEL`. Verified only that it compiles and is skipped.
 
 ## Gates (T12)
 
@@ -233,7 +233,7 @@ On `019-shell-connector-windows`, Windows 11 Pro 10.0.26200, toolchain 1.97, 202
   `connector` 8 (+2), `fs_root` 10, `fs_server` 7, `git_root` 5, `git_server` 13, `governed_fs_run`
   4 (+1 ignored), `governed_git_run` 4 (+1 ignored), `governed_proc_run` 0 (+1 ignored, **new**),
   `run_server` 7 (**new**), `core` 19, `native_loop` 25, `tool_gateway` 14, `governed_run` 2,
-  `openai_compat` 15 (+1 ignored), `rmcp_gateway` 9, `skein_sandbox` unit 4 (**new**, the argv
+  `openai_compat` 15 (+1 ignored), `rmcp_gateway` 9, `heddle_sandbox` unit 4 (**new**, the argv
   module), `escape` 3 (**new**), `launch` 3 (**new**), `profile` 2 (**new**), `silo_ledger` 7,
   `silo_secret` 5. **+24 passed, +1 ignored, and every pre-existing count unchanged.**
 
@@ -249,12 +249,12 @@ a tidiness point.
 
 `cargo tree --workspace --target <triple> --prefix none`, deduplicated, against `dev`:
 
-- **`x86_64-pc-windows-msvc`: 155 to 168, so +13.** One is `skein-sandbox` itself; the other twelve
+- **`x86_64-pc-windows-msvc`: 155 to 168, so +13.** One is `heddle-sandbox` itself; the other twelve
   are `win32job` 2.0.3, `windows` 0.61.3, and the ten crates `windows` decomposes into
   (`windows-core` 0.61.2, `windows-collections` 0.2.0, `windows-future` 0.2.1, `windows-implement`
   0.60.2, `windows-interface` 0.59.3, `windows-link` 0.1.3, `windows-numerics` 0.2.0,
   `windows-result` 0.3.4, `windows-strings` 0.4.2, `windows-threading` 0.1.0). Nothing was removed.
-- **`x86_64-unknown-linux-gnu`: 153 to 154, so +1**, and that one is `skein-sandbox`, whose only
+- **`x86_64-unknown-linux-gnu`: 153 to 154, so +1**, and that one is `heddle-sandbox`, whose only
   dependency is `sha2` — already in the graph. **Zero third-party packages are added off Windows**,
   and `cargo tree --target x86_64-unknown-linux-gnu | grep -iE "^(windows|win32job)"` is empty.
 - **An honest correction to D2's footprint claim.** Four of those twelve (`windows-collections`,
@@ -266,8 +266,8 @@ a tidiness point.
 
 ## Control diff (T12)
 
-`git diff dev --stat -- crates/skein-silo/ crates/skein-core/ crates/skein-gateway/
-crates/skein-mcp/ spikes/ .github/ rust-toolchain.toml` — **empty**. `Cargo.toml` is the one
+`git diff dev --stat -- crates/heddle-silo/ crates/heddle-core/ crates/heddle-gateway/
+crates/heddle-mcp/ spikes/ .github/ rust-toolchain.toml` — **empty**. `Cargo.toml` is the one
 exception the plan authorizes (the two `[workspace.dependencies]` entries).
 
 ## Deviations from the plan
@@ -288,11 +288,11 @@ over.
    wide per launch. Same `Send + Sync`-by-construction property, one fewer representation, and
    `string_sid()` — which the plan's own T3 test description requires — becomes a borrow instead of
    a re-encode.
-3. **`RUN_ARG_COUNT_CAP` lives in `skein-sandbox` as `ARG_COUNT_CAP`, not in `skein-connectors`.**
-   T7 lists it among the connector's constants, but T6's own tests are in `skein-sandbox` and the
+3. **`RUN_ARG_COUNT_CAP` lives in `heddle-sandbox` as `ARG_COUNT_CAP`, not in `heddle-connectors`.**
+   T7 lists it among the connector's constants, but T6's own tests are in `heddle-sandbox` and the
    refusal is the launcher's: it is a fact about what `CreateProcessW` can be handed, not about what
    a tool chooses to offer. One number, one home. `RUN_OUTPUT_BYTE_CAP` and `RUN_TIMEOUT` stay in
-   `skein-connectors`, because those genuinely are the tool's policy and are passed in as arguments.
+   `heddle-connectors`, because those genuinely are the tool's policy and are passed in as arguments.
 4. **The argv tests are `#[cfg(test)] mod tests` inside `src/argv.rs`, not `tests/argv.rs`.**
    Keeping them at unit level is what keeps `command_line` `pub(crate)`. An integration test would
    have forced the quoting builder into the public API for a test's sake, which is the sort of
@@ -315,11 +315,11 @@ Stated rather than left implicit, because it is the one gap in this slice's evid
 here than in any prior slice — this is the first slice whose non-Windows legs run genuinely different
 code.
 
-- **`skein-sandbox`'s non-Windows arm IS compiled and clean**, for both other targets:
-  `cargo check -p skein-sandbox --target x86_64-unknown-linux-gnu --all-targets` and
+- **`heddle-sandbox`'s non-Windows arm IS compiled and clean**, for both other targets:
+  `cargo check -p heddle-sandbox --target x86_64-unknown-linux-gnu --all-targets` and
   `--target aarch64-apple-darwin --all-targets` both finish with no warnings. That covers the
   uninhabited `Sandbox`, the `NO_BACKEND` refusal and `run`'s `match self.0 {}`.
-- **`skein-connectors`' and `skein-cli`'s non-Windows arms are reviewed but not compiled.**
+- **`heddle-connectors`' and `heddle-cli`'s non-Windows arms are reviewed but not compiled.**
   `cargo check --target x86_64-unknown-linux-gnu` fails in `libgit2-sys`/`rusqlite` with
   `error occurred in cc-rs: failed to find tool "x86_64-linux-gnu-gcc"`, and the macOS target fails
   the same way in `libz-sys` (`failed to find tool "cc"`). Both are missing cross C toolchains, not
@@ -336,8 +336,8 @@ code.
 Performed after merge to `dev` at `30477f7`, on the same Windows machine the implementation ran on.
 
 ```
-$env:SKEIN_LIVE_MODEL = "gemma4:latest"
-cargo test -p skein-connectors --test governed_proc_run -- --ignored --nocapture
+$env:HEDDLE_LIVE_MODEL = "gemma4:latest"
+cargo test -p heddle-connectors --test governed_proc_run -- --ignored --nocapture
 ```
 
 Result: `test a_live_model_calls_a_real_proc_run ... ok` in 52.75s. The real local Ollama model
@@ -364,6 +364,6 @@ adds nothing to a property that does not depend on what the model chooses to sen
   directory. That is the single largest gap between what this slice ships and what an agent needs.
 - **A Linux backend (Landlock) and a macOS backend (Seatbelt)**, each its own slice, each earning
   the trait extraction this slice deliberately did not do.
-- **Profile and ACE cleanup.** Nothing removes either today, by design. A `skein sandbox prune`
+- **Profile and ACE cleanup.** Nothing removes either today, by design. A `heddle sandbox prune`
   subcommand — or an explicit decision that the operator owns it — is a real question this slice
   answers only with a residual.

@@ -11,9 +11,9 @@ discipline**, NON-NEGOTIABLE) · design §4.5 (the Gateway as traceability choke
 model I/O).
 
 `OpenAiCompatClient::turn` sent `"stream": false` and blocked until one complete HTTP body arrived.
-`skein-acp`'s `project_updates` derived exactly one `AgentMessageChunk` per `StepKind::LlmResponse`
+`heddle-acp`'s `project_updates` derived exactly one `AgentMessageChunk` per `StepKind::LlmResponse`
 step, and the `session/prompt` handler sent every one of them *after* the whole run finished. An
-editor driving `skein acp-agent` saw nothing for the entire duration of a model turn, then the whole
+editor driving `heddle acp-agent` saw nothing for the entire duration of a model turn, then the whole
 answer at once. This slice makes the provider stream and the answer arrive as it is produced.
 
 ## What this slice changes for a user
@@ -30,7 +30,7 @@ step gains a `streamed` flag saying so. Slice 023's claim that the chain holds *
 crossed*, not our reconstruction of them, is preserved exactly; under streaming it is worth more,
 because the reassembly is now the most error-prone thing between the socket and `TurnResponse`.
 
-**Nothing else about a run changes.** `skein chat`'s stdout is byte-identical. The `StepKind`
+**Nothing else about a run changes.** `heddle chat`'s stdout is byte-identical. The `StepKind`
 sequence of every run is unchanged. The token budget is still enforced from the provider's own
 metering. A client whose model does not stream sees precisely what it saw before.
 
@@ -48,7 +48,7 @@ records the driving session in full.
    without `stream_options` breaks every run. With it, a final event carrying `"choices":[]` and the
    provider's own `usage` arrives immediately before `data: [DONE]`.
 3. **Ollama delivers each tool call whole, and the accumulator concatenates anyway.** The
-   accumulator is keyed by the delta's own `index` and appends, because `skein-cli/src/wiring.rs`
+   accumulator is keyed by the delta's own `index` and appends, because `heddle-cli/src/wiring.rs`
    documents a LiteLLM sidecar as a supported deployment ("a different `--base-url` and no code
    change") and LiteLLM proxying a real OpenAI or Anthropic model *does* fragment `arguments` across
    chunks. The whole-arrival case is the degenerate case of the same three lines.
@@ -102,7 +102,7 @@ records the driving session in full.
   answer, not a convenience.
 - **FR-012** `CancellableModel` MUST forward `set_text_sink`; inheriting the default would silently
   disable streaming in the one crate that needs it.
-- **FR-013** An ACP session MUST install its sink in `SkeinSession::new`, so a session cannot be
+- **FR-013** An ACP session MUST install its sink in `HeddleSession::new`, so a session cannot be
   constructed without one.
 - **FR-014** Text pushed to the ACP client MUST be scrubbed with the session's `Redactor`, and an
   empty delta MUST NOT produce a notification.
@@ -129,7 +129,7 @@ records the driving session in full.
 - **SC-003** The same two calls split across five deltas, with `arguments` in fragments and `name`
   split across two events, yields the **identical** `TurnResponse`.
 - **SC-004** A stream carrying `reasoning` deltas yields a `message.text()` holding none of it.
-- **SC-005** A stream with no `usage` event fails with `SkeinError::Model` naming the missing
+- **SC-005** A stream with no `usage` event fails with `HeddleError::Model` naming the missing
   metering.
 - **SC-006** The recorded `response` is string-equal to the exact SSE bytes the stub socket wrote,
   `streamed` is `true`, the recorded `request` contains `"stream":true` and
@@ -141,7 +141,7 @@ records the driving session in full.
 - **SC-008** A non-2xx turn records its exchange with `streamed == false`.
 - **SC-009** An ACP client receives **one `AgentMessageChunk` per delta, in order**, with no duplicate
   of the whole answer, and a secret in a delta arrives as `***`.
-- **SC-010** Driving the real `skein acp-agent` binary against a provider that holds its socket
+- **SC-010** Driving the real `heddle acp-agent` binary against a provider that holds its socket
   open mid-stream, at least one `AgentMessageChunk` has arrived **while the `session/prompt` request
   is still outstanding**; releasing the provider then yields `StopReason::EndTurn` and the expected
   chain.
@@ -174,7 +174,7 @@ records the driving session in full.
   concept. One kind, one payload, one flag-free capture.
 - **Absorbing `delta.reasoning` into the message.** Rejected: it breaks parity with the non-streamed
   path, which never had the field.
-- **Streaming `skein chat`'s stdout.** Rejected deliberately rather than forgotten: `chat`'s contract
+- **Streaming `heddle chat`'s stdout.** Rejected deliberately rather than forgotten: `chat`'s contract
   is "stdout carries the assistant's answer and nothing else", so incremental printing produces the
   same final bytes for no requesting user — a second sink implementation Constitution VII refuses.
 - **Buffering deltas to close the split-secret redaction gap.** Rejected: it reintroduces the exact
@@ -217,7 +217,7 @@ records the driving session in full.
 - **Mid-turn cancellation.** `CancellableModel` checks *before* a turn and its docstring already
   states "a model call already in flight completes". Streaming makes mid-stream abort possible; it
   does not make it requested.
-- **Streaming `skein chat`'s stdout.** Decided, not omitted — see the register.
+- **Streaming `heddle chat`'s stdout.** Decided, not omitted — see the register.
 - **Streaming tool calls to the ACP transcript as they arrive.** The provider delivers them whole in
   one delta, so there is nothing incremental to show.
 - **Per-chunk Ledger steps, a `--stream` flag, a config key, sampling or retention policy for the new
@@ -226,7 +226,7 @@ records the driving session in full.
   boundary, unchanged.
 - **`--json` output, a config file, sampling parameters.** Separately named residuals on slice 013's
   list.
-- **`skein-connectors`, `skein-sandbox`, `skein-silo`, `skein-mcp`.** No reason found to touch them.
+- **`heddle-connectors`, `heddle-sandbox`, `heddle-silo`, `heddle-mcp`.** No reason found to touch them.
 - **`spikes/`** (ADR-0004 D2) — left byte-identical.
-- **A PR.** No real remote; the bare mirror under `D:/claudecode/skein-origin.git` exists only for
+- **A PR.** No real remote; the bare mirror under `D:/claudecode/heddle-origin.git` exists only for
   Archon's worktree isolation.

@@ -9,7 +9,7 @@ Constitution III (**test-first**), IV (**explicit boundaries**), V (**traceabili
 Slice 014 gave the gateway a `Redactor` and scrubbed `CapturedResult.content` with
 `Redactor::redact`, whose needle is the secret **as written**. Slice 022 then made
 `ToolOutcome.content` an already-serialized `CallToolResult` — `serde_json::to_string(&result)` at
-`skein-mcp/src/lib.rs:57` — and slice 023 introduced `Redactor::redact_wire` for exactly that
+`heddle-mcp/src/lib.rs:57` — and slice 023 introduced `Redactor::redact_wire` for exactly that
 premise, applying it to the two model-I/O bodies and to nothing else. The gateway's line was never
 revisited. A configured secret containing a `"`, a `\` or a newline is on a tool result in JSON-escaped
 form, so the literal needle is absent and the secret is captured in cleartext.
@@ -32,13 +32,13 @@ first and adds the escaped form only when the two differ, so every existing run'
 byte-identical.
 
 **No CLI flag, no tool, no connector, no port, no `StepKind` and no payload shape changes.** The
-diff is one identifier in one line of `skein-core`, its comment, and the tests.
+diff is one identifier in one line of `heddle-core`, its comment, and the tests.
 
 ## Four things a reader must know up front
 
 1. **This is a one-line fix, and the reason it is worth a slice is the test.** The assertion shape
    the existing suite uses — `payloads.iter().all(|p| !p.contains(SECRET))` at
-   `skein-connectors/tests/governed_fs_run.rs:685` — **cannot fail on this defect**, measured. The
+   `heddle-connectors/tests/governed_fs_run.rs:685` — **cannot fail on this defect**, measured. The
    `ToolResult` step payload is `serde_json::to_string(&CapturedResult)` over a `content` that is
    *itself* serialized JSON, so the secret sits there doubly escaped: `sk-\\\"awkward\\\"-…`. Neither
    the literal needle nor the file's own single-escaped `escaped()` helper is a substring of that. A
@@ -83,7 +83,7 @@ diff is one identifier in one line of `skein-core`, its comment, and the tests.
 |---|---|---|
 | 1 | scrub the `LlmRequest` payload / the wire body harder instead | by then the secret is escaped **twice** (measured: `sk-\\\\\\\"awkward…` on the wire) and `redact_wire`'s two needles both miss. A third needle for double-escaping, then a fourth, is an escaping arms race whose fix is to scrub at the one place the bytes are still singly escaped |
 | 2 | make `redact` itself try both forms and delete `redact_wire` | it would splice `***` into plain text that merely *looks* escaped, and it erases a distinction the type-level comments at `tool.rs:209`/`tool.rs:228` exist to keep. `redact_json`'s premise — scrub before serializing — stays correct and stays different |
-| 3 | parse `outcome.content` and use `redact_json` on the value | the transport's body is not guaranteed parseable by `skein-core`, which owns no MCP vocabulary; a tool that returned non-JSON would become an error where today it is captured. `redact_wire` needs no such assumption |
+| 3 | parse `outcome.content` and use `redact_json` on the value | the transport's body is not guaranteed parseable by `heddle-core`, which owns no MCP vocabulary; a tool that returned non-JSON would become an error where today it is captured. `redact_wire` needs no such assumption |
 | 4 | change `ToolOutcome.content` to a `Value` | it pushes MCP's result shape into the core port that slice 022's D-notes deliberately kept out of it, for a one-identifier fix |
 | 5 | assert with `contains()` over the raw step payload | measured to pass while the secret leaks. This is FR-002's whole reason for naming the *decoded* text |
 | 6 | apply the same change to `redact_call` | no failing test behind it; the order there is already correct (reader note 3) |

@@ -11,7 +11,7 @@ description and the source disagree, the source wins and the disagreement is rec
 
 ## Problem
 
-`NativeLoop::run` (`crates/skein-core/src/native_loop.rs`) appends the model conversation to the
+`NativeLoop::run` (`crates/heddle-core/src/native_loop.rs`) appends the model conversation to the
 Ledger raw:
 
 ```rust
@@ -20,19 +20,19 @@ let resp = self.client.turn(&req)?;
 ledger.append(run_id, StepKind::LlmResponse, serde_json::to_string(&resp)?)?;
 ```
 
-`ToolGateway::call_captured` (`crates/skein-core/src/tool.rs`) does the opposite for its own steps:
+`ToolGateway::call_captured` (`crates/heddle-core/src/tool.rs`) does the opposite for its own steps:
 it holds a `Redactor`, scrubs `call.args` through `Redactor::redact_value` before the `ToolCall`
 step, and scrubs `outcome.content` through `Redactor::redact` before the `ToolResult` step — while
 handing the **raw** `ToolOutcome` back to the trusted caller. Two collaborators writing the same
 chain, one governed and one not.
 
-Since slices 012 and 013 shipped, `skein chat` and `skein acp-agent` drive real conversations through
+Since slices 012 and 013 shipped, `heddle chat` and `heddle acp-agent` drive real conversations through
 a real provider, so the payloads that land unredacted are real user prompts and real model output,
 written to a durable SQLite-backed silo (slice 009) and readable forever after via
-`skein ledger show`. Constitution VI ("secrets by reference, never by value… redacted from logs") and
+`heddle ledger show`. Constitution VI ("secrets by reference, never by value… redacted from logs") and
 Principle V's replayability promise together turn this from a transient leak into a permanent one.
 
-The gap is named honestly in `specs/011-skein-cli/spec.md`'s Assumptions and repeated on 012's and
+The gap is named honestly in `specs/011-heddle-cli/spec.md`'s Assumptions and repeated on 012's and
 013's "Next slice" lists; 013's Constitution Check carries it forward verbatim under V ("the chain
 holds the *translated* `TurnRequest`/`TurnResponse`, and model I/O is **not** redacted").
 
@@ -48,7 +48,7 @@ make that claim false. It is three lines and one test.
 
 ### Full `StepKind` audit (the invariant asks for it)
 
-Enumerated against `crates/skein-core/src/ledger.rs` and every `ledger.append` call site in product
+Enumerated against `crates/heddle-core/src/ledger.rs` and every `ledger.append` call site in product
 code:
 
 | `StepKind` | Payload today | Verdict |
@@ -61,7 +61,7 @@ code:
 | `IterationBoundary` | `(ctl.iters()+1).to_string()` | safe (integer) |
 | `BudgetSpent` | `resp.tokens_used.to_string()` | safe (integer) |
 | `Exit` | `format!("{exit:?}")` on a fieldless enum | safe |
-| `StateChange`, `Reflection` | **never appended by product code** — only `crates/skein-silo/tests/silo_ledger.rs` appends a `StateChange`, with a literal | nothing to redact today |
+| `StateChange`, `Reflection` | **never appended by product code** — only `crates/heddle-silo/tests/silo_ledger.rs` appends a `StateChange`, with a literal | nothing to redact today |
 
 No other Ledger payload carries model- or user-authored text.
 
@@ -103,8 +103,8 @@ to exist for a reason unrelated to tools.
 
 **Rejected: put the `Redactor` on `Ledger`** — one constructor change, zero call-site churn, and it
 would cover every `StepKind` at once. It loses on three counts. (a) `Ledger` is constructed in crates
-that have no business knowing about secrets: `Silo::ledger()` in `skein-silo`, `Ledger::new()`,
-`Ledger::open(store)`; and it is constructed on the **read** path too (`skein ledger show`), where a
+that have no business knowing about secrets: `Silo::ledger()` in `heddle-silo`, `Ledger::new()`,
+`Ledger::open(store)`; and it is constructed on the **read** path too (`heddle ledger show`), where a
 redactor is meaningless. (b) `Ledger::append` computes the hash chain; making redaction implicit
 there means the chain's content depends on invisible constructor state, so the same run replayed
 through a differently-constructed `Ledger` hashes differently — a direct hit on Principle V. (c) The
@@ -137,19 +137,19 @@ sequence and produce unparseable JSON. This is the failure mode the slice invari
 graph. **Correction (this text originally claimed the opposite):** this slice's own manifest
 declares plain `serde_json = "1"` with no `preserve_order` feature, but `agent-client-protocol`
 declares `serde_json = { features = ["preserve_order", …] }`, and Cargo unifies features across a
-build graph — so any binary depending on `skein-acp` (`skein-cli`, in the shipped tree) compiles an
+build graph — so any binary depending on `heddle-acp` (`heddle-cli`, in the shipped tree) compiles an
 insertion-ordered `IndexMap`, not the alphabetical `BTreeMap` this paragraph assumed. First measured
 by slice 008 (`## Observed`, risk R1); this file's error was pointed out against it by name in
 slice 015 (`specs/015-tool-advertisement/tasks.md`) and left uncorrected until now. It was never a
 behavioural bug, because every consumer in the tree was checked and is order-independent:
 
-- `skein-acp`'s `project_updates` — `serde_json::from_str::<TurnResponse>`
-- `crates/skein-acp/tests/acp_session.rs` — `from_str::<TurnResponse>`
-- `crates/skein-gateway/tests/governed_run.rs` — `from_str::<TurnResponse>`, plus one
+- `heddle-acp`'s `project_updates` — `serde_json::from_str::<TurnResponse>`
+- `crates/heddle-acp/tests/acp_session.rs` — `from_str::<TurnResponse>`
+- `crates/heddle-gateway/tests/governed_run.rs` — `from_str::<TurnResponse>`, plus one
   `payload(...).contains("anyone home?")` substring assertion
-- `crates/skein-core/tests/native_loop.rs` — every LlmRequest assertion goes through
+- `crates/heddle-core/tests/native_loop.rs` — every LlmRequest assertion goes through
   `from_str::<TurnRequest>`
-- `skein ledger show` prints the payload verbatim; no test pins llm-step payload text
+- `heddle ledger show` prints the payload verbatim; no test pins llm-step payload text
 - No test hardcodes a step id, so the changed hashes are invisible
 
 State this in the spec as a deliberate, checked consequence rather than letting an implementer
@@ -188,11 +188,11 @@ recorded copies change. `CapturedResult.tool` also feeds `tool_message` back int
 so the model sees `***` where it emitted a secret-bearing name; that is consistent with
 `captured.content`, which the loop already feeds back redacted for exactly this reason.
 
-### D5 — `skein-acp`'s public API does not change; `SkeinSession::new` clones
+### D5 — `heddle-acp`'s public API does not change; `HeddleSession::new` clones
 
-`SessionParts` already has a single `redactor: Redactor` field. `SkeinSession::new` currently moves it
+`SessionParts` already has a single `redactor: Redactor` field. `HeddleSession::new` currently moves it
 into `ToolGateway::new`; it will instead clone it into the gateway and pass the original to
-`skein_core::NativeLoop::new`. No field added, no bound changed, no caller of `SessionParts` touched
+`heddle_core::NativeLoop::new`. No field added, no bound changed, no caller of `SessionParts` touched
 beyond what already exists. This is the smallest possible change to that crate and keeps the
 "operator supplies the undecorated ports" contract intact.
 
@@ -200,25 +200,25 @@ beyond what already exists. This is the smallest possible change to that crate a
 `LlmResponse` **Ledger payload**, so an ACP client's transcript now shows `***` where a configured
 secret appeared — the same property `ToolResult` content already has, and which that function's own
 comment already states ("Straight from the chain, so it is redacted for the same reason the chain
-is"). `skein chat`'s stdout is **not** affected: it prints `run.final_message`, which is the raw
+is"). `heddle chat`'s stdout is **not** affected: it prints `run.final_message`, which is the raw
 `resp.message`. The two commands therefore differ, and the spec says so plainly rather than leaving a
 reader to find out.
 
 ### D6 — the CLI gains a real way to configure a secret, **in this slice**
 
 Decided: **included, not deferred.** Without it `Redactor::new(vec![])` remains the only thing
-`skein chat`/`skein acp-agent` construct, the fix has no caller in the shipped binary, and the slice
+`heddle chat`/`heddle acp-agent` construct, the fix has no caller in the shipped binary, and the slice
 would close a gap only in principle. "No capability without a current caller" (Constitution VII) cuts
 in favour of shipping the caller. The cost is ~30 lines and two tests, because every piece already
-exists: `SecretRef`, `SecretProvider`, `Redactor::resolve`, `skein-silo`'s `OsKeychain` (which
-implements `SecretProvider` and reports `requires_network() == false`), and `skein secret set` as the
+exists: `SecretRef`, `SecretProvider`, `Redactor::resolve`, `heddle-silo`'s `OsKeychain` (which
+implements `SecretProvider` and reports `requires_network() == false`), and `heddle secret set` as the
 provisioning path.
 
-New in `crates/skein-cli/src/wiring.rs`, beside `ModelArgs`:
+New in `crates/heddle-cli/src/wiring.rs`, beside `ModelArgs`:
 
 ```rust
 /// Which secrets this run must never write into its chain. References only:
-/// there is no `--redact-value`, for the reason `skein secret set` has no
+/// there is no `--redact-value`, for the reason `heddle secret set` has no
 /// `--value` (shell history, `ps`).
 #[derive(Args)]
 pub struct RedactArgs {
@@ -233,7 +233,7 @@ impl RedactArgs {
 ```
 
 `redactor()` returns `Redactor::new(vec![])` **without opening the credential store** when `--redact`
-is absent — otherwise every `skein chat` would acquire a runtime keychain dependency, and the nine
+is absent — otherwise every `heddle chat` would acquire a runtime keychain dependency, and the nine
 existing `cli_chat`/`cli_acp_agent` tests (which run headless) would start depending on a platform
 credential store. With references present it resolves them through `OsKeychain::new()?` via
 `Redactor::resolve`, whose documented all-or-nothing failure ("a `Redactor` built from a
@@ -241,7 +241,7 @@ misconfigured reference would scrub nothing, and would do it silently") is exact
 wanted.
 
 `RedactArgs` is flattened into `ChatArgs` and into the `AcpAgent` subcommand in
-`crates/skein-cli/src/main.rs`. It is deliberately **not** added to `ModelArgs`: redaction is
+`crates/heddle-cli/src/main.rs`. It is deliberately **not** added to `ModelArgs`: redaction is
 run-governance, not a model knob, and `ModelArgs`'s docstring says what it is for.
 
 **Ordering** in both commands: `model.endpoint()?` first (the Principle II guard, unchanged), then
@@ -260,12 +260,12 @@ closure, which needs `Redactor: Clone` — D3).
 
 | File | Count | Shape of the mechanical edit |
 |---|---|---|
-| `crates/skein-acp/src/lib.rs` (`SkeinSession::new`) | 1 | clone into gateway, original into the loop (D5) |
-| `crates/skein-cli/src/chat.rs` | 1 | `redact.redactor()?`, cloned into the gateway (D6) |
-| `crates/skein-core/tests/native_loop.rs` | **20** | add a 4th argument |
-| `crates/skein-gateway/tests/governed_run.rs` | 2 | `Redactor::new(vec![])` |
-| `crates/skein-mcp/tests/rmcp_gateway.rs` | 1 | `Redactor::new(vec![SECRET.into()])` |
-| `crates/skein-silo/tests/silo_ledger.rs` | 1 | `Redactor::new(vec![])` |
+| `crates/heddle-acp/src/lib.rs` (`HeddleSession::new`) | 1 | clone into gateway, original into the loop (D5) |
+| `crates/heddle-cli/src/chat.rs` | 1 | `redact.redactor()?`, cloned into the gateway (D6) |
+| `crates/heddle-core/tests/native_loop.rs` | **20** | add a 4th argument |
+| `crates/heddle-gateway/tests/governed_run.rs` | 2 | `Redactor::new(vec![])` |
+| `crates/heddle-mcp/tests/rmcp_gateway.rs` | 1 | `Redactor::new(vec![SECRET.into()])` |
+| `crates/heddle-silo/tests/silo_ledger.rs` | 1 | `Redactor::new(vec![])` |
 
 For `native_loop.rs`'s twenty: the eighteen built with the `no_tools()` helper take
 `Redactor::new(Vec::new())`; the ones built with the `gateway(...)` helper (which already carries
@@ -274,10 +274,10 @@ gateway share the run's secret set. **No assertion in any of the twenty changes*
 controls on the signature change, exactly as slice 013 kept `acp_session.rs`'s thirteen.
 
 `ToolGateway::new` — **signature unchanged**; its ten call sites (including
-`crates/skein-silo/tests/silo_secret.rs` and `crates/skein-core/tests/tool_gateway.rs`) are untouched
+`crates/heddle-silo/tests/silo_secret.rs` and `crates/heddle-core/tests/tool_gateway.rs`) are untouched
 except where a caller now clones the redactor it is handing over.
 
-One shared test fixture changes additively: `ScriptedModel` in `crates/skein-core/tests/native_loop.rs`
+One shared test fixture changes additively: `ScriptedModel` in `crates/heddle-core/tests/native_loop.rs`
 currently discards its `_req`. It gains a `seen: Vec<TurnRequest>` field so a test can assert the
 model received the **raw** value. Additive; no existing assertion touched.
 
@@ -297,7 +297,7 @@ Ordered; each is independently verifiable. Red observed and recorded before ever
   failed, 1 ignored** (slice 013's recorded gate figure). Record the per-target breakdown; this is
   the number T9 diffs against.
 - **T2 (RED→GREEN)** — `Redactor::redact_json` (D2) and `impl Clone for Redactor` (D3), with a test
-  in `crates/skein-core/tests/core.rs` beside the existing `redactor_resolves_from_a_provider`:
+  in `crates/heddle-core/tests/core.rs` beside the existing `redactor_resolves_from_a_provider`:
   a nested `serde_json::Value` round-trips through `redact_json` with its structure intact and its
   secret-bearing strings scrubbed, and a clone of a `Redactor` scrubs what the original scrubs.
   First because nothing else compiles without it.
@@ -305,24 +305,24 @@ Ordered; each is independently verifiable. Red observed and recorded before ever
   `run` (D1). Its red is T4's first test, written before this step. Update all 26 sites mechanically
   in the same commit — the workspace does not compile in between, so this is one atomic change.
 - **T4 (RED, written before T3's green)** — the three new tests in
-  `crates/skein-core/tests/native_loop.rs` (see Validation).
+  `crates/heddle-core/tests/native_loop.rs` (see Validation).
 - **T5 (RED→GREEN)** — the tool-name redaction in `ToolGateway::call_captured` (D4), with its test in
-  `crates/skein-core/tests/tool_gateway.rs` beside
+  `crates/heddle-core/tests/tool_gateway.rs` beside
   `secret_is_redacted_from_args_and_result_before_capture`.
-- **T6 (GREEN)** — `SkeinSession::new` clones the injected redactor into both collaborators (D5).
-  Covered by T7's test; `skein-acp`'s public API is otherwise unchanged.
-- **T7 (RED→GREEN)** — one test in `crates/skein-acp/tests/acp_session.rs` proving a session's chain
+- **T6 (GREEN)** — `HeddleSession::new` clones the injected redactor into both collaborators (D5).
+  Covered by T7's test; `heddle-acp`'s public API is otherwise unchanged.
+- **T7 (RED→GREEN)** — one test in `crates/heddle-acp/tests/acp_session.rs` proving a session's chain
   is redacted **and** pinning the `project_updates` consequence (D5).
 - **T8 (RED→GREEN)** — `wiring::RedactArgs` and its `redactor()`; `main.rs` flattens it into
   `ChatArgs` and `AcpAgent`; `chat.rs` and `acp.rs` resolve it after the endpoint guard and before
   `Silo::open`, and hand the same value to the gateway and the loop (D6). Its red is the two new
   `cli_chat.rs` tests, written first. `Redactor::new(vec![])` must no longer appear anywhere in
-  `crates/skein-cli/src`.
+  `crates/heddle-cli/src`.
 - **T9** — gates (below), control diff, dependency drift, close-out. `git diff dev --
-  crates/skein-silo/ spikes/ .github/ rust-toolchain.toml` must be empty except
-  `crates/skein-silo/tests/silo_ledger.rs`'s one mechanical `NativeLoop::new` argument — state that
+  crates/heddle-silo/ spikes/ .github/ rust-toolchain.toml` must be empty except
+  `crates/heddle-silo/tests/silo_ledger.rs`'s one mechanical `NativeLoop::new` argument — state that
   exception explicitly rather than claiming an empty diff. Expected dependency drift: **zero new
-  packages, zero new edges** (`skein-cli` already depends on `skein-silo`; `Arc` was rejected in D3
+  packages, zero new edges** (`heddle-cli` already depends on `heddle-silo`; `Arc` was rejected in D3
   and `std` needs no declaration).
 
 ---
@@ -336,11 +336,11 @@ Ordered; each is independently verifiable. Red observed and recorded before ever
 - `cargo test --workspace` — **110 baseline + 8 new = 118 passed, 1 ignored**, with all 110 existing
   bodies unchanged
 - `cargo build --workspace`
-- `skein chat --help` and `skein acp-agent --help` both list `--redact <REFERENCE>`
+- `heddle chat --help` and `heddle acp-agent --help` both list `--redact <REFERENCE>`
 
 ### New tests
 
-**`crates/skein-core/tests/native_loop.rs`** — the acceptance core, deliberately shaped like
+**`crates/heddle-core/tests/native_loop.rs`** — the acceptance core, deliberately shaped like
 `tool_gateway.rs`'s `secret_is_redacted_from_args_and_result_before_capture`:
 
 1. `a_secret_in_the_conversation_is_redacted_from_the_llm_payloads` — prompt text contains `SECRET`
@@ -361,32 +361,32 @@ Ordered; each is independently verifiable. Red observed and recorded before ever
    whole `tool_calls` array, so this is the assertion that fails if only the `ToolCall` step is fixed
    and the response payload is not.
 
-**`crates/skein-core/tests/tool_gateway.rs`**:
+**`crates/heddle-core/tests/tool_gateway.rs`**:
 
 4. `a_secret_in_a_tool_name_is_redacted_from_the_attempt_and_the_approval` — a call to a
    secret-bearing name is denied by the empty/unlisted-name path; asserts no payload of the run
    contains `SECRET`, the `Approval` payload contains both `***` and `denied` (so the policy still
    saw the **raw** name and refused it), and `gw.transport.calls == 0`.
 
-**`crates/skein-acp/tests/acp_session.rs`**:
+**`crates/heddle-acp/tests/acp_session.rs`**:
 
 5. `a_secret_is_redacted_from_a_sessions_chain_and_from_the_client_transcript` — a session wired with
    `redactor: Redactor::new(vec![SECRET.into()])` and a scripted model that echoes it; asserts no
    payload on the session's chain contains `SECRET`, and that the `AgentMessageChunk` produced by
    `project_updates` shows `***`. Pins D5's consequence as intended behaviour, not an accident.
 
-**`crates/skein-cli/tests/cli_chat.rs`** — the proof the shipped binary has a caller:
+**`crates/heddle-cli/tests/cli_chat.rs`** — the proof the shipped binary has a caller:
 
 6. `chat_redacts_a_configured_secret_from_the_chain_but_not_from_stdout` — stores a value in the real
    platform credential store under a per-process, per-test reference removed by a `Drop` guard
-   (the established `TestRef` pattern from `crates/skein-cli/tests/cli_secret.rs`, which already runs
+   (the established `TestRef` pattern from `crates/heddle-cli/tests/cli_secret.rs`, which already runs
    green on all three CI legs); the existing `StubProvider` echoes that value; runs
-   `skein chat --redact <ref> …`; asserts the value appears on **stdout** (the operator still gets the
+   `heddle chat --redact <ref> …`; asserts the value appears on **stdout** (the operator still gets the
    real answer) and that the silo's chain contains `***` and never the value.
 7. `chat_refuses_an_unresolvable_redaction_reference_before_opening_a_chain` — exit code 1, stdout
    empty, stderr names the reference, and the silo's ledger file **does not exist**.
 
-**`crates/skein-cli/tests/cli_acp_agent.rs`**:
+**`crates/heddle-cli/tests/cli_acp_agent.rs`**:
 
 8. `acp_agent_refuses_an_unresolvable_redaction_reference_before_serving` — exit 1, stdout empty
    (stdout is the protocol), no chain opened. The redaction-on-chain behaviour itself is already
@@ -398,18 +398,18 @@ No test here requires a running Ollama or an installed editor.
 
 ## Risks and rollback
 
-**Blast radius.** Five of seven crates: `skein-core` (product code, `native_loop.rs` + `tool.rs`),
-`skein-acp` (one function body), `skein-cli` (product code, three files), and test files in
-`skein-gateway`, `skein-mcp`, `skein-silo`. `skein-silo`'s and `skein-gateway`'s **product** code is
+**Blast radius.** Five of seven crates: `heddle-core` (product code, `native_loop.rs` + `tool.rs`),
+`heddle-acp` (one function body), `heddle-cli` (product code, three files), and test files in
+`heddle-gateway`, `heddle-mcp`, `heddle-silo`. `heddle-silo`'s and `heddle-gateway`'s **product** code is
 untouched.
 
 - **A mechanical edit that is not mechanical.** Twenty-six call sites is enough for a slip to hide in.
   Mitigation: the compiler rejects every missed site (a required positional argument, D1), and every
   one of the 110 existing tests must pass with a **byte-identical body** — verify with
-  `git diff dev -- crates/skein-core/tests/native_loop.rs` showing only added arguments and the
+  `git diff dev -- crates/heddle-core/tests/native_loop.rs` showing only added arguments and the
   additive `ScriptedModel.seen` field.
 - **Key reordering breaks something unexamined.** Mitigated by the D2 audit; the residual risk is a
-  consumer outside `crates/` — there is none, `skein ledger show` prints verbatim, and no test pins a
+  consumer outside `crates/` — there is none, `heddle ledger show` prints verbatim, and no test pins a
   step id. If it does bite, `cargo test --workspace` catches it at T3.
 - **The ACP transcript change surprises a user.** A configured secret now renders as `***` in the
   editor's agent message. This is intended (D5) and pinned by test 5, but it is a user-visible
@@ -422,7 +422,7 @@ untouched.
   is already resident. Accepted, and named in the spec's Assumptions rather than left implicit.
 - **Not a defence against a secret the operator never configured.** Redaction only scrubs values in
   the run's `Redactor`. A credential pasted into a prompt that was never registered via
-  `skein secret set` + `--redact` still lands in cleartext. This slice makes redaction *possible and
+  `heddle secret set` + `--redact` still lands in cleartext. This slice makes redaction *possible and
   wired*; it does not make it automatic, and the spec must say so plainly instead of claiming the
   class of leak is closed.
 
@@ -439,16 +439,16 @@ outcome D6 rejects, so it is a rollback option, not a fallback plan.
 
 ## Out of scope
 
-- **Raw wire-byte capture** (the HTTP request/response bodies `skein-gateway` exchanges). A separate,
+- **Raw wire-byte capture** (the HTTP request/response bodies `heddle-gateway` exchanges). A separate,
   already-named "Next slice" item.
 - **Provider authentication / a provider token as a `SecretRef`.** 013's Constitution Check pre-wrote
   that constraint for a later slice; this slice adds no auth path.
 - **Automatic secret detection** — entropy heuristics, `sk-`-prefix matching, or any redaction of
   values the operator did not configure. `Redactor` is an exact-value scrubber and stays one.
-- **Redacting `SkeinError` messages, stderr, or `skein chat`'s stdout.** The invariant is about
+- **Redacting `HeddleError` messages, stderr, or `heddle chat`'s stdout.** The invariant is about
   *Ledger payloads*. `chat`'s stdout carrying the raw answer is the intended contract (test 6).
 - **A config file for secret references.** v0 has none (`SiloArgs`' docstring says so); `--redact` is
-  repeatable flags and `$SKEIN_ROOT`-style environment fallback is not added for it.
+  repeatable flags and `$HEDDLE_ROOT`-style environment fallback is not added for it.
 - **Changing `ToolGateway::new`'s signature**, adding `Arc` anywhere, or making `SecretValue: Clone`.
 - **`spikes/`** — untouched (ADR-0004 D2).
 - **Widening the ACP surface**, adding streaming, tool advertisement, or a `--json` output mode.

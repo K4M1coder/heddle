@@ -1,4 +1,4 @@
-# Validation Report — Skein PRD
+# Validation Report — Heddle PRD
 
 - **PRD:** `_bmad-output/planning-artifacts/PRD.md`
 - **Rubric:** `.claude/skills/bmad-prd/assets/prd-validation-checklist.md`
@@ -8,7 +8,7 @@
 
 ## Overall verdict
 
-Skein has a differentiated and technically credible thesis: a local-first, Skein-owned control plane with governed workflows, replaceable workers, explicit context selection, MCP mediation, and evidence-rich execution. The current PRD is not decision-ready as build authorization because its runtime and one-way-door contracts remain unresolved, most functional requirements lack independent acceptance oracles, and the stated MVP combines too many platform foundations without an explicit de-scope order.
+Heddle has a differentiated and technically credible thesis: a local-first, Heddle-owned control plane with governed workflows, replaceable workers, explicit context selection, MCP mediation, and evidence-rich execution. The current PRD is not decision-ready as build authorization because its runtime and one-way-door contracts remain unresolved, most functional requirements lack independent acceptance oracles, and the stated MVP combines too many platform foundations without an explicit de-scope order.
 
 The architecture, security, and feasibility reviews strengthen this verdict. They identify unresolved canonical contracts for the Ledger, effects, workflows, workers, policy, silos, context, and mode transitions; insufficient cross-platform proof for hard offline egress and desktop control; incomplete identity/MCP/privacy governance; and a BMAD–Spec-Kit bridge that is documented but not yet operationally complete.
 

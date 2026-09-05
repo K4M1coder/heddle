@@ -1,14 +1,14 @@
 # Feature Specification: a durable silo-backed Ledger (v0 slice)
 
 **Feature Branch:** `009-silo-ledger` · **Created:** 2026-09-03 · **Status:** Implemented (v0 slice)
-**Input:** `specs/003-skein-core-foundation/tasks.md` "Next slice" — *"silo-backed durable Ledger
+**Input:** `specs/003-heddle-core-foundation/tasks.md` "Next slice" — *"silo-backed durable Ledger
 (SQLite)"*, carried unticked through slices 004–007 · Constitution II (**airtight silos**,
 NON-NEGOTIABLE), III (**a dedicated isolation test guards each silo invariant**), IV (**the core
 never names a backend**), V (**append-only, hash-chained, tamper-evident**) · ADR-0004 D3 (silo
 Local + Ledger foundation is in v0 build scope) · design §4.8/§4.11/§7.9.
 
 Six merged slices built a governed, ACP-reachable agentic loop whose entire audit trail is a
-`Vec<Step>` in process memory. `crates/skein-core/src/ledger.rs` said so in its own module doc:
+`Vec<Step>` in process memory. `crates/heddle-core/src/ledger.rs` said so in its own module doc:
 *"v0 is in-memory; a durable silo-backed store lands with persistence."*
 
 Principle V demands a Ledger that is "inspectable, replayable, reversible… cannot be bypassed".
@@ -17,7 +17,7 @@ product has exactly one — the in-process `Vec` — so Principle III's dedicate
 no boundary to guard.
 
 This slice gives the chain a durable home: **one SQLite file per silo, in its own directory**,
-reached through a `LedgerStore` seam that `skein-core` owns and a new crate `skein-silo`
+reached through a `LedgerStore` seam that `heddle-core` owns and a new crate `heddle-silo`
 implements. `Ledger` keeps its `Vec<Step>` as a read model, so the hash function, the chaining
 rule and `verify_chain` stay *one* implementation shared by both storage shapes.
 
@@ -40,7 +40,7 @@ As an operator, nothing written in one silo is reachable from another.
    **Then** `beta`'s ledger has `log(run)` empty and `show(alpha_step_id)` is `Err(NotFound)`,
    and the two silos' ledger paths differ and are separate files on disk.
 2. **Given** a silo id that would escape the root (`../evil`, `..`, `a/b`) or is empty,
-   **When** `Silo::open` is called, **Then** it returns `Err(SkeinError::Storage)` and creates
+   **When** `Silo::open` is called, **Then** it returns `Err(HeddleError::Storage)` and creates
    nothing outside the root.
 
 ### User Story 3 — Append-only is enforced by the engine, not by convention (P1)
@@ -50,7 +50,7 @@ As an auditor, I want the storage itself to refuse a rewrite.
    `ledger_step`, **Then** both fail with `ledger is append-only`.
 2. **Given** an attacker with raw file access who drops the update trigger and forges a payload,
    **When** the `Ledger` is reopened, **Then** `verify_chain` returns
-   `SkeinError::LedgerIntegrity`. This is tamper-**evidence**, not tamper-**proofing**: a local
+   `HeddleError::LedgerIntegrity`. This is tamper-**evidence**, not tamper-**proofing**: a local
    writer with the file can always drop a trigger, which is exactly why the hash chain exists.
 
 ### User Story 4 — No existing consumer needed adapting (P1)
@@ -71,9 +71,9 @@ As an auditor, an audit trail that drops a step is worse than one that refuses.
    against a healthy store still gets `seq == 0`.
 
 ## Requirements
-- **FR-001**: `skein-core` MUST define the durable seam (`LedgerStore`) and MUST NOT name
+- **FR-001**: `heddle-core` MUST define the durable seam (`LedgerStore`) and MUST NOT name
   SQLite, `rusqlite`, or any database (Constitution IV). Its direct dependency list stays four.
-- **FR-002**: A new workspace crate `skein-silo` MUST be the only crate that names `rusqlite`,
+- **FR-002**: A new workspace crate `heddle-silo` MUST be the only crate that names `rusqlite`,
   and within it `rusqlite` MUST be named in exactly one module.
 - **FR-003**: `Ledger::append` MUST persist to the store **before** mirroring in memory, so a
   store failure leaves `seq`/`parent` derivation untouched.
@@ -85,13 +85,13 @@ As an auditor, an audit trail that drops a step is worse than one that refuses.
 - **FR-006**: A silo MUST be one SQLite file in its own directory,
   `<root>/<silo_id>/ledger.sqlite3`. No shared file, no `silo` column, no `ATTACH`.
 - **FR-007**: A silo id MUST be validated on open: non-empty and `[A-Za-z0-9._-]+` with `.` and
-  `..` rejected, so it can never escape `<root>`. An invalid id fails with `SkeinError::Storage`.
+  `..` rejected, so it can never escape `<root>`. An invalid id fails with `HeddleError::Storage`.
 - **FR-008**: The schema MUST forbid `UPDATE` and `DELETE` on `ledger_step` with SQL triggers.
 - **FR-009**: `StepKind` MUST be stored with the same serde representation the hash function
   feeds, so no second name mapping can drift from the hashed bytes.
 - **FR-010**: The store MUST require no system SQLite: `rusqlite` is taken with
   `default-features = false, features = ["bundled"]` so all three OSes build identically.
-- **FR-011**: `skein-acp`'s `SessionParts` MUST accept an injected `Ledger`, so a durable ledger
+- **FR-011**: `heddle-acp`'s `SessionParts` MUST accept an injected `Ledger`, so a durable ledger
   is reachable from the product's client boundary.
 
 ## Success Criteria
@@ -100,7 +100,7 @@ As an auditor, an audit trail that drops a step is worse than one that refuses.
   (2026-09-03).
 - **SC-002**: The persistence acceptance closes a real connection and reopens a real file. No
   in-memory stand-in for the durable path.
-- **SC-003**: `git diff dev -- crates/skein-mcp/` is empty.
+- **SC-003**: `git diff dev -- crates/heddle-mcp/` is empty.
 - **SC-004**: `git diff dev -- spikes/ .github/ rust-toolchain.toml` is empty.
 - **SC-005**: `git diff dev -- Cargo.toml` shows only added `[workspace.dependencies]` entries.
 - **SC-006**: Every pre-existing test still passes, its body unchanged except for the mechanical
@@ -118,7 +118,7 @@ As an auditor, an audit trail that drops a step is worse than one that refuses.
   connection reports `journal_mode = delete` and produces exactly one file.
 - **`seq` crosses the SQL boundary as `i64`.** `rusqlite` implements `ToSql`/`FromSql` for
   `i8..i64` and `u8..u32`, not `u64`. `Step::seq` stays `u64` in the type system; the store
-  converts, and a stored `seq` that does not fit `u64` is a `SkeinError::Storage`, not a panic.
+  converts, and a stored `seq` that does not fit `u64` is a `HeddleError::Storage`, not a panic.
 - **`tamper_payload_for_test` stays mirror-only.** It cannot tamper a database row, and
   pretending otherwise would be dishonest. Row-level tamper-evidence has its own test, which
   forges the row through raw SQL.

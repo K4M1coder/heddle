@@ -48,7 +48,7 @@ at a time, each gated, rather than all three or none.
     transfers directly — a low-adoption crate sitting in the tool-execution path is a direct
     code-execution supply-chain risk for a governed agent, not a convenience trade worth making.
   - **Restricted token + AppContainer construction is hand-rolled directly against `windows-rs`**
-    (the official Microsoft crate; not yet a Skein dependency, added by this work) instead of
+    (the official Microsoft crate; not yet a Heddle dependency, added by this work) instead of
     `rappct`. More implementation work, same trust bar this project already held for `git2` over a
     smaller wrapper, and for an in-house MCP server over a third-party one.
   - Job Objects alone (`win32job`) bound resource usage but not filesystem or network capability —

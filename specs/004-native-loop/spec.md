@@ -1,9 +1,9 @@
 # Feature Specification: native turn loop + ModelClient port (v0 strict-local)
 
 **Feature Branch:** `004-native-loop` · **Created:** 2026-09-03 · **Status:** Implemented (v0 slice)
-**Input:** ADR-0003 (Accepted, decision A = native Skein-owned loop) · Spike 1 evidence
+**Input:** ADR-0003 (Accepted, decision A = native Heddle-owned loop) · Spike 1 evidence
 `docs/superpowers/spikes/runtime-loop-evidence.md` · design §4.2/§4.11/§4.14 ·
-builds directly on `specs/003-skein-core-foundation` (Implemented, 6/6).
+builds directly on `specs/003-heddle-core-foundation` (Implemented, 6/6).
 
 ## User Scenarios & Testing
 
@@ -41,10 +41,10 @@ As a developer, a model provider is a `ModelClient` implementation; the core nev
 depends on a concrete provider, and a test double is a first-class citizen.
 
 ## Requirements
-- **FR-001**: `skein-core` MUST expose a `ModelClient` trait with
+- **FR-001**: `heddle-core` MUST expose a `ModelClient` trait with
   `fn turn(&mut self, &TurnRequest) -> Result<TurnResponse>`, plus serde-round-trippable
   `TurnRequest`/`TurnResponse` (Constitution IV).
-- **FR-002**: `skein-core` MUST expose a `ProgressProbe` trait supplying the ground-truth
+- **FR-002**: `heddle-core` MUST expose a `ProgressProbe` trait supplying the ground-truth
   progress signal. It MUST NOT receive model output (Constitution VIII(b)).
 - **FR-003**: `NativeLoop::run` MUST drive turns until `LoopController::should_exit`
   returns `Some`, and MUST NOT call the model when the budget is already exhausted.
@@ -58,12 +58,12 @@ depends on a concrete provider, and a test double is a first-class citizen.
 - **FR-007**: No network, no new Cargo dependency, no new crate (Constitution II, VII).
 
 ## Success Criteria
-- **SC-001**: `cargo test -p skein-core` green — spec 003's 6 tests unmodified plus this
+- **SC-001**: `cargo test -p heddle-core` green — spec 003's 6 tests unmodified plus this
   slice's 9; `clippy -D warnings` clean; `fmt --check` clean. (15/15, 2026-09-03.)
 - **SC-002**: Four distinct tests reach `Exit::MaxIters`, `Exit::MaxTokens`,
   `Exit::NoProgress` and `Exit::FinalOutput` **through `NativeLoop::run`**, each asserting
   the model call count — not through isolated `LoopController` unit tests.
-- **SC-003**: `git diff` on `Cargo.toml` and `crates/skein-core/Cargo.toml` is empty.
+- **SC-003**: `git diff` on `Cargo.toml` and `crates/heddle-core/Cargo.toml` is empty.
 - **SC-004**: tri-OS CI (`.github/workflows/core.yml`) green on Windows, macOS, Linux
   (ADR-0004 D1(d)). The workflow is in place and its three commands pass locally on
   Windows; the macOS and Linux legs are unobserved until the repository has a remote.

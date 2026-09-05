@@ -2,7 +2,7 @@
 
 **Target artifacts:** `specs/028-cancel-permission-wait/{spec.md,plan.md,tasks.md}` plus the code
 changes below. **Branch:** `028-cancel-permission-wait`, cut from `dev`. **No PR** (the bare mirror at
-`D:/claudecode/skein-origin.git` exists only for Archon's worktree isolation). Conventional Commits.
+`D:/claudecode/heddle-origin.git` exists only for Archon's worktree isolation). Conventional Commits.
 Strict TDD (Constitution III): red before green.
 
 ---
@@ -14,7 +14,7 @@ Strict TDD (Constitution III): red before green.
 `HEAD` here was `d364405`; `dev` is `a8a9d5e`, **43 commits ahead**. Everything this slice builds on
 arrived with slice 027 and is absent from `d364405`: `SessionParts.cancelled` (the flag supplied
 rather than minted) does not exist there at all, and neither does the third reader
-(`skein-sandbox`'s launcher poll) that the module doc this slice edits describes. **S0 of this run:
+(`heddle-sandbox`'s launcher poll) that the module doc this slice edits describes. **S0 of this run:
 fast-forward `028-cancel-permission-wait` onto `dev` at `a8a9d5e` and re-measure the control
 baseline.** Every anchor below is a `dev` anchor.
 
@@ -22,26 +22,26 @@ baseline.** Every anchor below is a `dev` anchor.
 
 | anchor | file | fact |
 |---|---|---|
-| `AcpPermissionTransport` | `skein-acp/src/permission.rs:19` | **three** fields: `inner`, `connection`, `session_id` |
-| `AcpPermissionTransport::new` | `skein-acp/src/permission.rs:26` | `(inner, connection, session_id)`, three arguments |
-| `ask` | `skein-acp/src/permission.rs:38` | returns `Result<RequestPermissionOutcome>`; `send_request(…).on_receiving_result(…)` then **`rx.recv()`** — untimed, unconditional |
-| the closed-channel refusal | `skein-acp/src/permission.rs:70` | `rx.recv().map_err(|_| SkeinError::Tool("acp connection closed"))` |
-| the client-cancelled refusal | `skein-acp/src/permission.rs:91` | `_ => Err(denied("acp permission request cancelled".into()))` — the **only** occurrence of that string in the workspace |
-| the one construction site | `skein-acp/src/lib.rs:103` | `AcpPermissionTransport::new(parts.transport, connection, id.clone())`, inside `SkeinSession::new` |
-| the flag in that frame | `skein-acp/src/lib.rs:84` | `let cancelled = parts.cancelled;` — already in scope, already cloned three times below |
-| `SessionParts.cancelled`'s doc | `skein-acp/src/lib.rs:50-57` | says the flag is read "from **three** places" |
-| `cancel.rs`'s module doc | `skein-acp/src/cancel.rs:6-18` | "There are two others, all three on the **one** flag"; enumerates `AcpTextSink::wants_more` and `skein-sandbox`'s launcher |
-| the test harness | `skein-acp/tests/acp_session.rs:1018` | `ask_permission(outcome, tool_calls)`, driving `call` directly against a real ACP client |
-| the harness's own wait | `skein-acp/tests/acp_session.rs:1076` | `spawn_blocking(move || rx.recv().expect("answered"))` — **untimed**; a client that never answers hangs the test binary |
-| `OBSERVE_TIMEOUT` | `skein-acp/tests/acp_session.rs:26` | `10s`, the file's established "a signal that never arrives is a failure, not a hang" bound |
-| the three answer tests | `skein-acp/tests/acp_session.rs:1096,1109,1125` | `p1` allow, `p2` reject, `p3` client-cancelled — this slice's controls |
-| `POLL_SLICE` | `skein-sandbox/src/launch.rs` | `50ms`, slice 027's pinned number for the same job one crate down |
+| `AcpPermissionTransport` | `heddle-acp/src/permission.rs:19` | **three** fields: `inner`, `connection`, `session_id` |
+| `AcpPermissionTransport::new` | `heddle-acp/src/permission.rs:26` | `(inner, connection, session_id)`, three arguments |
+| `ask` | `heddle-acp/src/permission.rs:38` | returns `Result<RequestPermissionOutcome>`; `send_request(…).on_receiving_result(…)` then **`rx.recv()`** — untimed, unconditional |
+| the closed-channel refusal | `heddle-acp/src/permission.rs:70` | `rx.recv().map_err(|_| HeddleError::Tool("acp connection closed"))` |
+| the client-cancelled refusal | `heddle-acp/src/permission.rs:91` | `_ => Err(denied("acp permission request cancelled".into()))` — the **only** occurrence of that string in the workspace |
+| the one construction site | `heddle-acp/src/lib.rs:103` | `AcpPermissionTransport::new(parts.transport, connection, id.clone())`, inside `HeddleSession::new` |
+| the flag in that frame | `heddle-acp/src/lib.rs:84` | `let cancelled = parts.cancelled;` — already in scope, already cloned three times below |
+| `SessionParts.cancelled`'s doc | `heddle-acp/src/lib.rs:50-57` | says the flag is read "from **three** places" |
+| `cancel.rs`'s module doc | `heddle-acp/src/cancel.rs:6-18` | "There are two others, all three on the **one** flag"; enumerates `AcpTextSink::wants_more` and `heddle-sandbox`'s launcher |
+| the test harness | `heddle-acp/tests/acp_session.rs:1018` | `ask_permission(outcome, tool_calls)`, driving `call` directly against a real ACP client |
+| the harness's own wait | `heddle-acp/tests/acp_session.rs:1076` | `spawn_blocking(move || rx.recv().expect("answered"))` — **untimed**; a client that never answers hangs the test binary |
+| `OBSERVE_TIMEOUT` | `heddle-acp/tests/acp_session.rs:26` | `10s`, the file's established "a signal that never arrives is a failure, not a hang" bound |
+| the three answer tests | `heddle-acp/tests/acp_session.rs:1096,1109,1125` | `p1` allow, `p2` reject, `p3` client-cancelled — this slice's controls |
+| `POLL_SLICE` | `heddle-sandbox/src/launch.rs` | `50ms`, slice 027's pinned number for the same job one crate down |
 
 ### 0.3 What a `session/cancel` reaches today, and where it stops
 
-One `Arc<AtomicBool>` per session, supplied by `skein-cli`'s ACP session factory, read from three
+One `Arc<AtomicBool>` per session, supplied by `heddle-cli`'s ACP session factory, read from three
 places: `CancellableModel::turn` before a turn (slice 013), `AcpTextSink::wants_more` per line of the
-provider's stream (slice 026), and `skein-sandbox`'s launcher per 50 ms of a child's life (slice
+provider's stream (slice 026), and `heddle-sandbox`'s launcher per 50 ms of a child's life (slice
 027). The fourth wait is not read at all. `AcpPermissionTransport::ask` sends
 `session/request_permission`, registers a callback that forwards the answer down an `mpsc`, and then
 blocks the loop thread on `rx.recv()`. Nothing but an answer or a dead connection returns from that
@@ -74,7 +74,7 @@ pub struct AcpPermissionTransport<T: ToolTransport> {
 }
 ```
 
-`SkeinSession::new` is the only construction site in the product, and slice 027 already put
+`HeddleSession::new` is the only construction site in the product, and slice 027 already put
 `cancelled` in scope there, three lines above, cloned into `CancellableModel` and `AcpTextSink`. The
 gate gets a fourth clone of the same `Arc`:
 
@@ -82,7 +82,7 @@ gate gets a fourth clone of the same `Arc`:
 AcpPermissionTransport::new(parts.transport, connection, id.clone(), cancelled.clone())
 ```
 
-**No `skein-cli` change, and that is the point of slice 027 having gone first.** The flag is already
+**No `heddle-cli` change, and that is the point of slice 027 having gone first.** The flag is already
 caller-supplied and already reaches this frame; the composition root does not learn a new fact. This
 is why the wiring risk slice 027 spent its S10 on does not recur here — there is no second `Arc` to
 get wrong, because the only place that could mint one is a `parts.cancelled` field the compiler
@@ -112,11 +112,11 @@ loop {
         Ok(answered) => {
             return answered
                 .map(Answer::Client)
-                .map_err(|e| SkeinError::Tool(format!("acp permission request failed: {e}")))
+                .map_err(|e| HeddleError::Tool(format!("acp permission request failed: {e}")))
         }
         Err(RecvTimeoutError::Timeout) => continue,
         Err(RecvTimeoutError::Disconnected) => {
-            return Err(SkeinError::Tool("acp connection closed".into()))
+            return Err(HeddleError::Tool("acp connection closed".into()))
         }
     }
 }
@@ -174,9 +174,9 @@ answer, and there is no honest value in it for "the client did not answer" —
 **Rejected — `Result<Option<RequestPermissionOutcome>>`.** `None` would carry the fact but not its
 name, and `call`'s match would read `None => …` at the site where the distinction has to be obvious.
 
-**Rejected — an extra `SkeinError` variant returned straight from `ask`.** `call` is the frame that
+**Rejected — an extra `HeddleError` variant returned straight from `ask`.** `call` is the frame that
 knows the tool name, and `denied` is its local closure; refusing from inside `ask` would either
-duplicate that knowledge or return a `SkeinError::Tool` where every other refusal on this path is a
+duplicate that knowledge or return a `HeddleError::Tool` where every other refusal on this path is a
 `ToolDenied`, which is a different thing on the chain.
 
 The enum is private to the module: nothing outside `permission.rs` needs to name it. (Note for a
@@ -262,7 +262,7 @@ So S1 lands before S2's red, and changes only the harness:
 S1 is verified by `p1`, `p2` and `p3` passing **unmodified in behaviour** through the new harness:
 the bound must not change what an answered request does.
 
-### D7 — `skein-core`, `skein-cli`, and the wire are untouched
+### D7 — `heddle-core`, `heddle-cli`, and the wire are untouched
 
 No port gains a method, no `StepKind` is added, no payload shape changes, no CLI argument appears, no
 `Cargo.toml` changes. The diff is one file of production code, one field, one loop, one enum, one
@@ -293,7 +293,7 @@ string, two doc comments, and the tests.
 - **S6** RED-by-revert, **both directions**: remove the pre-request check and record its red; restore;
   remove the in-loop check and record its red; restore. Neither check is redundant and this is the
   proof.
-- **S7** live hand-verification on this machine, timestamped: `skein acp-agent --allow-run` against
+- **S7** live hand-verification on this machine, timestamped: `heddle acp-agent --allow-run` against
   the real provider, a real permission request left unanswered, a real `session/cancel`, and the
   prompt answered `Cancelled` while the dialog is still open. Part of this run **if a real provider
   is available**; if not, that is recorded as not-done rather than reported as done.
@@ -323,7 +323,7 @@ edit.
   waive it. Recorded as a residual in `tasks.md` rather than claimed as tested.
 - **A red that is a hang.** S1 before S2, non-negotiable, and FR-011 states it as a requirement of
   the suite rather than as a convention of this slice.
-- **The flag not being reset.** Unchanged and not this slice's: `SkeinSession::run` already clears it
+- **The flag not being reset.** Unchanged and not this slice's: `HeddleSession::run` already clears it
   per run, and the gate reads the same `Arc`, so a cancelled prompt does not poison the next one.
   `a6` (two prompts in one session) is the existing control.
 - **Rollback** is the revert of one field, one loop, one enum and one string. No wire format, no
@@ -333,6 +333,6 @@ edit.
 
 - **Any timeout on a human's decision** (D2; spec rejected alternative 1).
 - **Withdrawing the request on the wire.** ACP has no agent-initiated cancel for an outstanding
-  `session/request_permission`. Skein stops waiting; a late answer is dropped with the channel.
-- **`skein chat`.** No permission gate exists there at all.
+  `session/request_permission`. Heddle stops waiting; a late answer is dropped with the channel.
+- **`heddle chat`.** No permission gate exists there at all.
 - **Cancelling a non-process tool already executing.** Unchanged from slice 027.

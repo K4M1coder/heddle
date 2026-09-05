@@ -4,7 +4,7 @@
 plan; its `**Status**` moves `Draft` → `Planned` at T0)
 **Branch:** `feat/workflow-engine`, cut from `dev` at `d364405` (verified: `git rev-parse --short
 HEAD` = `d364405`, working tree clean, `git remote -v` names a local bare repo — no PR host)
-**New crate:** `crates/skein-workflow`, a workspace member the moment its directory exists, by the
+**New crate:** `crates/heddle-workflow`, a workspace member the moment its directory exists, by the
 root `Cargo.toml`'s `members = ["crates/*"]` — no manifest edit.
 
 **Scope, stated up front:** this slice implements **User Story 1 only** — sequential nodes, one
@@ -22,7 +22,7 @@ vocabulary, but its executor arm refuses. See *Out of scope*, which is exhaustiv
 `Step` per node, and is **resumable from the last logged step**. Nothing in the tree does this.
 `NativeLoop` drives *turns* against one model until a controller stops it; it has no notion of a
 graph, of a node, or of picking up where a dead process left off. `grep -r resume crates/` finds one
-unrelated hit (a word in a `skein-sandbox/src/launch.rs` comment) — there is no resume primitive and
+unrelated hit (a word in a `heddle-sandbox/src/launch.rs` comment) — there is no resume primitive and
 no prior art to mirror, so the design below is this slice's own.
 
 Without it the product cannot run a multi-step SDLC chain (plan → code → test → package) at all,
@@ -32,53 +32,53 @@ which is Epic 6's requested capability and `spec.md`'s SC-004.
 
 Everything below was read in this worktree (`feat/workflow-engine`, tip `d364405`).
 
-1. **`crates/skein-core/src/ledger.rs:92-116`.** `Ledger::append(run_id, kind, payload) ->
+1. **`crates/heddle-core/src/ledger.rs:92-116`.** `Ledger::append(run_id, kind, payload) ->
    Result<String>` derives `seq` and `parent` by scanning `self.steps` for the same `run_id`. So
    replaying the same `run_id` against a `Ledger` opened from a durable store reconstructs the exact
    same chain shape, and a second `append` for a `run_id` continues the sequence rather than
    restarting it. `Ledger::open` (`ledger.rs:79`) already resumes whatever a `LedgerStore` holds —
    `store.load()?` populates `steps` before any new append. This is the primitive resume rides on;
-   **nothing new is needed in `skein-core` for the store side.**
+   **nothing new is needed in `heddle-core` for the store side.**
 2. **`StepKind`** (`ledger.rs:13-24`) is a closed enum: `LlmRequest, LlmResponse, ToolCall,
    ToolResult, StateChange, Reflection, IterationBoundary, BudgetSpent, Exit, Approval`. None names
    "one workflow node completed". A new variant is needed (D2). Its two match sites both tolerate a
-   new variant without an edit: `skein-acp/src/lib.rs:138` has a `_ => {}` arm, and
-   `skein-cli/src/ledger.rs:66` matches on the **serde value**, not the enum, deliberately.
-3. **`crates/skein-core/src/tool.rs`** already has an `Approval` *concept*, at a different layer:
+   new variant without an edit: `heddle-acp/src/lib.rs:138` has a `_ => {}` arm, and
+   `heddle-cli/src/ledger.rs:66` matches on the **serde value**, not the enum, deliberately.
+3. **`crates/heddle-core/src/tool.rs`** already has an `Approval` *concept*, at a different layer:
    `ToolGateway::call_captured` (`tool.rs:312`) appends a `StepKind::Approval` step recording whether
    a *mutating tool call* was allowed by `ToolPolicy` — an automatic, policy-driven decision, not a
    human one — as `ApprovalRecord { tool, decision, reason }` (`tool.rs:246-251`). The workflow
    spec's `Approval` **node** is a different thing: a graph node that blocks until a **human** records
    a decision out of band. Reusing the `StepKind` is defensible (both mean "a decision was required
-   and recorded"), but the payload shapes must stay distinct types so a reader of `skein ledger show`
+   and recorded"), but the payload shapes must stay distinct types so a reader of `heddle ledger show`
    is not handed one shape and told it is the other. D2 keeps them as two payload types under one
    kind.
-4. **`crates/skein-core/src/native_loop.rs:36,43`.** `NativeLoop<C: ModelClient, P: ProgressProbe,
+4. **`crates/heddle-core/src/native_loop.rs:36,43`.** `NativeLoop<C: ModelClient, P: ProgressProbe,
    T: ToolTransport>::run` is generic over the model client and the tool transport, never naming a
-   protocol (Constitution IV). There is **no `Agent` trait** in `skein-core`: "an agent" *is* the
+   protocol (Constitution IV). There is **no `Agent` trait** in `heddle-core`: "an agent" *is* the
    pairing of a `ModelClient` with a `ToolGateway`, exactly as `NativeLoop` embodies it. A
    `Node::Agent` therefore needs no new core trait — it needs the engine to be generic the same way.
-5. **`crates/skein-core/src/model.rs:47-48`** — `ModelClient::turn(&mut self, req: &TurnRequest) ->
+5. **`crates/heddle-core/src/model.rs:47-48`** — `ModelClient::turn(&mut self, req: &TurnRequest) ->
    Result<TurnResponse>`, synchronous, exactly one round trip.
-6. **`crates/skein-core/src/tool.rs:312`** — `call_captured` is the complete governed path
+6. **`crates/heddle-core/src/tool.rs:312`** — `call_captured` is the complete governed path
    (`ToolCall` step → policy decision → `Approval` step → `ToolResult` step, or `Err(ToolDenied)`
    without reaching the transport). `Node::Tool`'s executor is a thin wrapper over it, not a
    re-implementation.
-7. **`crates/skein-core/src/error.rs:6-38`.** No `Unsupported`/`NotImplemented` variant exists. One
+7. **`crates/heddle-core/src/error.rs:6-38`.** No `Unsupported`/`NotImplemented` variant exists. One
    is needed for the deferred node kinds (D1).
-8. **`crates/skein-core/src/lib.rs:14-24`** re-exports everything a downstream crate needs. So
-   `skein-workflow`'s `[dependencies]` names only `skein-core`, `serde`, `serde_json` — never a
+8. **`crates/heddle-core/src/lib.rs:14-24`** re-exports everything a downstream crate needs. So
+   `heddle-workflow`'s `[dependencies]` names only `heddle-core`, `serde`, `serde_json` — never a
    concrete connector crate. That is what keeps Constitution IV's inverted coupling true for the new
    crate by construction rather than by review.
 9. **`grep -r resume crates/`** — one unrelated hit. No existing resume primitive or precedent.
 10. **Root `Cargo.toml:3`** — `[workspace] members = ["crates/*"]`; `[workspace.dependencies]`
     already pins `serde` and `serde_json`, referenced as `{ workspace = true }`, the pattern every
     existing crate uses.
-11. **Test-double conventions**, `crates/skein-core/tests/native_loop.rs:17,89`: a `ScriptedModel`
+11. **Test-double conventions**, `crates/heddle-core/tests/native_loop.rs:17,89`: a `ScriptedModel`
     (`ModelClient` replaying a fixed `Vec<TurnResponse>`, one entry per call, **panicking loudly if
     the script is exhausted** — "the engine asked for a turn it wasn't scripted for" is a test bug,
     not a silent default) and a `RecordingTransport` (`ToolTransport` with a `TransportMode` enum:
-    `Reply`/`Fail`/`Forbidden`). `skein-workflow`'s fixtures mirror this shape rather than reaching
+    `Reply`/`Fail`/`Forbidden`). `heddle-workflow`'s fixtures mirror this shape rather than reaching
     for a mocking library.
 12. **Plan/tasks house style**, from `specs/018-acp-permission-gate/plan.md` and
     `specs/020-run-dir-allowlist/{plan.md,tasks.md}`.
@@ -109,7 +109,7 @@ pub enum Node {
 `spec.md`'s Key Entities (`Node: agent/tool/subagent/approval/cond/parallel/loop`) is the type's
 contract, not a suggestion. Building only `{Agent, Tool, Approval}` today and adding the rest later
 would force every `Workflow` serialized by this slice to be migrated. The four deferred variants'
-arm returns `Err(SkeinError::Unsupported(_))` **before appending any Ledger step for that node** — so
+arm returns `Err(HeddleError::Unsupported(_))` **before appending any Ledger step for that node** — so
 a workflow that reaches one fails loudly and leaves no partial or misleading step behind, and
 retrying after a future slice implements the kind resumes cleanly at that same node, because nothing
 was logged for the engine to skip past.
@@ -125,12 +125,12 @@ the tree (fact 4), and `NativeLoop`'s own pattern is a generic struct over `Mode
 two ports covers every variant this slice executes; a registry would be new coupling machinery for
 nothing.
 
-### D2 — Two additive primitives in `skein-core`; nothing existing changes shape
+### D2 — Two additive primitives in `heddle-core`; nothing existing changes shape
 
-`StepKind` gains `WorkflowNode`. `SkeinError` gains `Unsupported(String)`. Both are additive: no
+`StepKind` gains `WorkflowNode`. `HeddleError` gains `Unsupported(String)`. Both are additive: no
 existing variant's meaning changes and no existing call site's behaviour changes.
 
-The payloads live in `skein-workflow`, not `skein-core` — exactly as `skein-core` already does for
+The payloads live in `heddle-workflow`, not `heddle-core` — exactly as `heddle-core` already does for
 `Approval`/`ToolResult`, whose payload types (`ApprovalRecord`, `CapturedResult`) live in `tool.rs`
 beside the code that produces them:
 
@@ -233,7 +233,7 @@ pub struct Workflow { pub name: String, pub params: serde_json::Value, pub graph
 ```
 
 `RunId` ("executed instance, addressed by `RunId`, derived from the Ledger") is the `run_id: &str`
-`Ledger::append`/`log` already key on — no new type, since `skein-core` already treats run identity
+`Ledger::append`/`log` already key on — no new type, since `heddle-core` already treats run identity
 as a plain string and a newtype here would be a second representation of the Ledger's own key.
 
 ### D6 — the engine carries a `Redactor`, because a node that calls a model must record what it said
@@ -273,8 +273,8 @@ convenience for the same reason.
 - **T0** — this `plan.md`, `tasks.md`, and `spec.md`'s `Status` → `Planned`.
 - **T1** — control baseline: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --
   -D warnings`, `cargo test --workspace`, each **measured** on the implementation machine.
-- **T2** — crate skeleton, no behaviour: `crates/skein-workflow/{Cargo.toml,src/lib.rs,src/node.rs,
-  src/engine.rs}` with `todo!()` bodies; `StepKind::WorkflowNode` and `SkeinError::Unsupported` added
+- **T2** — crate skeleton, no behaviour: `crates/heddle-workflow/{Cargo.toml,src/lib.rs,src/node.rs,
+  src/engine.rs}` with `todo!()` bodies; `StepKind::WorkflowNode` and `HeddleError::Unsupported` added
   (D2). Gate: `cargo build --workspace` green, no test yet.
 - **T3** — RED→GREEN: a 3-node sequential workflow reaches its final result, one `WorkflowNode` step
   per node, in order (`tests/sequential.rs`).
@@ -286,7 +286,7 @@ convenience for the same reason.
 - **T6** — RED→GREEN: a deferred node kind fails with `Unsupported` **before** logging anything for
   that node (`tests/node_kinds.rs`).
 - **T7** — gates and close-out: re-run all three, record the delta against T1, confirm the control
-  diff is empty outside `crates/skein-workflow/`, `crates/skein-core/src/{ledger.rs,error.rs,lib.rs}`,
+  diff is empty outside `crates/heddle-workflow/`, `crates/heddle-core/src/{ledger.rs,error.rs,lib.rs}`,
   `specs/002-workflow-engine/` and the root `Cargo.lock`.
 
 ---
@@ -316,8 +316,8 @@ convenience for the same reason.
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| The `StepKind`/`SkeinError` additions read as "rewriting the core" (Constitution IV) | Low | Medium | Both are additive enum variants, the same shape as slices 007→020's own additions; no existing variant's meaning changes, and both match sites already tolerate a new variant (fact 2) |
-| A future `TaskTracker` (US2) wants to observe node completion and `NodeRecord` carries too little | Medium | Low | `NodeRecord`/`WorkflowApproval` are private to `skein-workflow`; their fields can grow behind `#[serde(default)]` — the pattern `TurnResponse::tool_calls` already uses — without breaking T3–T6 |
+| The `StepKind`/`HeddleError` additions read as "rewriting the core" (Constitution IV) | Low | Medium | Both are additive enum variants, the same shape as slices 007→020's own additions; no existing variant's meaning changes, and both match sites already tolerate a new variant (fact 2) |
+| A future `TaskTracker` (US2) wants to observe node completion and `NodeRecord` carries too little | Medium | Low | `NodeRecord`/`WorkflowApproval` are private to `heddle-workflow`; their fields can grow behind `#[serde(default)]` — the pattern `TurnResponse::tool_calls` already uses — without breaking T3–T6 |
 | `Node::Agent`'s one-turn definition proves too thin for a real SDLC chain (SC-004) | Medium | Medium | Stated as a deliberate, scoped simplification (D4), not discovered later; the follow-up adding ReAct/Reflexion bodies is exactly where a node needs more than one turn |
 
 ---
@@ -333,8 +333,8 @@ convenience for the same reason.
 - **`Node::Subagent`, `Node::Condition`, `Node::Parallel`** as executable behaviour — same treatment.
 - **Goose recipes / BMAD / Spec-Kit flows executable as workflows** (FR-013b) — needs a parser from
   those formats into `Workflow`; this slice builds the engine such a parser would target.
-- **A CLI subcommand** (`skein workflow run`/`decide`) — this slice is the library crate only,
-  exercised by its own tests. Wiring a CLI surface is analogous to how `skein-cli` wires `NativeLoop`
+- **A CLI subcommand** (`heddle workflow run`/`decide`) — this slice is the library crate only,
+  exercised by its own tests. Wiring a CLI surface is analogous to how `heddle-cli` wires `NativeLoop`
   today, and is left for the same follow-up that would add the tracker CLI.
 - **Persisting `Workflow` definitions** (a registry/store) — the tests construct a `Workflow` in
   process. Where definitions live is a question this slice does not answer, only that a `Workflow`

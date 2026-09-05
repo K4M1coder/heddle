@@ -19,7 +19,7 @@ With one list carrying a class per entry, each name is classified exactly once a
 the one type whose job is refusing things.
 
 Nothing else in `tool.rs` changes. `call_captured` already turns a `Decision::Deny` into
-`SkeinError::ToolDenied` after appending `[ToolCall, Approval]`, and `NativeLoop::mediate`
+`HeddleError::ToolDenied` after appending `[ToolCall, Approval]`, and `NativeLoop::mediate`
 already feeds a `ToolDenied` back to the model as
 `[tool_result tool=… status=denied]` and carries on. The unlisted-tool path *is* the existing
 denial path, byte for byte, with no second mechanism.
@@ -29,7 +29,7 @@ denial path, byte for byte, with no second mechanism.
 **Primary Dependencies**: none added; no `Cargo.toml` in the repository changes.
 **Storage**: the existing in-memory `Ledger` (durable SQLite-backed silo still deferred)
 **Testing**: `cargo test`; the existing `CountingTransport` / `RecordingTransport` doubles and
-the existing live in-process rmcp server fixture in `skein-mcp`.
+the existing live in-process rmcp server fixture in `heddle-mcp`.
 **Target Platform**: Windows + macOS + Linux
 **Project Type**: library (two workspace members, unchanged)
 **Performance Goals**: N/A. `decide` stays a linear scan over a handful of names.
@@ -46,7 +46,7 @@ append-only Ledger, no secret by value in any captured payload
 - **IV. Inverted coupling**: ✅ nothing about the transport seam changes; `ToolPolicy` names no
   protocol and no server.
 - **V. Traceability**: ✅ an unlisted tool is refused through the *existing* `[ToolCall,
-  Approval]` shape and the existing `SkeinError::ToolDenied`; no new `StepKind`, no second
+  Approval]` shape and the existing `HeddleError::ToolDenied`; no new `StepKind`, no second
   denial path, and `verify_chain` is asserted on the new refusal.
 - **VI. Security / secrets by reference**: ✅ this slice exists to restore the principle's
   opening clause. Deny-by-default now governs tool *identity* and not only mutation, and it
@@ -74,16 +74,16 @@ specs/007-tool-allowlist/
 
 ### Source Code (repository root)
 ```text
-crates/skein-core/
+crates/heddle-core/
   src/tool.rs                  # +ToolAccess; ToolPolicy.mutating -> allowed; new `decide`
   src/lib.rs                   # +ToolAccess in the `pub use tool::{…}` list
   tests/tool_gateway.rs        # `fn gateway` migrated; +3 tests
   tests/native_loop.rs         # `fn gateway` migrated; `fn no_tools` doc corrected; +1 test
-crates/skein-mcp/
+crates/heddle-mcp/
   tests/rmcp_gateway.rs        # `fn live_server` delegates to `live_server_allowing`; +1 test
 ```
 **Structure Decision**: no new file outside `specs/007-tool-allowlist/`. `native_loop.rs`,
-`loop_ctl.rs`, `ledger.rs`, `error.rs`, `model.rs`, `content.rs`, `skein-mcp/src/lib.rs` and
+`loop_ctl.rs`, `ledger.rs`, `error.rs`, `model.rs`, `content.rs`, `heddle-mcp/src/lib.rs` and
 `tests/core.rs` are untouched, so specs 003, 004 and 006 remain independent controls — as do the
 bodies of all six spec-005 gateway tests.
 

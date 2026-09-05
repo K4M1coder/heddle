@@ -1,22 +1,22 @@
 # Tasks: a read-only `git` connector (v0 slice)
 
 **Spec:** `specs/017-git-connector/spec.md` · **Plan:** `specs/017-git-connector/plan.md` · TDD
-(red→green), product code in `crates/skein-connectors` and `crates/skein-cli`, branch
+(red→green), product code in `crates/heddle-connectors` and `crates/heddle-cli`, branch
 `017-git-connector` cut from `dev` at `5d36c1d`.
 
 ## Constitution Check (ADR-0004 D1 solo-v0 bar)
-- I Headless core ✅ the capability lives in a library crate; `skein-cli` gains one helper on an
-  existing flag's argument group. `skein-core` is **untouched** — slice 015 already built everything
+- I Headless core ✅ the capability lives in a library crate; `heddle-cli` gains one helper on an
+  existing flag's argument group. `heddle-core` is **untouched** — slice 015 already built everything
   it needed · II Local-first ✅ NON-NEGOTIABLE, and stronger here than in any prior slice: the
   connector stays **in-process** over a `tokio::io::duplex`, **no subprocess is spawned anywhere**,
   and `git2` is compiled with `default-features = false` so **no HTTPS and no SSH transport is
-  linked in at all** — the same build-property guarantee `skein-gateway` makes about TLS. A `git`
+  linked in at all** — the same build-property guarantee `heddle-gateway` makes about TLS. A `git`
   subprocess was rejected partly on the measured ground that a repository's own `core.fsmonitor` is
   executed by `git status` and is **not** executed by `git2`
 - III Test-First ✅ every step's red observed and recorded in `## Observed red` before its green ·
-  IV Inverted coupling ✅ `skein-core` still names no protocol. `skein-connectors` remains the only
+  IV Inverted coupling ✅ `heddle-core` still names no protocol. `heddle-connectors` remains the only
   crate naming MCP as a **server**, and `src/git.rs` is the only module naming `git2` — so a future
-  swap to `gix` touches one file. `skein-cli` reaches the connector only through `ToolTransport` and
+  swap to `gix` touches one file. `heddle-cli` reaches the connector only through `ToolTransport` and
   never sees `git2`
 - V Traceability ✅ no new `StepKind` and none needed. A git tool call lands as
   `ToolCall`/`Approval`/`ToolResult` through the gateway 005 built; slice 014's `Redactor` scrubs it
@@ -24,7 +24,7 @@
 - VI Security ✅ deny-by-default at three layers, each with its own test: `--fs-root` is **opt-in**;
   the **server** disables both git routes when the root is not a repository *and* refuses a
   containment violation as a tool error; and the **CLI allowlist** omits the names in the same case,
-  which is not decoration — an allowlisted-but-disabled route produces a `SkeinError::Tool` that
+  which is not decoration — an allowlisted-but-disabled route produces a `HeddleError::Tool` that
   `NativeLoop::mediate` treats as fatal. Read-only **in scope**, not by policy choice: there is no
   mutating code path to misclassify
 - VII Neutrality ✅ two tools, no new flag, no new crate, no second connector, no subprocess. Four
@@ -44,8 +44,8 @@
       from `dev` at `5d36c1d`
 - [x] **T1** control baseline: `cargo test --workspace` before any edit — **165 passed, 2 ignored**
 - [x] **T2** manifests: `git2` + `chrono` in `[workspace.dependencies]` and in
-      `crates/skein-connectors`; `git2` as a dev-dependency of both `skein-connectors` and
-      `skein-cli`. Proves libgit2 compiles **before** any behaviour is written
+      `crates/heddle-connectors`; `git2` as a dev-dependency of both `heddle-connectors` and
+      `heddle-cli`. Proves libgit2 compiles **before** any behaviour is written
 - [x] **T3** RED→GREEN — containment: `src/git.rs` with `open_contained` and `is_git_repository`,
       driven by `tests/git_root.rs`
 - [x] **T4** RED→GREEN — the two tools: `git_status`, `git_log`, `LogParams`, `LOG_COUNT_CAP`,
@@ -56,10 +56,10 @@
 - [x] **T6** RED→GREEN — the headline governed run: `tests/governed_git_run.rs`
 - [x] **T7** RED→GREEN — redaction over a **real commit message**
 - [x] **T8** RED→GREEN — the injection boundary: the only model-supplied value is a `u32`
-- [x] **T9** RED→GREEN — `skein-cli` wiring: `ToolArgs::git_tools`, both policies, the reworded
+- [x] **T9** RED→GREEN — `heddle-cli` wiring: `ToolArgs::git_tools`, both policies, the reworded
       `--fs-root` doc comment and module docstring
 - [x] **T10** RED→GREEN — CLI acceptance against the **real binary**, one test per command
-- [x] **T11** the `#[ignore]`d live-model test, gated on `SKEIN_LIVE_MODEL`
+- [x] **T11** the `#[ignore]`d live-model test, gated on `HEDDLE_LIVE_MODEL`
 - [x] **T12** gates, control diff, dependency drift, close-out
 - [ ] **T13** hand-verification against live Ollama — **not part of the implementation run**;
       performed separately and recorded below under `## Live verification`
@@ -79,23 +79,23 @@ commits later — and it is the number T12 diffs against.
 
 All on 2026-09-03. Recorded verbatim.
 
-**T3** — `cargo test -p skein-connectors --test git_root` against a `git.rs` that did not exist:
+**T3** — `cargo test -p heddle-connectors --test git_root` against a `git.rs` that did not exist:
 
 ```
-error[E0432]: unresolved import `skein_connectors::is_git_repository`
+error[E0432]: unresolved import `heddle_connectors::is_git_repository`
 ```
 
-**T4** — `cargo test -p skein-connectors --test git_server`:
+**T4** — `cargo test -p heddle-connectors --test git_server`:
 
 ```
-error[E0432]: unresolved imports `skein_connectors::LogParams`, `skein_connectors::LOG_COUNT_CAP`,
-`skein_connectors::STATUS_ENTRY_CAP`
-  --> crates\skein-connectors\tests\git_server.rs:19:42
+error[E0432]: unresolved imports `heddle_connectors::LogParams`, `heddle_connectors::LOG_COUNT_CAP`,
+`heddle_connectors::STATUS_ENTRY_CAP`
+  --> crates\heddle-connectors\tests\git_server.rs:19:42
 error[E0599]: no method named `git_status` found for struct `FsServer` in the current scope
-  --> crates\skein-connectors\tests\git_server.rs:93:21
+  --> crates\heddle-connectors\tests\git_server.rs:93:21
 error[E0599]: no method named `git_log` found for struct `FsServer` in the current scope
-  --> crates\skein-connectors\tests\git_server.rs:97:21
-error: could not compile `skein-connectors` (test "git_server") due to 6 previous errors
+  --> crates\heddle-connectors\tests\git_server.rs:97:21
+error: could not compile `heddle-connectors` (test "git_server") due to 6 previous errors
 ```
 
 Then, with the tools written but `Sort::TIME` alone as the plan literally named it — a **second**
@@ -113,11 +113,11 @@ commits in real life. `Sort::TIME | Sort::TOPOLOGICAL` adds the constraint that 
 precedes its child. Recorded under `## Deviations from the plan`.
 
 **T5** — the gate's red arrived twice, and the second half is the one that matters. First the
-rename, from `cargo test -p skein-connectors --test connector`:
+rename, from `cargo test -p heddle-connectors --test connector`:
 
 ```
-error[E0432]: unresolved import `skein_connectors::local_connector`
-  --> crates\skein-connectors\tests\connector.rs:10:24
+error[E0432]: unresolved import `heddle_connectors::local_connector`
+  --> crates\heddle-connectors\tests\connector.rs:10:24
 ```
 
 And before it, from T4's own green: the **pre-existing** three-tool catalogue test failed, because
@@ -164,8 +164,8 @@ So the `isError: true` the test asserts is genuinely produced by the crafted val
 the typed boundary, and not by anything the harness would have said anyway. Both were restored
 verbatim afterwards and both are green.
 
-**T9, T10** — one red for both, because `skein-cli` has no `lib` target and its policies are only
-observable through the shipped binary. From `cargo test -p skein-cli --test cli_chat`:
+**T9, T10** — one red for both, because `heddle-cli` has no `lib` target and its policies are only
+observable through the shipped binary. From `cargo test -p heddle-cli --test cli_chat`:
 
 ```
 ---- chat_with_an_fs_root_that_is_a_git_repository_advertises_the_git_tools_and_reports_real_status
@@ -205,33 +205,33 @@ whose unobserved legs must compile C that was not already being compiled — see
 
 ## Control diff (T12)
 
-`git diff dev --stat -- crates/skein-silo/ spikes/ .github/ rust-toolchain.toml` — **empty**
-(SC-013). The same command over `crates/skein-core/ crates/skein-gateway/ crates/skein-acp/
-crates/skein-mcp/` is also empty, which is the stronger claim the plan's blast-radius table made:
-`skein-core` needed nothing, because slice 015 already built everything a second tool family
+`git diff dev --stat -- crates/heddle-silo/ spikes/ .github/ rust-toolchain.toml` — **empty**
+(SC-013). The same command over `crates/heddle-core/ crates/heddle-gateway/ crates/heddle-acp/
+crates/heddle-mcp/` is also empty, which is the stronger claim the plan's blast-radius table made:
+`heddle-core` needed nothing, because slice 015 already built everything a second tool family
 requires.
 
 Everything the slice touched, `git diff dev --stat`:
 
 ```
  Cargo.toml                                        |   9 +
- crates/skein-cli/Cargo.toml                       |   5 +
- crates/skein-cli/src/main.rs                      |   8 +-
- crates/skein-cli/src/wiring.rs                    |  59 +-
- crates/skein-cli/tests/cli_acp_agent.rs           |  88 +++
- crates/skein-cli/tests/cli_chat.rs                | 136 +++++
- crates/skein-connectors/Cargo.toml                |  11 +
- crates/skein-connectors/src/connector.rs          |   8 +-
- crates/skein-connectors/src/fs.rs                 |   2 +-
- crates/skein-connectors/src/git.rs                | 355 ++++++++++++
- crates/skein-connectors/src/lib.rs                |   9 +-
- crates/skein-connectors/src/server.rs             | 110 +++-
- crates/skein-connectors/tests/connector.rs        | 120 +++-
- crates/skein-connectors/tests/fs_server.rs        |  14 +-
- crates/skein-connectors/tests/git_root.rs         | 216 ++++++++
- crates/skein-connectors/tests/git_server.rs       | 455 ++++++++++++++++
- crates/skein-connectors/tests/governed_fs_run.rs  |   6 +-
- crates/skein-connectors/tests/governed_git_run.rs | 602 ++++++++++++++++++++
+ crates/heddle-cli/Cargo.toml                       |   5 +
+ crates/heddle-cli/src/main.rs                      |   8 +-
+ crates/heddle-cli/src/wiring.rs                    |  59 +-
+ crates/heddle-cli/tests/cli_acp_agent.rs           |  88 +++
+ crates/heddle-cli/tests/cli_chat.rs                | 136 +++++
+ crates/heddle-connectors/Cargo.toml                |  11 +
+ crates/heddle-connectors/src/connector.rs          |   8 +-
+ crates/heddle-connectors/src/fs.rs                 |   2 +-
+ crates/heddle-connectors/src/git.rs                | 355 ++++++++++++
+ crates/heddle-connectors/src/lib.rs                |   9 +-
+ crates/heddle-connectors/src/server.rs             | 110 +++-
+ crates/heddle-connectors/tests/connector.rs        | 120 +++-
+ crates/heddle-connectors/tests/fs_server.rs        |  14 +-
+ crates/heddle-connectors/tests/git_root.rs         | 216 ++++++++
+ crates/heddle-connectors/tests/git_server.rs       | 455 ++++++++++++++++
+ crates/heddle-connectors/tests/governed_fs_run.rs  |   6 +-
+ crates/heddle-connectors/tests/governed_git_run.rs | 602 ++++++++++++++++++++
  specs/017-git-connector/*.md                      | (this slice's own documents)
  21 files changed, 3261 insertions(+), 42 deletions(-)
 ```
@@ -242,7 +242,7 @@ lines and docstrings only**. No assertion in the workspace was changed or remove
 
 ## Drift (T12)
 
-Re-measured this session rather than quoted from the plan, with `cargo tree -p skein-cli -e normal`
+Re-measured this session rather than quoted from the plan, with `cargo tree -p heddle-cli -e normal`
 on both `dev` and this branch.
 
 **140 → 144 normal packages. Exactly four are new:**
@@ -265,7 +265,7 @@ because the slice caused it.
 **No network transport is linked in.** `grep -iE "openssl|libssh2|ssh2|native-tls|rustls"` over the
 whole shipped normal graph returns nothing. git2 0.21's `default` is empty and `https`/`ssh` are
 left off, so this is a property of the build rather than of the code's restraint — the same
-guarantee `skein-gateway` makes about TLS (Constitution II, NON-NEGOTIABLE). It matters more here
+guarantee `heddle-gateway` makes about TLS (Constitution II, NON-NEGOTIABLE). It matters more here
 than anywhere: this repository has no remote, so its own tests **could not** have caught a remote
 call by accident.
 
@@ -276,7 +276,7 @@ because they were already build dependencies of `libsqlite3-sys`.
 bindings, a tri-OS build burden"*. That judgment is **materially wrong today**, and it is now
 load-bearing in the wrong direction, so it is corrected here rather than inherited: `rusqlite` is
 pinned `features = ["bundled"]` in the root manifest and `libsqlite3-sys 0.38.2` is in
-`skein-cli`'s shipped graph, which means the bundled SQLite amalgamation is already compiled with
+`heddle-cli`'s shipped graph, which means the bundled SQLite amalgamation is already compiled with
 `cc` on all three OSes. A C toolchain was a hard build prerequisite of this workspace before this
 slice existed. `vendored-libgit2` adds a second C library to that same existing burden, and pins
 one libgit2 (1.9.7) on every OS instead of linking whatever a runner happens to have — mirroring
@@ -334,7 +334,7 @@ Deliberately not done, so no one helpfully does it. Identical to the spec's list
 - **A `shell` connector.** Still deferred; ADR-0004 D3's sixth item **closes for `fs` and `git` and
   remains open for `shell`**.
 - **A `--git-root` flag, or any second root.**
-- **`crates/skein-silo/`, `spikes/`, `.github/`, `rust-toolchain.toml`** — verified empty in the
+- **`crates/heddle-silo/`, `spikes/`, `.github/`, `rust-toolchain.toml`** — verified empty in the
   control diff above.
 
 ## Next slice (not this feature)

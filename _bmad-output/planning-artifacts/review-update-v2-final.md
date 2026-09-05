@@ -1,4 +1,4 @@
-# Final Pre-Promotion BMAD PRD Review — Skein v2 Update Draft
+# Final Pre-Promotion BMAD PRD Review — Heddle v2 Update Draft
 
 **Review date:** 2026-07-16  
 **Review intent:** BMAD PRD reviewer gate, read-only  

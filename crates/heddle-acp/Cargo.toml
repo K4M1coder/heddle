@@ -1,0 +1,16 @@
+[package]
+name = "heddle-acp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+heddle-core = { path = "../heddle-core" }
+agent-client-protocol.workspace = true
+futures.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "io-util", "macros", "time"] }
+tokio-util = { workspace = true, features = ["compat"] }

@@ -1,15 +1,15 @@
 ---
-title: Skein Project Governance
+title: Heddle Project Governance
 status: remediation-draft-v2
 updated: 2026-07-16
 build_authorization: NOT_READY
 ---
 
-# Skein Project Governance
+# Heddle Project Governance
 
 ## Identity and Independence
 
-Skein is an independent open-source project created and owned by Cédric Thedrez, known as `kamicoder` on GitHub and `cethgame` elsewhere. Project metadata, contribution material, generated artifacts, releases, and public statements shall not assert or imply an organizational affiliation unless the owner deliberately amends this policy with verifiable authority.
+Heddle is an independent open-source project created and owned by Cédric Thedrez, known as `kamicoder` on GitHub and `cethgame` elsewhere. Project metadata, contribution material, generated artifacts, releases, and public statements shall not assert or imply an organizational affiliation unless the owner deliberately amends this policy with verifiable authority.
 
 ## Repository Language
 

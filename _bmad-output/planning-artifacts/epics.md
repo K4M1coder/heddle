@@ -3,7 +3,7 @@ stepsCompleted: []
 inputDocuments: ['_bmad-output/planning-artifacts/PRD.md', '_bmad-output/planning-artifacts/architecture.md']
 ---
 
-# Skein - Epic Breakdown
+# Heddle - Epic Breakdown
 
 ## Overview
 Breakdown into epics/stories, derived from the PRD and the architecture. **This iteration details Epic 1 (Phase 0 — vertical skeleton)**; epics 2+ (v1 axes, then v2→v8) will be detailed in turn, each with its own inherited spine.
@@ -28,7 +28,7 @@ FR-1 → Stories 1.6/1.7 · FR-3 → Story 1.4 · FR-6 → Story 1.3 · FR-10 �
 - Epics 7+ — v2→v8 (perception, cowork, generation, video, omni, voice, translation) & enterprise track
 
 ## Epic 1: Phase 0 — Vertical skeleton
-**Goal:** prove the complete vertical slice `CLI → Skein control plane → selected per-turn runtime/worker → model gateway → model`, with Local silo persistence, Ledger, secrets foundation and turn-level governance. The runtime path is selected by ADR-0003 evidence before implementation. Independently testable deliverable. TDD implementation detail: `specs/001-phase0-walking-skeleton/tasks.md` after regeneration.
+**Goal:** prove the complete vertical slice `CLI → Heddle control plane → selected per-turn runtime/worker → model gateway → model`, with Local silo persistence, Ledger, secrets foundation and turn-level governance. The runtime path is selected by ADR-0003 evidence before implementation. Independently testable deliverable. TDD implementation detail: `specs/001-phase0-walking-skeleton/tasks.md` after regeneration.
 
 ### Story 1.0: Goose integration spike (ADR)
 As a maintainer, I want to settle the Goose integration on facts, So that the implementation tasks are concrete.
@@ -61,16 +61,16 @@ As a user, I want a persisted conversation, So that I can reload it.
 
 ### Story 1.7: Reference CLI (chat, session)
 As a user, I want to drive everything from the terminal, So that the tool is scriptable and testable.
-**Given** `skein chat -t ...` **When** executed **Then** output is displayed + `session show` reloads user+assistant. Realizes FR-1/AD-1.
+**Given** `heddle chat -t ...` **When** executed **Then** output is displayed + `session show` reloads user+assistant. Realizes FR-1/AD-1.
 
 ### Story 1.8: Event-sourced Ledger (capture & inspection)
 As a user, I want to inspect everything sent/received, So that I retain transparency and reversibility.
-**Given** a chat **When** `skein ledger log` **Then** both LlmRequest AND LlmResponse appear, hash-chained, isolated per silo. Realizes FR-10.
+**Given** a chat **When** `heddle ledger log` **Then** both LlmRequest AND LlmResponse appear, hash-chained, isolated per silo. Realizes FR-10.
 
 ### Story 1.9: SecretProvider foundation (JIT)
 As a user, I want to resolve secrets just-in-time, So that no secret is in cleartext or logged.
-**Given** a stored key (OS keyring) **When** `skein gateway-health` resolves it **Then** the key never appears in cleartext; `redact` masks it. Realizes FR-11.
+**Given** a stored key (OS keyring) **When** `heddle gateway-health` resolves it **Then** the key never appears in cleartext; `redact` masks it. Realizes FR-11.
 
 ### Story 1.10: Exit-criteria verification (smoke test)
 As a PM, I want to validate Phase 0 end-to-end, So that the architecture is proven.
-**Given** Ollama+LiteLLM+Goose configured **When** `skein chat` creates a file **Then** the file is created, the session persisted/reloaded, the ledger inspectable, egress OFF confirmed.
+**Given** Ollama+LiteLLM+Goose configured **When** `heddle chat` creates a file **Then** the file is created, the session persisted/reloaded, the ledger inspectable, egress OFF confirmed.

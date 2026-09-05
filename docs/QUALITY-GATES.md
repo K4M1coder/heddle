@@ -1,11 +1,11 @@
 ---
-title: Skein Planning, Bootstrap, CI/CD, and Staging Quality Gates
+title: Heddle Planning, Bootstrap, CI/CD, and Staging Quality Gates
 status: remediation-draft-v2
 updated: 2026-07-16
 build_authorization: NOT_READY
 ---
 
-# Skein Planning, Bootstrap, CI/CD, and Staging Quality Gates
+# Heddle Planning, Bootstrap, CI/CD, and Staging Quality Gates
 
 > **Calibration (ADR-0004):** this document is the **team/enterprise-tier target contract**. For the current **solo v0**, the mandatory bar is ADR-0004 D1 (bucket-A contracts + five spikes + Spec-Kit gates for the current slice + tri-OS CI). Spike code is authorized under ADR-0004 D2 quarantine. The full G0–G6 regime activates on the team/enterprise trigger, not before.
 
@@ -63,4 +63,4 @@ Author, reviewer, adversarial challenger, test/evaluation agent, integration own
 
 ## Feasibility Guardrails
 
-A mature Skein repository may exceed one million source tokens. A million-token model window is overflow capacity, not normal working memory and not a repository-size target. Acceptance requires smallest-sufficient context, repository and symbol maps, dependency graphs, ACL-aware hybrid retrieval, lazy loading, and traceable compression. Rapidly produced agent or coding-tool clones demonstrate prototype feasibility only; they are not evidence of enterprise maturity, cross-platform reliability, security, governance, maintainability, or compliance-support readiness.
+A mature Heddle repository may exceed one million source tokens. A million-token model window is overflow capacity, not normal working memory and not a repository-size target. Acceptance requires smallest-sufficient context, repository and symbol maps, dependency graphs, ACL-aware hybrid retrieval, lazy loading, and traceable compression. Rapidly produced agent or coding-tool clones demonstrate prototype feasibility only; they are not evidence of enterprise maturity, cross-platform reliability, security, governance, maintainability, or compliance-support readiness.

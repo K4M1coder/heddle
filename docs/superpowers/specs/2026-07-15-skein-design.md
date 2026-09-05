@@ -1,6 +1,6 @@
-# Skein — Design Document (Spec)
+# Heddle — Design Document (Spec)
 
-- **Codename**: Skein *("a skein of geese" = a flight of geese, a nod to Goose; and a skein of intertwined threads = the connectors/models woven together)*
+- **Codename**: Heddle *("a heddle of geese" = a flight of geese, a nod to Goose; and a heddle of intertwined threads = the connectors/models woven together)*
 - **Date**: 2026-07-15
 - **Status**: Design validated — awaiting review before implementation plan
 - **Author and project owner**: Cédric Thedrez (`kamicoder` on GitHub, `cethgame` elsewhere)
@@ -50,14 +50,14 @@ v1 is **text**. Multimodal and collaborative evolution is planned across version
 | Decision | Chosen option | Rationale |
 |---|---|---|
 | **Strategy** | Build on a **neutral open-source base** | Avoids vendor lock-in + reuses a proven harness. |
-| **Core foundation / language** | **Skein-owned Rust control plane** + optional Python/TypeScript sidecars | Rust owns policy, workflow, Ledger, context and stable API contracts. Existing agents and language-specific engines remain replaceable workers/adapters (ADR 0003). |
+| **Core foundation / language** | **Heddle-owned Rust control plane** + optional Python/TypeScript sidecars | Rust owns policy, workflow, Ledger, context and stable API contracts. Existing agents and language-specific engines remain replaceable workers/adapters (ADR 0003). |
 | **Model gateway** | **LiteLLM** | OpenAI-compatible entry point to 100+ cloud **and** local providers; cost/quotas/guardrails. |
 | **Frameworks** | BMAD / Spec-Kit / powerskills packaged as **recipes/skills** | Integration = packaging + orchestration, not rewrite. |
 | **PC control** | **Abstract hybrid** `Controller` interface | Interchangeable back-ends (Computer Use API **or** local enigo/xcap). No lock-in. |
 | **Deployment** | **Local-first**, team backend **enableable** | The desktop is autonomous; team mode is a layer on top. |
 | **Platforms** | **First-class cross-platform: Windows + macOS + Linux** (on equal footing) | Rust/Tauri/Goose/LiteLLM/SQLite/keyring are all multi-OS; CI on all three; per-OS signing. |
 | **Surfaces** | **Headless core → CLI (reference) → UI (layer)** | Automatable, testable; the UI adds no capability of its own. |
-| **Agent-runtime strategy** | Native Skein loop by default; Goose/OpenCode/Cline/Hermes/Claude Code and others are optional `WorkerAdapter`s or sources of compatible components | Guarantees turn-level governance and prevents an external agent from owning policy, workflow state or evidence (ADR 0003). |
+| **Agent-runtime strategy** | Native Heddle loop by default; Goose/OpenCode/Cline/Hermes/Claude Code and others are optional `WorkerAdapter`s or sources of compatible components | Guarantees turn-level governance and prevents an external agent from owning policy, workflow state or evidence (ADR 0003). |
 | **Packaging** | One product/repository/version/installer/command; modular monolith with optional supervised sidecars/workers | Simple local use without forcing every inference, browser or ML engine into one process. |
 | **Context strategy** | Smallest-sufficient, reproducible `ContextManifest`; 1M-token windows are overflow capacity, not default working memory | Long-context models still degrade with position and complexity; selection, provenance and compression are core capabilities (§4.15). |
 | **Editable harness** | **Layered** config: **team** base (leads, lockable) + **local** overrides (user) — see §5.4 | Team governance + local freedom, without breaking silo isolation. |
@@ -87,7 +87,7 @@ v1 is **text**. Multimodal and collaborative evolution is planned across version
 Guiding principle: **headless core**, the CLI is the complete reference client, the UI is a layer. Every UI capability exists in the CLI; every CLI capability is exposed by the API.
 
 ```
-        ┌────────────── SKEIN HEADLESS CONTROL PLANE (Rust) ────────────┐
+        ┌────────────── HEDDLE HEADLESS CONTROL PLANE (Rust) ────────────┐
         │  Complete programmatic API (JSON-RPC / local HTTP)             │
         │  Agentic runtime · Context · Tool/skill/provider dispatch      │
         └───────────────────────────┬───────────────────────────────────┘
@@ -117,11 +117,11 @@ Each component: **one role**, an **explicit interface**, **testable in isolation
 
 ### 4.1 Access surfaces
 - **Headless core**: exposes the `Agent` via a local API (JSON-RPC + optional HTTP). Single surface.
-- **CLI** (`skein …`): complete client, authoritative; 100% scriptable; basis of E2E tests.
+- **CLI** (`heddle …`): complete client, authoritative; 100% scriptable; basis of E2E tests.
 - **API**: same surface, for automation/CI/third parties; subject to the mode's exposure/authz.
 - **UI (Tauri)**: only emits CLI/API commands, displays events. No business logic.
 
-### 4.2 Agentic core (`core/`, Rust — Skein-owned loop)
+### 4.2 Agentic core (`core/`, Rust — Heddle-owned loop)
 ```rust
 enum Content { Text(..), Image(..), Audio(..), Doc(..), Video(..) }  // typed abstraction (from v2)
 struct Message { role: Role, parts: Vec<Content> }
@@ -139,20 +139,20 @@ Depends on: `ModelGateway`, `Backend`, governed Tool/MCP Gateway, skill engine, 
 ### 4.3 Connectors (`connectors/`, MCP servers)
 Each connector = one MCP server (Jira/Bitbucket/Confluence, Outlook/SharePoint/Teams, `fs`, `git`, `shell`). Added by **config**, no core code. Protocol: MCP (`tools/list`, `tools/call`, `resources/*`).
 
-**Embedded connectors + hierarchical enablement (default: full local).** Skein **ships a curated set of MCP connectors embedded** (bundled binaries/configs from the trust registry §7.6) so no external install is needed. But **shipped ≠ enabled**:
+**Embedded connectors + hierarchical enablement (default: full local).** Heddle **ships a curated set of MCP connectors embedded** (bundled binaries/configs from the trust registry §7.6) so no external install is needed. But **shipped ≠ enabled**:
 - **Default posture = full local**: out of the box, only offline connectors (`fs`, `git`, `shell`) are active; every network connector is present but **disabled**.
 - **Enablement is an authorization** made by the **owner of the scope**, resolved through the hierarchy (§5.5): silo owner ▸ project owner ▸ conversation owner — a connector enabled/locked at a higher level binds lower levels; security stays a **monotonic floor** (a lower level can disable, never enable beyond what's allowed above; ADR 0002 D3).
 - Enabling a network connector is subject to the **egress boundary** (ADR 0002 D4: `requires_network()` on every connector, checked at enable-time, enforced by the network sandbox in Local mode).
 - This same **enablement policy applies to every pluggable component**: identity providers (§7.9), secret backends (§7.13), task trackers (§4.13), model providers/routes (§4.5), and controllers (§4.9). One mechanism, all components.
 
 ### 4.4 Skills / recipes engine (`skills/`)
-Loads BMAD, Spec-Kit, powerskills/superpowers and project-defined skills through Skein's canonical skill/workflow contracts. Goose recipes and other external formats are import/export adapters, not the canonical representation.
+Loads BMAD, Spec-Kit, powerskills/superpowers and project-defined skills through Heddle's canonical skill/workflow contracts. Goose recipes and other external formats are import/export adapters, not the canonical representation.
 ```
 Recipe = { name, description, instructions, required_extensions[], params[], prompt }
 ```
 
 ### 4.5 Model gateway (`gateway/`, LiteLLM)
-OpenAI-compatible entry point (`POST /v1/chat/completions`) → cloud/local providers; routing, cost/quotas, load-balancing and guardrails. LiteLLM is the initial replaceable adapter; Skein owns model capability descriptors and policy routing.
+OpenAI-compatible entry point (`POST /v1/chat/completions`) → cloud/local providers; routing, cost/quotas, load-balancing and guardrails. LiteLLM is the initial replaceable adapter; Heddle owns model capability descriptors and policy routing.
 **Traceability chokepoint**: all model I/O passes through here → the Gateway **captures model inputs/outputs to the Ledger (§4.11)**, whatever the emitting runtime.
 
 ### 4.6 Inference layer (`inference/`)
@@ -208,7 +208,7 @@ enum AccessScope {
 - **Team translation** (v8): composition STT→translate→TTS (voice) + text translation, **per participant** according to a "native language" profile carried by the member in the **team partition** (§5), via the Teams/chat connector.
 
 ### 4.11 Execution Ledger (event-sourced, git-style) — cross-cutting, from v1
-**Each step is an immutable revision.** Skein records, in an **append-only, hash-addressed and chained (parent→child)** journal, *everything* that makes up an execution — not just the produced results:
+**Each step is an immutable revision.** Heddle records, in an **append-only, hash-addressed and chained (parent→child)** journal, *everything* that makes up an execution — not just the produced results:
 - **Model inputs**: the **exact** context/prompt sent to each model.
 - **Model outputs**: the **raw** response of each model (before post-processing).
 - **Tool-calls**: the call (name + arguments) **and** the result.
@@ -231,10 +231,10 @@ trait Ledger {
   fn branch(&self, from: StepId) -> SessionId;   // explorer une alternative
 }
 ```
-- **Capture point**: model inputs/outputs are captured at the **Gateway (§4.5)** — a single chokepoint traversed by every runtime → no model I/O escapes the journal. ⚠️ **Corrected by ADR 0002 (D1/D2)**: valid only if **Skein owns the loop** and Goose is a per-turn executor (goosed/embedded) with a propagated `trace_id`; a `goose run` *subprocess* hides the exact prompt and tool calls. Tool ground truth is captured via a **Skein MCP proxy**. Step identity = surrogate id + content-hash integrity field (not hash-as-PK), with effect-class + idempotency key for safe resume/replay/branch, plus loop event kinds (Reflection/Evaluation/IterationBoundary/BudgetSpent/Exit/Approval).
+- **Capture point**: model inputs/outputs are captured at the **Gateway (§4.5)** — a single chokepoint traversed by every runtime → no model I/O escapes the journal. ⚠️ **Corrected by ADR 0002 (D1/D2)**: valid only if **Heddle owns the loop** and Goose is a per-turn executor (goosed/embedded) with a propagated `trace_id`; a `goose run` *subprocess* hides the exact prompt and tool calls. Tool ground truth is captured via a **Heddle MCP proxy**. Step identity = surrogate id + content-hash integrity field (not hash-as-PK), with effect-class + idempotency key for safe resume/replay/branch, plus loop event kinds (Reflection/Evaluation/IterationBoundary/BudgetSpent/Exit/Approval).
 - **Honest reversibility**: internal effects (files/session) **undoable** via snapshot; irreversible external effects (email sent, ticket created) **recorded and flagged** as non-undoable (compensating action proposed, never automatic).
 - **Isolation & security**: the journal lives **within the silo** (§5.3); it contains potentially sensitive prompts → subject to the **keychain/redaction, egress and retention** (§7). It is also the centerpiece of GDPR/AI Act traceability (§7.11-7.12).
-- **Surfaces**: `skein ledger log|show|replay|revert|branch` (reference CLI); the UI is merely a view of this journal.
+- **Surfaces**: `heddle ledger log|show|replay|revert|branch` (reference CLI); the UI is merely a view of this journal.
 
 ### 4.12 Workflow engine (native, inspired by Archon, Ledger-synced)
 The harness can **natively sequence multi-agentic actions** across its connected tools. A **workflow** = a graph of **typed nodes** executed by the core and **event-sourced on the Ledger** (§4.11) → durability, replay and **crash recovery for free**.
@@ -289,7 +289,7 @@ trait LoopController {                              // middleware/hooks around e
 
 ### 4.15 Context manager and million-token operating model
 
-Skein MUST NOT equate an advertised context window with reliable working memory. A one-million-token window is useful overflow capacity, but repository-wide injection is neither required nor desirable. The context manager builds a versioned `ContextManifest` for every model call, recording selected sources, hashes, classifications, token allocation and selection rationale.
+Heddle MUST NOT equate an advertised context window with reliable working memory. A one-million-token window is useful overflow capacity, but repository-wide injection is neither required nor desirable. The context manager builds a versioned `ContextManifest` for every model call, recording selected sources, hashes, classifications, token allocation and selection rationale.
 
 The manager combines repository and symbol maps, lexical and semantic search, dependency graphs, artifact relations, ACL-aware retrieval, lazy loading, source-linked summaries and trajectory compression. Requirements, security policy and acceptance criteria may be pinned; incidental history may be compacted or omitted.
 
@@ -453,9 +453,9 @@ impl GoogleWorkspace    // Google Workspace (+ groupes)
 - **Product metrics**: cost/tokens per provider (via LiteLLM), latency, tool failure rate; **respect the egress policy** (no export outside policy).
 
 ### 7.12 Compliance (compliance-by-design)
-> The software **provides the controls** that *enable* compliance; **certification** (ISO 27001, SOC 2) remains an **organizational** process. Skein is designed not to be the blocking link.
+> The software **provides the controls** that *enable* compliance; **certification** (ISO 27001, SOC 2) remains an **organizational** process. Heddle is designed not to be the blocking link.
 
-| Framework | What Skein provides |
+| Framework | What Heddle provides |
 |---|---|
 | **GDPR** | Minimization (Local mode without egress), **right to erasure** & export/portability by admin, data residency (local/on-prem), legal basis/consent, processing register, encryption at rest & in transit. |
 | **ISO 27001** | Access control (RBAC §7.10), secret management (§7.2), audit (§7.11), change management (versioned config-as-code §5.4), supply chain (§7.6). |
@@ -472,7 +472,7 @@ impl GoogleWorkspace    // Google Workspace (+ groupes)
 
 ### Phase 0 — A skeleton that works (vertical slice)
 Headless core + frozen API/event contract; minimal CLI; 1 provider via LiteLLM; `filesystem` connector; Local silo persistence; **Ledger** (step-level capture); **`SecretProvider` foundation** (OS keychain + JIT resolution of the Gateway key + redaction) — the other secret back-ends arrive with the cloud providers/connectors.
-**Exit**: at the terminal, a conversation that reads/writes a file, persisted & reloaded; Gateway key resolved from the keychain (never in plaintext); journal inspectable via `skein ledger`.
+**Exit**: at the terminal, a conversation that reads/writes a file, persisted & reloaded; Gateway key resolved from the keychain (never in plaintext); journal inspectable via `heddle ledger`.
 
 ### Phase 1 — MVP (4 axes)
 - **1a** Agentic code (`fs`/`git`/`shell` sandbox, edit+diff, TDD, subagents).
@@ -541,7 +541,7 @@ External IdPs (LDAP/OIDC/Entra/Google) + **advanced RBAC** (§7.9-7.10), advance
 
 | Risk / question | Impact | Approach |
 |---|---|---|
-| Agent-runtime composition | **High** | ADR 0003: Skein owns the loop; bounded spikes compare native Rust, Goose, OpenCode and Cline integration surfaces before accepting a worker path. |
+| Agent-runtime composition | **High** | ADR 0003: Heddle owns the loop; bounded spikes compare native Rust, Goose, OpenCode and Cline integration surfaces before accepting a worker path. |
 | Effective use of very long contexts | **High** | `ContextManifest` + repo/symbol maps + hybrid retrieval + position-sensitive benchmark; 1M context is overflow, not a substitute for context engineering. |
 | Reliability of cowork *grounding* (click anchoring) | Medium | Computer Use hybrid first, local afterward. |
 | Multi-OS local inference packaging (llama.cpp/vLLM; vLLM poorly suited to Windows/macOS) | Medium | Ollama as robust and cross-platform default; optional GPU vLLM (especially Linux). |
@@ -566,7 +566,7 @@ External IdPs (LDAP/OIDC/Entra/Google) + **advanced RBAC** (§7.9-7.10), advance
 ## 11. Glossary
 - **Silo**: watertight data partition associated with a mode (and a team in Remote).
 - **Leader / Follower**: instance exposing its backend / instance attached to a leader.
-- **Recipe**: an external declarative task/skill bundle (for example Goose YAML) imported into Skein's canonical skill/workflow representation.
+- **Recipe**: an external declarative task/skill bundle (for example Goose YAML) imported into Heddle's canonical skill/workflow representation.
 - **Controller**: abstraction of PC control (capture + keyboard/mouse).
 - **Sidecar**: auxiliary Python process (embeddings/RAG/eval).
 - **Principal**: authenticated entity (user/service) carrying an identity and groups.

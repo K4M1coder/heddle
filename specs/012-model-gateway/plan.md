@@ -1,10 +1,10 @@
-# Implementation Plan: `skein-gateway` — the first real `ModelClient`, and `skein chat` (v0 slice)
+# Implementation Plan: `heddle-gateway` — the first real `ModelClient`, and `heddle chat` (v0 slice)
 
 **Branch**: `012-model-gateway` | **Date**: 2026-09-03 | **Spec**: `specs/012-model-gateway/spec.md`
 
 ## Summary
 
-A new workspace member `crates/skein-gateway` holds the one `ModelClient` implementation in product
+A new workspace member `crates/heddle-gateway` holds the one `ModelClient` implementation in product
 code, the OpenAI chat-completions wire translation, and the loopback guard:
 
 ```rust
@@ -16,8 +16,8 @@ impl OpenAiCompatClient { pub fn new(endpoint: LocalEndpoint, model: impl Into<S
 impl ModelClient for OpenAiCompatClient { fn turn(&mut self, req: &TurnRequest) -> Result<TurnResponse>; }
 ```
 
-`skein-core` gains **one** additive error variant. `skein-cli` gains one subcommand, `skein chat`,
-and one dependency, `skein-gateway`. Nothing existing is rewritten: `ModelClient`, `NativeLoop`,
+`heddle-core` gains **one** additive error variant. `heddle-cli` gains one subcommand, `heddle chat`,
+and one dependency, `heddle-gateway`. Nothing existing is rewritten: `ModelClient`, `NativeLoop`,
 `LoopController`, `Ledger`, `ToolGateway` and both protocol crates are untouched, so the 82-test
 baseline stays a live control throughout.
 
@@ -25,25 +25,25 @@ baseline stays a live control throughout.
 
 ### D1 — Isolate the protocol in its own crate
 
-`skein-core` must not learn HTTP (Principle IV; its dependency list is `serde`, `serde_json`,
-`thiserror`, `sha2`, `zeroize` and stays that way). `skein-mcp` isolates MCP and `skein-acp`
-isolates ACP the same way, each stating it in its module docstring. `skein-gateway` is named for
+`heddle-core` must not learn HTTP (Principle IV; its dependency list is `serde`, `serde_json`,
+`thiserror`, `sha2`, `zeroize` and stays that way). `heddle-mcp` isolates MCP and `heddle-acp`
+isolates ACP the same way, each stating it in its module docstring. `heddle-gateway` is named for
 design §4.5's `gateway/` component.
 
-*Rejected:* putting the client in `skein-silo` (which is storage) or `skein-cli` (which has **no
+*Rejected:* putting the client in `heddle-silo` (which is storage) or `heddle-cli` (which has **no
 `lib` target** by deliberate design, so an implementation there would be unreachable from
-`skein-acp` when `acp-agent` lands).
+`heddle-acp` when `acp-agent` lands).
 
 ### D2 — `ureq 3` with **no default features**, not `reqwest`
 
 Two decisive reasons, both re-measured in T1:
 
 1. **It matches the `ModelClient::turn` boundary exactly.** `turn` is `&mut self -> Result<…>`,
-   synchronous. `skein-mcp` owns a `tokio::runtime::Runtime` and calls `block_on` *because `rmcp` is
+   synchronous. `heddle-mcp` owns a `tokio::runtime::Runtime` and calls `block_on` *because `rmcp` is
    async-only* — there was no choice. Here there is one, and taking it removes the hazard
    `RmcpToolTransport`'s docstring has to warn about (*"no method of this type may be called from
    inside an async context: `Runtime::block_on` panics when a runtime is already entered"*).
-   `skein-acp` calls `ModelClient::turn` from a spawned OS thread inside an async program, so a
+   `heddle-acp` calls `ModelClient::turn` from a spawned OS thread inside an async program, so a
    `block_on`-based client would be a live panic risk there. A blocking client is not.
 2. **No TLS ⇒ no cloud provider, structurally.** With `default-features = false`, an `https://` POST
    fails at the transport with `ureq::Error::TlsRequired`. Every cloud provider endpoint is HTTPS.
@@ -80,7 +80,7 @@ workspace tests a process/protocol boundary without a harness crate.
 
 ### D4 — Talk to Ollama's own OpenAI-compatible endpoint; no LiteLLM sidecar
 
-`skein chat` defaults to `http://localhost:11434/v1` and POSTs to `<base>/chat/completions`. That is
+`heddle chat` defaults to `http://localhost:11434/v1` and POSTs to `<base>/chat/completions`. That is
 the same wire contract design §4.5 specifies, so pointing `--base-url` at a LiteLLM sidecar works
 with no code change — but requiring a Python process to speak a protocol Ollama already speaks would
 be a prerequisite with no capability behind it (Principle VII). `scripts/bootstrap.ps1 -WithOllama`
@@ -144,15 +144,15 @@ variant today, so nothing is lost. **No `tools` field** — `TurnRequest` cannot
 ### D8 — `tokens_used` is real, or the turn fails
 
 Order: `usage.total_tokens` if present; else `usage.prompt_tokens + usage.completion_tokens` if both
-present; else `Err(SkeinError::Model(…))` naming the missing metering.
+present; else `Err(HeddleError::Model(…))` naming the missing metering.
 
 A `0` fallback is the tempting third option and is rejected: `LoopController::should_exit` stops on
 `self.tokens >= budget.max_tokens`, so a silent `0` would disable the token budget while looking
 like it worked. Principle VIII is NON-NEGOTIABLE, and refusing loudly is this project's established
-answer to "I cannot honestly produce this value" (`skein-cli`'s `kind_name` refusing rather than
+answer to "I cannot honestly produce this value" (`heddle-cli`'s `kind_name` refusing rather than
 printing a blank column; `secret set` refusing an empty value).
 
-### D9 — Error mapping: every failure is a `SkeinError::Model` naming the endpoint
+### D9 — Error mapping: every failure is a `HeddleError::Model` naming the endpoint
 
 `ureq::Agent` is configured with `http_status_as_error(false)`, so a provider error carries the
 provider's own message rather than being flattened into a status code.
@@ -167,15 +167,15 @@ provider's own message rather than being flattened into a status code.
 Timeouts are configured explicitly: `timeout_connect(Some(5s))` and
 `timeout_global(Some(<--timeout-secs>, default 120s))`.
 
-### D10 — `skein chat`, and the two honest stand-ins it needs
+### D10 — `heddle chat`, and the two honest stand-ins it needs
 
 ```
-skein chat --silo <ID> [--root <PATH>] --model <NAME> [--base-url <URL>]
+heddle chat --silo <ID> [--root <PATH>] --model <NAME> [--base-url <URL>]
            [--prompt <TEXT>] [--run-id <ID>]
            [--max-iters N] [--max-tokens N] [--no-progress-limit N] [--timeout-secs S]
 ```
 
-`--model` is required with no default. `--base-url` → `$SKEIN_MODEL_BASE_URL` →
+`--model` is required with no default. `--base-url` → `$HEDDLE_MODEL_BASE_URL` →
 `http://localhost:11434/v1`. The prompt comes from `--prompt`, else stdin to EOF. One prompt, one
 run — no interactive REPL. The run lands on the **real silo chain** via
 `Silo::open(root, id)?.ledger()?`. `run_id` defaults to `chat-{unix_millis}-{pid}`; `--run-id`
@@ -184,7 +184,7 @@ than `FinalOutput` is exit code 1 with empty stdout.
 
 Two collaborators `NativeLoop` structurally requires, supplied without shipping a fake:
 
-- **`ToolTransport`** — a private `NoTools` whose `call` returns `SkeinError::Tool`, paired with
+- **`ToolTransport`** — a private `NoTools` whose `call` returns `HeddleError::Tool`, paired with
   `ToolPolicy::new(vec![], vec![])`. Deny-by-default means **no name can reach it**: the policy
   refuses every tool before the transport is consulted (`ToolGateway::call_captured` decides first).
   It is unreachable by construction, not a stub that pretends to work.
@@ -193,7 +193,7 @@ Two collaborators `NativeLoop` structurally requires, supplied without shipping 
   for one. Every iteration is therefore stale and a model that never finishes is stopped by the
   no-progress budget.
 
-### D11 — One additive change to `skein-core`
+### D11 — One additive change to `heddle-core`
 
 ```rust
 /// A run ended on a budget rather than with an answer. Not a provider failure:
@@ -202,9 +202,9 @@ Two collaborators `NativeLoop` structurally requires, supplied without shipping 
 Unfinished { run_id: String, exit: String },
 ```
 
-`skein chat` needs to fail with exit 1 when the engine stops a run, and the alternatives are worse:
-`SkeinError::Model` would print `model provider:` for a budget decision no provider made, and
-`SkeinError::Storage` is a lie. Additive, no signature changes, mirroring slice 011's precedent of
+`heddle chat` needs to fail with exit 1 when the engine stops a run, and the alternatives are worse:
+`HeddleError::Model` would print `model provider:` for a budget decision no provider made, and
+`HeddleError::Storage` is a lie. Additive, no signature changes, mirroring slice 011's precedent of
 closing a CLI's gap *by adding to the API* rather than reaching around it (`Ledger::runs()`).
 **`ModelClient` itself is unchanged** — this slice supplies an implementation behind the trait,
 which is the whole point of Principle IV.
@@ -213,9 +213,9 @@ which is the whole point of Principle IV.
 
 | Addition | Callers today | Why it is not speculative |
 |---|---|---|
-| `crates/skein-gateway` | `skein-cli`'s `chat` | The trait has had no implementation for eight slices; this is the one. |
+| `crates/heddle-gateway` | `heddle-cli`'s `chat` | The trait has had no implementation for eight slices; this is the one. |
 | `LocalEndpoint` | `OpenAiCompatClient::new` | Principle II's enforcement point. Not constructible around. |
-| `SkeinError::Unfinished` | `skein-cli`'s `chat` | Demanded by the budget-exit test, added when that test asked for it. |
+| `HeddleError::Unfinished` | `heddle-cli`'s `chat` | Demanded by the budget-exit test, added when that test asked for it. |
 | `--timeout-secs` | the client's `timeout_global` | The one knob whose absence is a hang, which is the failure the operator cannot diagnose. |
 
 Not added, though each was considered: an `Authorization` header (no caller — D6), a `tools` field

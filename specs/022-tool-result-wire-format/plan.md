@@ -6,11 +6,11 @@ remote) · Conventional Commits · Strict TDD (Constitution III).
 
 ## Problem
 
-`crates/skein-core/src/native_loop.rs`'s `mediate` fed every tool result back through the free
+`crates/heddle-core/src/native_loop.rs`'s `mediate` fed every tool result back through the free
 function `tool_message`, which returned
 `Message::user_text(format!("[tool_result tool={tool} status={status}]\n{body}"))`. The assistant
 turn that *requested* those tools was pushed as `resp.message`, which
-`crates/skein-gateway/src/lib.rs`'s `ModelClient for OpenAiCompatClient::turn` built as
+`crates/heddle-gateway/src/lib.rs`'s `ModelClient for OpenAiCompatClient::turn` built as
 `Message::assistant_text(choice.message.content.unwrap_or_default())` — and on a tool-calling turn a
 provider sends `"content": null`, so that message was **empty**. The `tool_calls` array was carried
 on `TurnResponse.tool_calls`, recorded in the Ledger's `LlmResponse` step, and then dropped:
@@ -39,20 +39,20 @@ about. `spec.md`'s finding 4 measures what that costs: 0/6 vs 6/6 on two indepen
 | `tool.rs` may import from `content.rs`, so a `ToolCall` in `content.rs` would cycle | **False, and the direction is the safe one.** `tool.rs` imports `error`, `ledger`, `secret` — not `content`. `content.rs` importing `ToolCall` from `tool.rs` is acyclic. |
 | "seven test files assert the old label" | **Confirmed by grep**: seven files, eighteen sites — `native_loop.rs`, `governed_fs_run.rs`, `governed_git_run.rs`, `cli_chat.rs`, `cli_acp_agent.rs`, `acp_session.rs`, `rmcp_gateway.rs`. An eighth test file changes without ever having asserted the label: `openai_compat.rs`, whose `Message { role, parts }` struct literal gains the new fields. |
 | `Role` is matched exhaustively in exactly one place outside `content.rs` | **Confirmed by grep**: `impl From<&Message> for ChatMessage`. The compiler finds every site. |
-| `skein-acp/src/lib.rs` needs no change | **Confirmed.** `project_updates` reads `Step` payloads and `Message::text()`, both unchanged — but only because of D2's `#[serde(default)]`. |
+| `heddle-acp/src/lib.rs` needs no change | **Confirmed.** `project_updates` reads `Step` payloads and `Message::text()`, both unchanged — but only because of D2's `#[serde(default)]`. |
 
 ## Decisions
 
 ### D1 — the trust boundary moves from a text label to `Role::Tool`
 
-`crates/skein-core/src/content.rs`'s `enum Role` gains a `Tool` variant; `Message` gains two
+`crates/heddle-core/src/content.rs`'s `enum Role` gains a `Tool` variant; `Message` gains two
 serde-defaulted fields, `tool_calls: Vec<ToolCall>` (assistant only) and
 `tool_call_id: Option<String>` (`Role::Tool` only), each with `skip_serializing_if`. `content.rs`
 imports `ToolCall` from `tool.rs`; the direction is acyclic (verified above).
 
 Constructors: `user_text` / `assistant_text` keep their signatures and default the new fields;
 `Message::tool_result(tool_call_id, body)` sets `Role::Tool`; `Message::with_tool_calls(self, calls)`
-is the combinator the loop uses on the echo. `Message::text()` is unchanged, so `skein-acp`'s
+is the combinator the loop uses on the echo. `Message::text()` is unchanged, so `heddle-acp`'s
 `project_updates` and the gateway's `content` field behave exactly as before.
 
 **How this satisfies P-VI, and why it is strictly stronger than the label.** `Role::Tool` is
@@ -71,7 +71,7 @@ slices 005 and 006 literally named. Three reasons:
 
 1. `Content`'s own doc comment scopes it to a **modality** axis (*"v0 carries Text; image/audio/doc/
    video land in v2 without changing the pipeline"*). The tool boundary is a **role/structure** axis.
-2. It would force `Message::text()` — used by `skein-acp` to build the ACP transcript and by the
+2. It would force `Message::text()` — used by `heddle-acp` to build the ACP transcript and by the
    gateway to build `content` — to decide whether a tool result is "text", changing the ACP
    transcript as a side effect of a wire-format slice.
 3. It mismatches the only wire format this workspace speaks: OpenAI puts `tool_call_id` on the
@@ -89,7 +89,7 @@ two-argument shape and sets `id: String::new()`; `ToolCall::with_id(id, tool, ar
 `ToolCall::new` has ~44 call sites across eight test files; a required third argument would rewrite
 all of them for no behavioural reason and bury this slice's real assertions in churn.
 
-`#[serde(default)]` is **load-bearing beyond ergonomics**: `skein-acp`'s `project_updates`
+`#[serde(default)]` is **load-bearing beyond ergonomics**: `heddle-acp`'s `project_updates`
 deserializes `ToolCall` out of old `StepKind::ToolCall` payloads inside a `let Ok(…) else
 { continue }`, so a non-defaulted field would make every pre-022 chain **silently** lose its
 tool-call updates. Same reasoning as `TurnResponse::tool_calls`'s existing `#[serde(default)]`.
@@ -100,7 +100,7 @@ tool-call updates. Same reasoning as `TurnResponse::tool_calls`'s existing `#[se
 mapping uses `c.id.unwrap_or_else(|| format!("call_{i}"))`. Ollama does supply ids (verified live),
 but the OpenAI-compat ecosystem does not guarantee it, and a `""` id reaching the echo would produce
 a self-inconsistent request. Normalizing at the port boundary means **every `ToolCall` that leaves
-`skein-gateway` has a non-empty id**, so the loop needs no fallback and FR-005 has a single guard.
+`heddle-gateway` has a non-empty id**, so the loop needs no fallback and FR-005 has a single guard.
 
 ### D4 — the loop echoes the *redacted* calls and replies per id
 
@@ -112,7 +112,7 @@ loop's own `Redactor`. In `mediate`, `tool_message(...)` becomes
 - `Ok((_, captured))` → `captured.content` — the redacted capture, exactly as the existing comment
   requires (*"the history is replayed into the next request's payload, so feeding back the real
   secret would put it straight back on the chain"*).
-- `Err(SkeinError::ToolDenied { tool, reason })` → `format!("the {tool} tool call was refused:
+- `Err(HeddleError::ToolDenied { tool, reason })` → `format!("the {tool} tool call was refused:
   {reason}")`, with `tool` through the redactor for the same reason `call_captured` redacts it.
 
 The free function `tool_message` is **deleted** — a replacement, not an addition beside it. The
@@ -161,8 +161,8 @@ cargo test --workspace
 plus, by hand on the Windows machine (CI does not pass `--include-ignored`):
 
 ```
-$env:SKEIN_LIVE_MODEL = "gemma4:latest"
-cargo test -p skein-connectors --test governed_fs_run -- --ignored --nocapture
+$env:HEDDLE_LIVE_MODEL = "gemma4:latest"
+cargo test -p heddle-connectors --test governed_fs_run -- --ignored --nocapture
 ```
 
 New tests, all behaviour-proving, no padding:

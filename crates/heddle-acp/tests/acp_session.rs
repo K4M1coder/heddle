@@ -1,0 +1,1806 @@
+//! One real ACP client and one real ACP agent, over a real byte-stream
+//! transport, driving the existing governed loop.
+
+use agent_client_protocol::schema::v1::{
+    ContentBlock, InitializeRequest, NewSessionRequest, PermissionOptionId, PermissionOptionKind,
+    PromptRequest, RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
+    SelectedPermissionOutcome, SessionId, SessionNotification, SessionUpdate, StopReason,
+    TextContent, ToolCallStatus,
+};
+use agent_client_protocol::schema::ProtocolVersion;
+use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo};
+use heddle_acp::{project_updates, CancellableModel, HeddleAgent, SessionParts};
+use heddle_core::{
+    ApprovalRecord, ApprovalVerdict, CapturedResult, HeddleError, Ledger, LoopBudget, Message,
+    ModelClient, ProgressProbe, Redactor, Result, Role, StepKind, TextSink, ToolAccess, ToolCall,
+    ToolGateway, ToolOutcome, ToolPolicy, ToolSpec, ToolTransport, TurnRequest, TurnResponse,
+};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
+
+/// Long enough that a loaded CI runner never trips it, short enough that a
+/// signal which never arrives fails as a failure rather than as a hang.
+const OBSERVE_TIMEOUT: Duration = Duration::from_secs(10);
+
+// ---------------------------------------------------------------------------
+// Doubles. Modelled on the private ones in heddle-core's and heddle-mcp's test
+// binaries; copied rather than moved, so those stay this slice's controls.
+// ---------------------------------------------------------------------------
+
+/// Replays a fixed script, counting calls. The last entry repeats.
+struct ScriptedModel {
+    script: Vec<TurnResponse>,
+    calls: Arc<AtomicUsize>,
+    /// Set for the cancellation test: blocks each turn until the test releases it.
+    gate: Option<std::sync::mpsc::Receiver<()>>,
+    started: Option<std::sync::mpsc::Sender<()>>,
+    /// Set for the streaming tests: pushed one at a time before the turn
+    /// returns, standing in for what a real provider produces mid-turn.
+    deltas: Vec<String>,
+    /// Set for the mid-stream cancellation test: after the first delta, the
+    /// turn waits once for the sink itself to stop wanting text. Waiting on the
+    /// real signal rather than on a channel is what lets the test cancel over a
+    /// real ACP connection without racing its delivery.
+    awaits_stop: bool,
+    /// Set for the finished-then-cancelled test: the session's flag, raised on
+    /// the way out of the turn that answers. Nothing else can place a
+    /// cancellation in that window — by the time a test observes the answer,
+    /// `run` has already returned and the race is over.
+    cancels_on_answering: Option<Arc<AtomicBool>>,
+    sink: Option<Box<dyn TextSink>>,
+}
+
+impl ScriptedModel {
+    /// The plain case: a script and a counter, with nothing gated and nothing
+    /// streamed. The two sites that need more spell only what they need, with
+    /// `..ScriptedModel::playing(…)`.
+    fn playing(script: Vec<TurnResponse>, calls: Arc<AtomicUsize>) -> ScriptedModel {
+        ScriptedModel {
+            script,
+            calls,
+            gate: None,
+            started: None,
+            deltas: Vec::new(),
+            awaits_stop: false,
+            cancels_on_answering: None,
+            sink: None,
+        }
+    }
+}
+
+impl ModelClient for ScriptedModel {
+    fn turn(&mut self, _req: &TurnRequest) -> Result<TurnResponse> {
+        let n = self.calls.fetch_add(1, Ordering::SeqCst);
+        if let Some(started) = &self.started {
+            let _ = started.send(());
+        }
+        if let Some(gate) = &self.gate {
+            let _ = gate.recv();
+        }
+        // Before the return, which is the whole property under test: a client
+        // that only learns the text from the value `turn` produces cannot have
+        // shown it any earlier than `turn` returning.
+        if let Some(sink) = &mut self.sink {
+            for (i, delta) in self.deltas.iter().enumerate() {
+                // Asked the way `heddle-gateway`'s reader asks it — before each
+                // piece — and answered as an error rather than as a short
+                // answer, for the same reason.
+                if !sink.wants_more() {
+                    return Err(HeddleError::Model("cancelled mid-stream".into()));
+                }
+                sink.on_text(delta);
+                if self.awaits_stop && i == 0 {
+                    // Bounded, so a cancellation that never arrives fails the
+                    // test's own assertion rather than hanging the suite.
+                    let deadline = std::time::Instant::now() + OBSERVE_TIMEOUT;
+                    while sink.wants_more() && std::time::Instant::now() < deadline {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                }
+            }
+        }
+        let response = self.script[n.min(self.script.len() - 1)].clone();
+        // After the answer exists and before `run` can return it: the exact
+        // interleaving a person hitting stop as the agent finishes produces.
+        if let Some(cancelled) = &self.cancels_on_answering {
+            cancelled.store(true, Ordering::SeqCst);
+        }
+        Ok(response)
+    }
+
+    fn set_text_sink(&mut self, sink: Box<dyn TextSink>) {
+        self.sink = Some(sink);
+    }
+}
+
+/// The collaborators the doubles above compose into, and the agent built from
+/// them. Named because the two fixtures below otherwise spell four type
+/// parameters in full to say one thing.
+type ScriptedParts = SessionParts<ScriptedModel, StaticProbe, CountingTransport>;
+type ScriptedAgent<F> = HeddleAgent<ScriptedModel, StaticProbe, CountingTransport, F>;
+
+struct StaticProbe(bool);
+
+impl ProgressProbe for StaticProbe {
+    fn observe(&mut self) -> bool {
+        self.0
+    }
+}
+
+/// The ground truth for "did the tool actually run".
+struct CountingTransport {
+    calls: Arc<AtomicUsize>,
+    content: String,
+}
+
+impl ToolTransport for CountingTransport {
+    fn call(&mut self, _call: &ToolCall) -> Result<ToolOutcome> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(ToolOutcome {
+            content: self.content.clone(),
+        })
+    }
+}
+
+fn asks_for(tool: &str) -> TurnResponse {
+    TurnResponse {
+        message: Message::assistant_text("working"),
+        tokens_used: 1,
+        final_output: false,
+        tool_calls: vec![ToolCall::with_id(
+            "call_1",
+            tool,
+            serde_json::json!({"path": "x"}),
+        )],
+    }
+}
+
+fn finishes(text: &str) -> TurnResponse {
+    TurnResponse {
+        message: Message::assistant_text(text),
+        tokens_used: 1,
+        final_output: true,
+        tool_calls: Vec::new(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Fixture: a real client and a real agent over an in-process duplex.
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Answer {
+    Allow,
+    Reject,
+}
+
+/// What the ACP client observed, for assertions the agent side cannot make.
+#[derive(Clone, Default)]
+struct Observed {
+    updates: Arc<Mutex<Vec<SessionUpdate>>>,
+    permission_requests: Arc<AtomicUsize>,
+}
+
+impl Observed {
+    /// Waits until the client has been sent `n` chunks, so a test that acts
+    /// *during* a turn acts on delivery rather than on a guess about timing.
+    async fn wait_for_chunks(&self, n: usize) {
+        let deadline = std::time::Instant::now() + OBSERVE_TIMEOUT;
+        while self.chunks().len() < n {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the client saw {} chunks within {OBSERVE_TIMEOUT:?}, expected {n}",
+                self.chunks().len()
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
+    fn chunks(&self) -> Vec<String> {
+        self.updates
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|u| match u {
+                SessionUpdate::AgentMessageChunk(chunk) => match &chunk.content {
+                    ContentBlock::Text(text) => Some(text.text.clone()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect()
+    }
+}
+
+/// Serves `agent` on one half of a duplex and drives `main` from a real ACP
+/// client on the other, answering every permission request with `answer`.
+async fn with_facade<C, P, T, F, R>(
+    agent: HeddleAgent<C, P, T, F>,
+    answer: Answer,
+    observed: Observed,
+    main: impl AsyncFnOnce(ConnectionTo<Agent>) -> agent_client_protocol::Result<R>,
+) -> R
+where
+    C: ModelClient + Send + 'static,
+    P: ProgressProbe + Send + 'static,
+    T: ToolTransport + Send + 'static,
+    F: FnMut() -> Result<SessionParts<C, P, T>> + Send + 'static,
+{
+    let (agent_side, client_side) = tokio::io::duplex(65536);
+    let (agent_read, agent_write) = tokio::io::split(agent_side);
+    let (client_read, client_write) = tokio::io::split(client_side);
+
+    let served = tokio::spawn(agent.serve(ByteStreams::new(
+        agent_write.compat_write(),
+        agent_read.compat(),
+    )));
+
+    let updates = observed.updates.clone();
+    let permissions = observed.permission_requests.clone();
+    let out = Client
+        .builder()
+        .name("test-client")
+        .on_receive_notification(
+            async move |notification: SessionNotification, _cx| {
+                updates.lock().unwrap().push(notification.update);
+                Ok(())
+            },
+            agent_client_protocol::on_receive_notification!(),
+        )
+        .on_receive_request(
+            async move |request: RequestPermissionRequest, responder, _cx| {
+                permissions.fetch_add(1, Ordering::SeqCst);
+                let wanted = match answer {
+                    Answer::Allow => PermissionOptionKind::AllowOnce,
+                    Answer::Reject => PermissionOptionKind::RejectOnce,
+                };
+                let option = request
+                    .options
+                    .iter()
+                    .find(|o| o.kind == wanted)
+                    .expect("the facade offers an allow-once and a reject-once option");
+                responder.respond(RequestPermissionResponse::new(
+                    RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
+                        option.option_id.clone(),
+                    )),
+                ))
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .connect_with(
+            ByteStreams::new(client_write.compat_write(), client_read.compat()),
+            main,
+        )
+        .await
+        .expect("the client ran to completion");
+
+    served.abort();
+    out
+}
+
+/// `initialize` then `session/new`, returning the session id the facade minted.
+async fn open_session(cx: &ConnectionTo<Agent>) -> agent_client_protocol::Result<SessionId> {
+    cx.send_request(InitializeRequest::new(ProtocolVersion::V1))
+        .block_task()
+        .await?;
+    let session = cx
+        .send_request(NewSessionRequest::new(PathBuf::from(".")))
+        .block_task()
+        .await?;
+    Ok(session.session_id)
+}
+
+fn prompt(session_id: &SessionId, text: &str) -> PromptRequest {
+    PromptRequest::new(
+        session_id.clone(),
+        vec![ContentBlock::Text(TextContent::new(text))],
+    )
+}
+
+/// One session's worth of collaborators, with the tool policy under test.
+fn factory(
+    script: Vec<TurnResponse>,
+    model_calls: Arc<AtomicUsize>,
+    tool_calls: Arc<AtomicUsize>,
+    allowed: Vec<(String, ToolAccess)>,
+    approved: Vec<String>,
+) -> impl FnMut() -> Result<ScriptedParts> + Send + 'static {
+    move || {
+        Ok(SessionParts {
+            client: ScriptedModel::playing(script.clone(), model_calls.clone()),
+            probe: StaticProbe(true),
+            transport: CountingTransport {
+                calls: tool_calls.clone(),
+                content: "file contents".into(),
+            },
+            policy: ToolPolicy::new(allowed.clone(), approved.clone()),
+            redactor: Redactor::new(Vec::new()),
+            budget: LoopBudget::new(8, 10_000, 8),
+            ledger: Ledger::new(),
+            cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        })
+    }
+}
+
+fn read_only(tool: &str) -> Vec<(String, ToolAccess)> {
+    vec![(tool.to_string(), ToolAccess::ReadOnly)]
+}
+
+// ---------------------------------------------------------------------------
+// The acceptance test: the slice's reason to exist.
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a1_one_acp_session_drives_one_governed_turn_end_to_end() {
+    let tool_calls = Arc::new(AtomicUsize::new(0));
+    let observed = Observed::default();
+    let agent = HeddleAgent::new(factory(
+        vec![asks_for("read_file"), finishes("all done")],
+        Arc::new(AtomicUsize::new(0)),
+        tool_calls.clone(),
+        read_only("read_file"),
+        Vec::new(),
+    ));
+
+    let inspect = agent.clone();
+    let (session_id, stop) = with_facade(
+        agent,
+        Answer::Allow,
+        observed.clone(),
+        async |cx: ConnectionTo<Agent>| {
+            let session_id = open_session(&cx).await?;
+            let response = cx
+                .send_request(prompt(&session_id, "go"))
+                .block_task()
+                .await?;
+            Ok((session_id, response.stop_reason))
+        },
+    )
+    .await;
+
+    assert_eq!(tool_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(stop, StopReason::EndTurn);
+    assert_eq!(observed.permission_requests.load(Ordering::SeqCst), 1);
+    assert!(observed.chunks().iter().any(|c| c == "all done"));
+
+    let session = inspect.session(&session_id).expect("session is registered");
+    let session = session.lock().unwrap();
+    let run_id = format!("{session_id}#1");
+    session
+        .ledger()
+        .verify_chain(&run_id)
+        .expect("the run's chain verifies");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a8_the_session_runs_in_the_ledger_the_operator_injected() {
+    let observed = Observed::default();
+    // Seeded before the session exists, so a chain that lacks this step is a
+    // chain the facade made for itself.
+    let mut seeded = Ledger::new();
+    seeded
+        .append("prior-run", StepKind::LlmRequest, "from an earlier process")
+        .unwrap();
+    let mut once = Some(seeded);
+    let agent = HeddleAgent::new(move || {
+        Ok(SessionParts {
+            client: ScriptedModel::playing(
+                vec![finishes("all done")],
+                Arc::new(AtomicUsize::new(0)),
+            ),
+            probe: StaticProbe(true),
+            transport: CountingTransport {
+                calls: Arc::new(AtomicUsize::new(0)),
+                content: "unused".into(),
+            },
+            policy: ToolPolicy::new(Vec::new(), Vec::new()),
+            redactor: Redactor::new(Vec::new()),
+            budget: LoopBudget::new(8, 10_000, 8),
+            ledger: once.take().expect("one session only"),
+            cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        })
+    });
+
+    let inspect = agent.clone();
+    let session_id = with_facade(
+        agent,
+        Answer::Allow,
+        observed.clone(),
+        async |cx: ConnectionTo<Agent>| {
+            let session_id = open_session(&cx).await?;
+            cx.send_request(prompt(&session_id, "go"))
+                .block_task()
+                .await?;
+            Ok(session_id)
+        },
+    )
+    .await;
+
+    let session = inspect.session(&session_id).expect("session is registered");
+    let session = session.lock().unwrap();
+    assert_eq!(
+        session.ledger().log("prior-run").len(),
+        1,
+        "the session adopted the injected chain rather than starting its own"
+    );
+    session
+        .ledger()
+        .verify_chain(&format!("{session_id}#1"))
+        .expect("the run landed in that same chain and verifies");
+}
+
+/// A session whose model streams `deltas` before finishing with their
+/// concatenation — which is what a real provider does, and what makes "the
+/// client saw the answer twice" a failure this fixture can express.
+fn streaming_agent(
+    deltas: Vec<&str>,
+    secrets: Vec<String>,
+    awaits_stop: bool,
+) -> ScriptedAgent<impl FnMut() -> Result<ScriptedParts> + Send + 'static> {
+    let deltas: Vec<String> = deltas.into_iter().map(String::from).collect();
+    HeddleAgent::new(move || {
+        Ok(SessionParts {
+            client: ScriptedModel {
+                deltas: deltas.clone(),
+                awaits_stop,
+                ..ScriptedModel::playing(
+                    vec![finishes(&deltas.concat())],
+                    Arc::new(AtomicUsize::new(0)),
+                )
+            },
+            probe: StaticProbe(true),
+            transport: CountingTransport {
+                calls: Arc::new(AtomicUsize::new(0)),
+                content: "unused".into(),
+            },
+            policy: ToolPolicy::new(Vec::new(), Vec::new()),
+            redactor: Redactor::new(secrets.clone()),
+            budget: LoopBudget::new(8, 10_000, 8),
+            ledger: Ledger::new(),
+            cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        })
+    })
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a11_a_streaming_model_reaches_the_client_one_delta_at_a_time() {
+    let deltas = vec!["The ", "answer ", "is ", "42."];
+    let observed = Observed::default();
+
+    let stop = with_facade(
+        streaming_agent(deltas.clone(), Vec::new(), false),
+        Answer::Allow,
+        observed.clone(),
+        async |cx: ConnectionTo<Agent>| {
+            let session_id = open_session(&cx).await?;
+            let response = cx
+                .send_request(prompt(&session_id, "go"))
+                .block_task()
+                .await?;
+            Ok(response.stop_reason)
+        },
+    )
+    .await;
+
+    assert_eq!(stop, StopReason::EndTurn);
+    // Equality, not `len() > 1`: a fifth entry holding the whole answer would
+    // be the projection re-sending text the client already has, which is what
+    // an editor renders as the answer appearing twice.
+    assert_eq!(
+        observed.chunks(),
+        deltas,
+        "one chunk per delta, in order, and nothing after them"
+    );
+}
+
+/// The one secret this session is configured to keep out of its chain.
+const SECRET: &str = "sk-SECRET-abc123";
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a12_a_secret_in_a_streamed_delta_reaches_the_client_redacted() {
+    // The live transcript is a second path out of the process, and it does not
+    // go through the chain — so the redaction it needs is its own, applied per
+    // delta as the delta is sent.
+    let observed = Observed::default();
+
+    with_facade(
+        streaming_agent(
+            vec!["your key ", SECRET, " is fine"],
+            vec![SECRET.into()],
+            false,
+        ),
+        Answer::Allow,
+        observed.clone(),
+        async |cx: ConnectionTo<Agent>| {
+            let session_id = open_session(&cx).await?;
+            cx.send_request(prompt(&session_id, "remind me"))
+                .block_task()
+                .await?;
+            Ok(())
+        },
+    )
+    .await;
+
+    // Per-delta equality, not a `contains` over the whole transcript: the
+    // scrubbed *concatenation* would satisfy a looser assertion while arriving
+    // in one lump after the turn, which is precisely the behaviour this slice
+    // replaces. Only the exact three entries prove the redaction happened on
+    // the streamed path.
+    assert_eq!(observed.chunks(), vec!["your key ", "***", " is fine"]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a10_a_secret_is_redacted_from_a_sessions_chain_and_from_the_client_transcript() {
+    let observed = Observed::default();
+    let agent = HeddleAgent::new(move || {
+        Ok(SessionParts {
+            client: ScriptedModel::playing(
+                vec![finishes(&format!("your key {SECRET} is fine"))],
+                Arc::new(AtomicUsize::new(0)),
+            ),
+            probe: StaticProbe(true),
+            transport: CountingTransport {
+                calls: Arc::new(AtomicUsize::new(0)),
+                content: "unused".into(),
+            },
+            policy: ToolPolicy::new(Vec::new(), Vec::new()),
+            redactor: Redactor::new(vec![SECRET.into()]),
+            budget: LoopBudget::new(8, 10_000, 8),
+            ledger: Ledger::new(),
+            cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        })
+    });
+
+    let inspect = agent.clone();
+    let session_id = with_facade(
+        agent,
+        Answer::Allow,
+        observed.clone(),
+        async |cx: ConnectionTo<Agent>| {
+            let session_id = open_session(&cx).await?;
+            cx.send_request(prompt(&session_id, &format!("my key is {SECRET}")))
+                .block_task()
+                .await?;
+            Ok(session_id)
+        },
+    )
+    .await;
+
+    let session = inspect.session(&session_id).expect("session is registered");
+    let session = session.lock().unwrap();
+    let payloads: Vec<String> = session
+        .ledger()
+        .log(&format!("{session_id}#1"))
+        .iter()
+        .map(|s| s.payload.clone())
+        .collect();
+    assert!(
+        payloads.iter().all(|p| !p.contains(SECRET)),
+        "the redactor the operator injected governs the whole chain: {payloads:?}"
+    );
+    assert!(payloads.iter().any(|p| p.contains("***")));
+
+    // The consequence of deriving the transcript from the chain, pinned as
+    // intended behaviour: an editor shows the operator *** where a configured
+    // secret was. `heddle chat` is different on purpose - it prints the raw
+    // final message, not the payload.
+    let chunks = observed.chunks();
+    assert_eq!(chunks, vec!["your key *** is fine".to_string()]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a9_a_factory_that_fails_makes_session_new_fail_and_leaves_the_connection_usable() {
+    // The first real caller opens a silo per session, which is a SQLite file
+    // open plus a full replay of the chain — fallible on permissions, a locked
+    // file, or a corrupt store. Panicking would poison the factory mutex and
+    // take every other session with it; falling back to an in-memory `Ledger`
+    // would run the session with nothing persisted. Neither is acceptable, so
+    // the factory returns a `Result` and the refusal is a JSON-RPC error the
+    // client can show its user.
+    let mut fail_next = true;
+    let agent = HeddleAgent::new(move || {
+        if std::mem::replace(&mut fail_next, false) {
+            return Err(heddle_core::HeddleError::Storage(
+                "the silo is locked".into(),
+            ));
+        }
+        Ok(SessionParts {
+            client: ScriptedModel::playing(
+                vec![finishes("all done")],
+                Arc::new(AtomicUsize::new(0)),
+            ),
+            probe: StaticProbe(true),
+            transport: CountingTransport {
+                calls: Arc::new(AtomicUsize::new(0)),
+                content: "unused".into(),
+            },
+            policy: ToolPolicy::new(Vec::new(), Vec::new()),
+            redactor: Redactor::new(Vec::new()),
+            budget: LoopBudget::new(8, 10_000, 8),
+            ledger: Ledger::new(),
+            cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        })
+    });
+
+    let (refusal, second) = with_facade(
+        agent,
+        Answer::Allow,
+        Observed::default(),
+        async |cx: ConnectionTo<Agent>| {
+            cx.send_request(InitializeRequest::new(ProtocolVersion::V1))
+                .block_task()
+                .await?;
+            let refused = cx
+                .send_request(NewSessionRequest::new(PathBuf::from(".")))
+                .block_task()
+                .await;
+            // On the same connection, after the refusal: a dead connection
+            // would fail here too, and the point is that it does not.
+            let second = cx
+                .send_request(NewSessionRequest::new(PathBuf::from(".")))
+                .block_task()
+                .await?;
+            Ok((refused.err(), second.session_id))
+        },
+    )
+    .await;
+
+    let refusal = refusal.expect("session/new is refused when the factory fails");
+    assert!(
+        format!("{refusal:?}").contains("the silo is locked"),
+        "the client is told what failed, got: {refusal:?}"
+    );
+    // A refused open still consumes its id: ids are opaque and are never
+    // reused, so uniqueness does not depend on the factory succeeding.
+    assert_eq!(second, SessionId::new("heddle-2"));
+}
+
+// ---------------------------------------------------------------------------
+// Permission is gate 2, never gate 1 (Constitution VI).
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a2_unlisted_tool_never_produces_a_permission_request() {
+    let tool_calls = Arc::new(AtomicUsize::new(0));
+    let observed = Observed::default();
+    let agent = HeddleAgent::new(factory(
+        vec![asks_for("rm_rf"), finishes("all done")],
+        Arc::new(AtomicUsize::new(0)),
+        tool_calls.clone(),
+        read_only("read_file"),
+        Vec::new(),
+    ));
+
+    let inspect = agent.clone();
+    let (session_id, stop) = with_facade(
+        agent,
+        Answer::Allow,
+        observed.clone(),
+        async |cx: ConnectionTo<Agent>| {
+            let session_id = open_session(&cx).await?;
+            let response = cx
+                .send_request(prompt(&session_id, "go"))
+                .block_task()
+                .await?;
+            Ok((session_id, response.stop_reason))
+        },
+    )
+    .await;
+
+    assert_eq!(observed.permission_requests.load(Ordering::SeqCst), 0);
+    assert_eq!(tool_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(stop, StopReason::EndTurn);
+
+    let session = inspect.session(&session_id).expect("session is registered");
+    let session = session.lock().unwrap();
+    let kinds: Vec<StepKind> = session
+        .ledger()
+        .log(&format!("{session_id}#1"))
+        .iter()
+        .map(|s| s.kind.clone())
+        .collect();
+    assert!(kinds.contains(&StepKind::ToolCall));
+    assert!(kinds.contains(&StepKind::Approval));
+    assert!(!kinds.contains(&StepKind::ToolResult));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a3_client_decline_stops_the_tool_and_the_run_survives() {
+    let tool_calls = Arc::new(AtomicUsize::new(0));
+    let observed = Observed::default();
+    let agent = HeddleAgent::new(factory(
+        vec![asks_for("read_file"), finishes("all done")],
+        Arc::new(AtomicUsize::new(0)),
+        tool_calls.clone(),
+        read_only("read_file"),
+        Vec::new(),
+    ));
+
+    let inspect = agent.clone();
+    let (session_id, stop) = with_facade(
+        agent,
+        Answer::Reject,
+        observed.clone(),
+        async |cx: ConnectionTo<Agent>| {
+            let session_id = open_session(&cx).await?;
+            let response = cx
+                .send_request(prompt(&session_id, "go"))
+                .block_task()
+                .await?;
+            Ok((session_id, response.stop_reason))
+        },
+    )
+    .await;
+
+    assert_eq!(observed.permission_requests.load(Ordering::SeqCst), 1);
+    assert_eq!(tool_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(stop, StopReason::EndTurn);
+
+    let session = inspect.session(&session_id).expect("session is registered");
+    let session = session.lock().unwrap();
+    let log = session.ledger().log(&format!("{session_id}#1"));
+    let requests: Vec<&String> = log
+        .iter()
+        .filter(|s| s.kind == StepKind::LlmRequest)
+        .map(|s| &s.payload)
+        .collect();
+    let replayed: TurnRequest =
+        serde_json::from_str(requests.last().expect("a second request was made"))
+            .expect("the captured request parses");
+    let told = replayed.messages.last().expect("a fed-back refusal");
+    assert_eq!(told.role, Role::Tool);
+    assert_eq!(told.tool_call_id.as_deref(), Some("call_1"));
+    assert_eq!(
+        told.text(),
+        "the read_file tool call was refused: acp client declined permission (heddle.reject-once)",
+        "the model is told plainly who refused and why"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a4_mutating_tool_without_approval_never_reaches_the_client() {
+    let tool_calls = Arc::new(AtomicUsize::new(0));
+    let observed = Observed::default();
+    let agent = HeddleAgent::new(factory(
+        vec![asks_for("fs_write"), finishes("all done")],
+        Arc::new(AtomicUsize::new(0)),
+        tool_calls.clone(),
+        vec![("fs_write".to_string(), ToolAccess::Mutating)],
+        Vec::new(),
+    ));
+
+    let (_, stop) = with_facade(
+        agent,
+        Answer::Allow,
+        observed.clone(),
+        async |cx: ConnectionTo<Agent>| {
+            let session_id = open_session(&cx).await?;
+            let response = cx
+                .send_request(prompt(&session_id, "go"))
+                .block_task()
+                .await?;
+            Ok((session_id, response.stop_reason))
+        },
+    )
+    .await;
+
+    assert_eq!(observed.permission_requests.load(Ordering::SeqCst), 0);
+    assert_eq!(tool_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(stop, StopReason::EndTurn);
+}
+
+// ---------------------------------------------------------------------------
+// Traceability (Constitution V).
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a5_every_agent_message_chunk_corresponds_to_a_ledger_step() {
+    let observed = Observed::default();
+    let agent = HeddleAgent::new(factory(
+        vec![asks_for("read_file"), finishes("all done")],
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(AtomicUsize::new(0)),
+        read_only("read_file"),
+        Vec::new(),
+    ));
+
+    let inspect = agent.clone();
+    let session_id = with_facade(
+        agent,
+        Answer::Allow,
+        observed.clone(),
+        async |cx: ConnectionTo<Agent>| {
+            let session_id = open_session(&cx).await?;
+            cx.send_request(prompt(&session_id, "go"))
+                .block_task()
+                .await?;
+            Ok(session_id)
+        },
+    )
+    .await;
+
+    let session = inspect.session(&session_id).expect("session is registered");
+    let session = session.lock().unwrap();
+    let responses: Vec<String> = session
+        .ledger()
+        .log(&format!("{session_id}#1"))
+        .iter()
+        .filter(|s| s.kind == StepKind::LlmResponse)
+        .map(|s| {
+            serde_json::from_str::<TurnResponse>(&s.payload)
+                .expect("an LlmResponse payload is a TurnResponse")
+                .message
+                .text()
+        })
+        .collect();
+
+    let chunks = observed.chunks();
+    assert_eq!(chunks.len(), responses.len());
+    for chunk in &chunks {
+        assert!(
+            responses.contains(chunk),
+            "chunk {chunk:?} has no LlmResponse step behind it"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a6_two_prompts_in_one_session_produce_two_verifiable_runs() {
+    let observed = Observed::default();
+    let agent = HeddleAgent::new(factory(
+        vec![finishes("all done")],
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(AtomicUsize::new(0)),
+        read_only("read_file"),
+        Vec::new(),
+    ));
+
+    let inspect = agent.clone();
+    let session_id = with_facade(
+        agent,
+        Answer::Allow,
+        observed.clone(),
+        async |cx: ConnectionTo<Agent>| {
+            let session_id = open_session(&cx).await?;
+            cx.send_request(prompt(&session_id, "first"))
+                .block_task()
+                .await?;
+            cx.send_request(prompt(&session_id, "second"))
+                .block_task()
+                .await?;
+            Ok(session_id)
+        },
+    )
+    .await;
+
+    let session = inspect.session(&session_id).expect("session is registered");
+    let session = session.lock().unwrap();
+    for n in 1..=2 {
+        let run_id = format!("{session_id}#{n}");
+        session
+            .ledger()
+            .verify_chain(&run_id)
+            .unwrap_or_else(|e| panic!("run {run_id} verifies: {e}"));
+        let exits = session
+            .ledger()
+            .log(&run_id)
+            .iter()
+            .filter(|s| s.kind == StepKind::Exit)
+            .count();
+        assert_eq!(exits, 1, "run {run_id} has exactly one Exit step");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Cancellation.
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a7_session_cancel_ends_the_run_and_reports_cancelled() {
+    let model_calls = Arc::new(AtomicUsize::new(0));
+    let observed = Observed::default();
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (gate_tx, gate_rx) = std::sync::mpsc::channel();
+
+    let script = vec![
+        asks_for("read_file"),
+        asks_for("read_file"),
+        asks_for("read_file"),
+        finishes("never reached"),
+    ];
+    let calls = model_calls.clone();
+    let mut once = Some((started_tx, gate_rx));
+    let agent = HeddleAgent::new(move || {
+        let (started, gate) = once.take().expect("one session only");
+        Ok(SessionParts {
+            client: ScriptedModel {
+                gate: Some(gate),
+                started: Some(started),
+                ..ScriptedModel::playing(script.clone(), calls.clone())
+            },
+            probe: StaticProbe(true),
+            transport: CountingTransport {
+                calls: Arc::new(AtomicUsize::new(0)),
+                content: "file contents".into(),
+            },
+            policy: ToolPolicy::new(read_only("read_file"), Vec::new()),
+            redactor: Redactor::new(Vec::new()),
+            budget: LoopBudget::new(8, 10_000, 8),
+            ledger: Ledger::new(),
+            cancelled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        })
+    });
+
+    let inspect = agent.clone();
+    let started_rx = Arc::new(Mutex::new(started_rx));
+    let (session_id, stop) = with_facade(
+        agent,
+        Answer::Allow,
+        observed.clone(),
+        async |cx: ConnectionTo<Agent>| {
+            let session_id = open_session(&cx).await?;
+            let sent = cx.send_request(prompt(&session_id, "go"));
+
+            // The first turn is in flight and blocked: cancel now, then let it finish.
+            let waiter = started_rx.clone();
+            tokio::task::spawn_blocking(move || waiter.lock().unwrap().recv())
+                .await
+                .expect("join")
+                .expect("the first turn started");
+            cx.send_notification(agent_client_protocol::schema::v1::CancelNotification::new(
+                session_id.clone(),
+            ))?;
+            for _ in 0..4 {
+                let _ = gate_tx.send(());
+            }
+
+            let response = sent.block_task().await?;
+            Ok((session_id, response.stop_reason))
+        },
+    )
+    .await;
+
+    assert_eq!(stop, StopReason::Cancelled);
+    assert!(
+        model_calls.load(Ordering::SeqCst) < 4,
+        "the run stopped before the script ran out"
+    );
+
+    let session = inspect.session(&session_id).expect("session is registered");
+    let session = session.lock().unwrap();
+    session
+        .ledger()
+        .verify_chain(&format!("{session_id}#1"))
+        .expect("a cancelled run still leaves a verifiable chain");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a13_a_cancel_arriving_mid_stream_ends_the_turn_and_reports_cancelled() {
+    let deltas = vec!["The ", "answer ", "is ", "42."];
+    let observed = Observed::default();
+    let agent = streaming_agent(deltas, Vec::new(), true);
+    let inspect = agent.clone();
+    let watching = observed.clone();
+
+    let (session_id, stop) = with_facade(
+        agent,
+        Answer::Allow,
+        observed.clone(),
+        async |cx: ConnectionTo<Agent>| {
+            let session_id = open_session(&cx).await?;
+            let sent = cx.send_request(prompt(&session_id, "go"));
+            // Cancelled only once the client has actually been shown text. Any
+            // earlier and this would be the pre-turn refusal `x1` already
+            // covers, rather than the cancellation of a turn in flight.
+            watching.wait_for_chunks(1).await;
+            cx.send_notification(agent_client_protocol::schema::v1::CancelNotification::new(
+                session_id.clone(),
+            ))?;
+            let response = sent.block_task().await?;
+            Ok((session_id, response.stop_reason))
+        },
+    )
+    .await;
+
+    assert_eq!(stop, StopReason::Cancelled);
+    // Equality, not a length bound: it says both that no further delta was
+    // pushed *and* that the chain-derived projection did not repeat the one the
+    // client already has.
+    assert_eq!(
+        observed.chunks(),
+        vec!["The "],
+        "the delta sent before the cancellation, and nothing after it"
+    );
+
+    let session = inspect.session(&session_id).expect("session is registered");
+    let session = session.lock().unwrap();
+    session
+        .ledger()
+        .verify_chain(&format!("{session_id}#1"))
+        .expect("a run cancelled mid-stream still leaves a verifiable chain");
+}
+
+// ---------------------------------------------------------------------------
+// Unit level.
+// ---------------------------------------------------------------------------
+
+/// The refusal a session cancellation produces. Deliberately **not** the
+/// sentence ACP's own `Cancelled` outcome produces: a chain reader has to be
+/// able to tell "the client withdrew the question" from "the session ended
+/// while the question was open".
+const SESSION_CANCELLED: &str = "session cancelled while awaiting acp permission";
+
+/// How long a request already on the wire is given to reach the client before
+/// "the client was never asked" is believed. Delivery over an in-process
+/// duplex is a matter of microseconds, so this is slack, not a measurement.
+const SETTLE: Duration = Duration::from_millis(250);
+
+/// `permission.rs` polls the answer channel every 50 ms. Twenty slices of
+/// slack for a loaded runner, and still two orders of magnitude below the
+/// unbounded wait this slice removed.
+const CANCEL_LATENCY: Duration = Duration::from_secs(1);
+
+/// What the scripted client does with the one permission request it receives.
+#[derive(Clone, Copy)]
+enum ClientScript {
+    Selected(PermissionOptionKind),
+    /// ACP's own outcome: the client withdraws the question itself.
+    Cancelled,
+    /// Answers `allow-once`, but only after many poll slices have passed — a
+    /// person who reads the question before agreeing to it.
+    AllowsAfter(Duration),
+    /// Receives the request and never answers it — which is what a person
+    /// staring at an open dialog looks like from the agent's side.
+    NeverAnswers,
+    /// Never answers, and closes the connection once the request has arrived.
+    ClosesTheConnection,
+    /// Never answers, and cancels the session the moment the request arrives,
+    /// so the cancellation is triggered by delivery rather than by a guess
+    /// about timing.
+    CancelsTheSession,
+    /// Cancels the session and *then* answers `allow-once`, with nothing
+    /// awaited in between, so the flag is set before the answer can reach the
+    /// agent and both land inside one poll slice.
+    CancelsTheSessionThenAllows,
+}
+
+/// One direct drive of `AcpPermissionTransport::call` against a real ACP
+/// client, and the two counters the agent side cannot observe for itself.
+struct Asked {
+    script: ClientScript,
+    /// The flag the transport is built with — this session's, in production.
+    /// A test sets it before [`Asked::call`] to model a session already
+    /// cancelled when the tool call reached the gate; `CancelsTheSession` has
+    /// the client set it to model one cancelled while the request is open.
+    cancelled: Arc<AtomicBool>,
+    tool_calls: Arc<AtomicUsize>,
+    requests: Arc<AtomicUsize>,
+}
+
+impl Asked {
+    fn new(script: ClientScript) -> Asked {
+        Asked {
+            script,
+            cancelled: Arc::new(AtomicBool::new(false)),
+            tool_calls: Arc::new(AtomicUsize::new(0)),
+            requests: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    /// Ground truth for "did the tool actually run".
+    fn tool_calls(&self) -> usize {
+        self.tool_calls.load(Ordering::SeqCst)
+    }
+
+    /// Ground truth for "was the client asked at all".
+    fn requests(&self) -> usize {
+        self.requests.load(Ordering::SeqCst)
+    }
+
+    /// Drives one `AcpPermissionTransport::call` to completion.
+    ///
+    /// Every wait here is bounded. A permission request is the one wait in the
+    /// product with no deadline of its own, so a client that never answers one
+    /// must fail this harness as a failure rather than hang the test binary.
+    async fn call(&self) -> Result<ToolOutcome> {
+        let (agent_side, client_side) = tokio::io::duplex(65536);
+        let (agent_read, agent_write) = tokio::io::split(agent_side);
+        let (client_read, client_write) = tokio::io::split(client_side);
+
+        let script = self.script;
+        let asked = self.requests.clone();
+        let arrived = self.requests.clone();
+        let cancels = self.cancelled.clone();
+        let client = tokio::spawn(async move {
+            Client
+                .builder()
+                .on_receive_request(
+                    async move |request: RequestPermissionRequest, responder, _cx| {
+                        asked.fetch_add(1, Ordering::SeqCst);
+                        let answer = match script {
+                            ClientScript::Selected(kind) => {
+                                Some(RequestPermissionOutcome::Selected(
+                                    SelectedPermissionOutcome::new(offered(&request, kind)),
+                                ))
+                            }
+                            ClientScript::Cancelled => Some(RequestPermissionOutcome::Cancelled),
+                            ClientScript::AllowsAfter(delay) => {
+                                tokio::time::sleep(delay).await;
+                                Some(RequestPermissionOutcome::Selected(
+                                    SelectedPermissionOutcome::new(offered(
+                                        &request,
+                                        PermissionOptionKind::AllowOnce,
+                                    )),
+                                ))
+                            }
+                            ClientScript::CancelsTheSession => {
+                                cancels.store(true, Ordering::SeqCst);
+                                None
+                            }
+                            ClientScript::CancelsTheSessionThenAllows => {
+                                cancels.store(true, Ordering::SeqCst);
+                                Some(RequestPermissionOutcome::Selected(
+                                    SelectedPermissionOutcome::new(offered(
+                                        &request,
+                                        PermissionOptionKind::AllowOnce,
+                                    )),
+                                ))
+                            }
+                            ClientScript::NeverAnswers | ClientScript::ClosesTheConnection => None,
+                        };
+                        match answer {
+                            Some(outcome) => {
+                                responder.respond(RequestPermissionResponse::new(outcome))
+                            }
+                            // Dropped unanswered: the question is in front of a
+                            // person and stays there.
+                            None => Ok(()),
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .connect_with(
+                    ByteStreams::new(client_write.compat_write(), client_read.compat()),
+                    async move |_cx| {
+                        // The client's connection closes when this returns.
+                        // `ClosesTheConnection` is the one script that wants
+                        // that, and only once the question has arrived; every
+                        // other script must outlive the agent's call and is
+                        // ended by the abort below.
+                        if matches!(script, ClientScript::ClosesTheConnection) {
+                            while arrived.load(Ordering::SeqCst) == 0 {
+                                tokio::time::sleep(Duration::from_millis(5)).await;
+                            }
+                            return Ok(());
+                        }
+                        std::future::pending().await
+                    },
+                )
+                .await
+        });
+
+        let tool_calls = self.tool_calls.clone();
+        let cancelled = self.cancelled.clone();
+        let agent_side = Agent.builder().connect_with(
+            ByteStreams::new(agent_write.compat_write(), agent_read.compat()),
+            async |cx: ConnectionTo<Client>| {
+                let (tx, rx) = std::sync::mpsc::channel();
+                std::thread::spawn(move || {
+                    let mut transport = heddle_acp::AcpPermissionTransport::new(
+                        CountingTransport {
+                            calls: tool_calls,
+                            content: "file contents".into(),
+                        },
+                        cx,
+                        SessionId::new("unit"),
+                        cancelled,
+                    );
+                    let _ =
+                        tx.send(transport.call(&ToolCall::new("read_file", serde_json::json!({}))));
+                });
+                Ok(
+                    tokio::task::spawn_blocking(move || rx.recv_timeout(OBSERVE_TIMEOUT))
+                        .await
+                        .expect("join"),
+                )
+            },
+        );
+
+        // Two bounds, and the outer one is the looser of the two so that a
+        // `call` which never returns is reported by the inner bound, which
+        // knows what was being waited for. The outer catches the connection
+        // future itself wedging.
+        let called = tokio::time::timeout(2 * OBSERVE_TIMEOUT, agent_side)
+            .await
+            .expect("the agent side finished")
+            .expect("the agent side ran");
+
+        // A request the agent put on the wire but the client has not yet read
+        // is still a question a person is about to see, and `call` can return
+        // before the client task is next polled. Giving delivery a bounded
+        // chance to happen is what makes `requests() == 0` an assertion about
+        // what was *sent* rather than a race the assertion happens to win.
+        let settle = std::time::Instant::now() + SETTLE;
+        while self.requests() == 0 && std::time::Instant::now() < settle {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+
+        client.abort();
+        called.expect("`AcpPermissionTransport::call` returned")
+    }
+}
+
+/// The option id the facade offered for `kind`, which is the whole of what a
+/// client is allowed to answer with.
+fn offered(request: &RequestPermissionRequest, kind: PermissionOptionKind) -> PermissionOptionId {
+    request
+        .options
+        .iter()
+        .find(|o| o.kind == kind)
+        .expect("the option kind is offered")
+        .option_id
+        .clone()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn p1_an_allow_answer_reaches_the_inner_transport() {
+    let asked = Asked::new(ClientScript::Selected(PermissionOptionKind::AllowOnce));
+    let outcome = asked.call().await.expect("the call was allowed");
+    assert_eq!(outcome.content, "file contents");
+    assert_eq!(asked.tool_calls(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn p2_a_reject_answer_denies_without_reaching_the_transport() {
+    let asked = Asked::new(ClientScript::Selected(PermissionOptionKind::RejectOnce));
+    let error = asked.call().await.expect_err("the call was declined");
+    assert!(
+        matches!(&error, HeddleError::ToolDenied { tool, .. } if tool == "read_file"),
+        "expected ToolDenied, got {error:?}"
+    );
+    assert_eq!(asked.tool_calls(), 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn p3_a_cancelled_answer_denies_without_reaching_the_transport() {
+    let asked = Asked::new(ClientScript::Cancelled);
+    let error = asked.call().await.expect_err("the request was cancelled");
+    // The client's own outcome, and it keeps its own sentence: this is the
+    // string `SESSION_CANCELLED` must not collide with.
+    assert!(
+        matches!(&error, HeddleError::ToolDenied { tool, reason }
+            if tool == "read_file" && reason == "acp permission request cancelled"),
+        "expected the client-cancelled refusal, got {error:?}"
+    );
+    assert_eq!(asked.tool_calls(), 0);
+}
+
+/// The slice's reason to exist: the client is asked, never answers, and the
+/// session is cancelled under the open question.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn p5_a_session_cancelled_while_the_request_is_outstanding_denies_the_call() {
+    let asked = Asked::new(ClientScript::CancelsTheSession);
+    let started = std::time::Instant::now();
+    let error = asked.call().await.expect_err("the session was cancelled");
+    let waited = started.elapsed();
+
+    assert_eq!(asked.requests(), 1, "the client was asked");
+    assert_eq!(asked.tool_calls(), 0, "the tool did not run");
+    assert!(
+        matches!(&error, HeddleError::ToolDenied { tool, reason }
+            if tool == "read_file" && reason == SESSION_CANCELLED),
+        "expected the session-cancelled refusal, got {error:?}"
+    );
+    // On the flag, not on a deadline: nothing else could have ended this wait,
+    // because the client never answered and never closed the connection.
+    assert!(
+        waited < CANCEL_LATENCY,
+        "the call was refused in {waited:?}, expected under {CANCEL_LATENCY:?}"
+    );
+}
+
+/// The priority between the two, which `p5` cannot pin because its client
+/// never answers: a cancellation that arrives first must win over an `Allow`
+/// that arrives second, or the tool runs after its session was cancelled and
+/// the grant is one nobody can withdraw.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn p9_a_cancellation_beats_an_allow_answer_that_lands_in_the_same_slice() {
+    let asked = Asked::new(ClientScript::CancelsTheSessionThenAllows);
+    let error = asked
+        .call()
+        .await
+        .expect_err("the session was cancelled first");
+
+    assert_eq!(asked.requests(), 1, "the client was asked");
+    assert_eq!(
+        asked.tool_calls(),
+        0,
+        "the tool ran after its session was cancelled"
+    );
+    assert!(
+        matches!(&error, HeddleError::ToolDenied { tool, reason }
+            if tool == "read_file" && reason == SESSION_CANCELLED),
+        "expected the session-cancelled refusal, got {error:?}"
+    );
+}
+
+/// D2's `Disconnected`-collapse control. The wait must survive many poll
+/// slices with nothing to report: a wildcard arm returning the
+/// closed-connection refusal — which is what the untimed `recv()` this loop
+/// replaced turns into if it is converted mechanically — would refuse every
+/// permission request in the product 50 ms after it was asked, and no other
+/// test in the suite waits long enough to notice.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn p7_an_answer_given_after_many_poll_slices_is_still_honoured() {
+    let asked = Asked::new(ClientScript::AllowsAfter(Duration::from_millis(600)));
+    let outcome = asked.call().await.expect("the late answer was honoured");
+    assert_eq!(outcome.content, "file contents");
+    assert_eq!(asked.tool_calls(), 1);
+}
+
+/// A connection that dies under the open question must end the wait, and be
+/// reported as neither of the two cancellations.
+///
+/// **Measured, not assumed:** ACP does not drop a pending
+/// `on_receiving_result` callback when the transport closes — it *invokes* it
+/// with an `Err`. So this arrives down the answer channel as an answer, and the
+/// refusal names the transport. `RecvTimeoutError::Disconnected` is therefore
+/// not the path a closed connection takes; it is reachable only if a callback
+/// is dropped uninvoked, which nothing in this suite can provoke. The arm
+/// still cannot be omitted — `recv_timeout` has two error variants — and it
+/// keeps the message it had before this slice.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn p8_a_connection_that_closes_under_the_question_ends_the_wait() {
+    let asked = Asked::new(ClientScript::ClosesTheConnection);
+    let error = asked.call().await.expect_err("the connection closed");
+    assert_eq!(asked.requests(), 1, "the client was asked");
+    assert_eq!(asked.tool_calls(), 0, "the tool did not run");
+    let HeddleError::Tool(message) = &error else {
+        panic!("expected a transport failure, got {error:?}");
+    };
+    assert!(
+        message.starts_with("acp permission request failed:"),
+        "expected the transport's own words, got {message:?}"
+    );
+    // Neither cancellation: the session was never cancelled, and the client
+    // never withdrew the question.
+    assert!(
+        !message.contains("cancelled"),
+        "a dead connection was reported as a cancellation: {message:?}"
+    );
+}
+
+/// The other half of D4, and the one the in-loop check cannot cover: a session
+/// already cancelled must not put a question in front of a person at all.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn p6_a_session_cancelled_before_the_call_never_asks_the_client() {
+    let asked = Asked::new(ClientScript::NeverAnswers);
+    asked.cancelled.store(true, Ordering::SeqCst);
+
+    let error = asked.call().await.expect_err("the session was cancelled");
+
+    assert_eq!(
+        asked.requests(),
+        0,
+        "a cancelled session raised a permission request anyway"
+    );
+    assert_eq!(asked.tool_calls(), 0, "the tool did not run");
+    assert!(
+        matches!(&error, HeddleError::ToolDenied { tool, reason }
+            if tool == "read_file" && reason == SESSION_CANCELLED),
+        "expected the session-cancelled refusal, got {error:?}"
+    );
+}
+
+#[test]
+fn x1_cancellable_model_stops_delegating_once_the_flag_is_set() {
+    let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut model = CancellableModel::new(
+        ScriptedModel::playing(vec![finishes("all done")], calls.clone()),
+        cancelled.clone(),
+    );
+    let req = TurnRequest {
+        run_id: "r#1".into(),
+        messages: vec![Message::user_text("go")],
+        tools: Vec::new(),
+    };
+
+    assert_eq!(
+        model.turn(&req).expect("delegates").message.text(),
+        "all done"
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+    cancelled.store(true, Ordering::SeqCst);
+    let error = model.turn(&req).expect_err("refuses once cancelled");
+    assert!(matches!(error, heddle_core::HeddleError::Model(_)));
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "the inner client is not reached"
+    );
+}
+
+#[test]
+fn u1_project_updates_maps_each_ledger_step_kind() {
+    let mut ledger = Ledger::new();
+    let run_id = "s#1";
+    ledger
+        .append(run_id, StepKind::IterationBoundary, "1")
+        .unwrap();
+    ledger
+        .append(
+            run_id,
+            StepKind::LlmResponse,
+            serde_json::to_string(&finishes("hello")).unwrap(),
+        )
+        .unwrap();
+    ledger
+        .append(
+            run_id,
+            StepKind::ToolCall,
+            serde_json::to_string(&ToolCall::new("read_file", serde_json::json!({}))).unwrap(),
+        )
+        .unwrap();
+    ledger
+        .append(
+            run_id,
+            StepKind::Approval,
+            serde_json::json!({"tool": "read_file", "decision": "allowed", "reason": "allowed, read-only"})
+                .to_string(),
+        )
+        .unwrap();
+    ledger
+        .append(
+            run_id,
+            StepKind::ToolResult,
+            serde_json::to_string(&CapturedResult {
+                tool: "read_file".into(),
+                content: "token ***".into(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+    ledger
+        .append(run_id, StepKind::Exit, "FinalOutput")
+        .unwrap();
+
+    let updates = project_updates(&ledger, run_id);
+    assert_eq!(updates.len(), 4, "boundary and exit steps emit nothing");
+
+    match &updates[0] {
+        SessionUpdate::AgentMessageChunk(chunk) => match &chunk.content {
+            ContentBlock::Text(text) => assert_eq!(text.text, "hello"),
+            other => panic!("expected text, got {other:?}"),
+        },
+        other => panic!("expected AgentMessageChunk, got {other:?}"),
+    }
+    let tool_call_id = match &updates[1] {
+        SessionUpdate::ToolCall(call) => {
+            assert_eq!(call.title, "read_file");
+            call.tool_call_id.clone()
+        }
+        other => panic!("expected ToolCall, got {other:?}"),
+    };
+    match &updates[2] {
+        SessionUpdate::ToolCallUpdate(update) => {
+            assert_eq!(update.tool_call_id, tool_call_id);
+            assert_eq!(update.fields.status, Some(ToolCallStatus::Pending));
+        }
+        other => panic!("expected ToolCallUpdate, got {other:?}"),
+    }
+    match &updates[3] {
+        SessionUpdate::ToolCallUpdate(update) => {
+            assert_eq!(update.tool_call_id, tool_call_id);
+            assert_eq!(update.fields.status, Some(ToolCallStatus::Completed));
+            let content = update.fields.content.as_ref().expect("captured content");
+            let rendered = serde_json::to_string(content).unwrap();
+            assert!(
+                rendered.contains("token ***"),
+                "the redacted capture stays redacted: {rendered}"
+            );
+        }
+        other => panic!("expected ToolCallUpdate, got {other:?}"),
+    }
+}
+
+/// The one Ledger payload two crates both read: the gateway writes the verdict
+/// and `project_updates` renders it. Driven from a real `Decision::Deny`
+/// through a real gateway rather than from a JSON literal, because a literal
+/// on this side would only prove that this test and the reader agree.
+#[test]
+fn u2_a_real_denial_projects_as_failed_through_the_typed_verdict() {
+    let mut gateway = ToolGateway::new(
+        CountingTransport {
+            calls: Arc::new(AtomicUsize::new(0)),
+            content: "never reached".into(),
+        },
+        ToolPolicy::new(read_only("read_file"), Vec::new()),
+        Redactor::new(Vec::new()),
+    );
+    let mut ledger = Ledger::new();
+    let run_id = "s#1";
+    let call = ToolCall::new("write_file", serde_json::json!({}));
+    ledger
+        .append(
+            run_id,
+            StepKind::ToolCall,
+            serde_json::to_string(&call).unwrap(),
+        )
+        .unwrap();
+
+    let error = gateway
+        .call_captured(run_id, &call, &mut ledger)
+        .expect_err("an unlisted tool is denied");
+    assert!(matches!(error, HeddleError::ToolDenied { .. }));
+
+    let approval = ledger
+        .log(run_id)
+        .into_iter()
+        .find(|s| s.kind == StepKind::Approval)
+        .expect("the refusal is on the chain");
+    let record: ApprovalRecord =
+        serde_json::from_str(&approval.payload).expect("the writer's payload is the reader's type");
+    assert_eq!(record.decision, ApprovalVerdict::Denied);
+
+    let updates = project_updates(&ledger, run_id);
+    match updates.last().expect("the approval is projected") {
+        SessionUpdate::ToolCallUpdate(update) => {
+            assert_eq!(update.fields.status, Some(ToolCallStatus::Failed));
+        }
+        other => panic!("expected ToolCallUpdate, got {other:?}"),
+    }
+}
+
+/// A catalogue and nothing else. Separate from `CountingTransport` so the three
+/// permission tests above stay this slice's controls.
+struct CataloguedTransport(Vec<ToolSpec>);
+
+impl ToolTransport for CataloguedTransport {
+    fn call(&mut self, _call: &ToolCall) -> Result<ToolOutcome> {
+        panic!("this test never calls a tool")
+    }
+
+    fn list(&mut self) -> Result<Vec<ToolSpec>> {
+        Ok(self.0.clone())
+    }
+}
+
+/// Drives `AcpPermissionTransport::list` directly against a real ACP client
+/// that counts anything it is asked — so the test can assert that enumerating a
+/// catalogue asks the human nothing.
+async fn list_through_permission(asked: Arc<AtomicUsize>) -> Result<Vec<ToolSpec>> {
+    let (agent_side, client_side) = tokio::io::duplex(65536);
+    let (agent_read, agent_write) = tokio::io::split(agent_side);
+    let (client_read, client_write) = tokio::io::split(client_side);
+
+    let counter = asked.clone();
+    let client = tokio::spawn(async move {
+        Client
+            .builder()
+            .on_receive_request(
+                async move |_request: RequestPermissionRequest, responder, _cx| {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    responder.respond(RequestPermissionResponse::new(
+                        RequestPermissionOutcome::Cancelled,
+                    ))
+                },
+                agent_client_protocol::on_receive_request!(),
+            )
+            .connect_to(ByteStreams::new(
+                client_write.compat_write(),
+                client_read.compat(),
+            ))
+            .await
+    });
+
+    let result = Agent
+        .builder()
+        .connect_with(
+            ByteStreams::new(agent_write.compat_write(), agent_read.compat()),
+            async |cx: ConnectionTo<Client>| {
+                let (tx, rx) = std::sync::mpsc::channel();
+                std::thread::spawn(move || {
+                    let mut transport = heddle_acp::AcpPermissionTransport::new(
+                        CataloguedTransport(vec![
+                            ToolSpec::new("fs_read", "read a file", serde_json::json!({})),
+                            ToolSpec::new("fs_list", "list a directory", serde_json::json!({})),
+                        ]),
+                        cx,
+                        SessionId::new("unit"),
+                        // `list` asks no permission, so it has no wait to
+                        // cancel. A never-set flag says that in the wiring.
+                        Arc::new(AtomicBool::new(false)),
+                    );
+                    let _ = tx.send(transport.list());
+                });
+                Ok(
+                    tokio::task::spawn_blocking(move || rx.recv().expect("answered"))
+                        .await
+                        .expect("join"),
+                )
+            },
+        )
+        .await
+        .expect("the agent side ran");
+
+    client.abort();
+    result
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn p4_the_permission_decorator_forwards_the_catalogue_it_wraps() {
+    // The slice's highest-risk line, and the reason it gets a test of its own.
+    // `ToolTransport::list` is defaulted to an empty catalogue, so a decorator
+    // that forgot to override it would leave `heddle acp-agent` silently
+    // advertising nothing while `heddle chat` worked — and nothing would fail to
+    // compile.
+    let asked = Arc::new(AtomicUsize::new(0));
+
+    let advertised = list_through_permission(asked.clone())
+        .await
+        .expect("enumerating a catalogue is not a governed call");
+
+    assert_eq!(
+        advertised
+            .iter()
+            .map(|s| s.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["fs_read", "fs_list"],
+        "the inner transport's catalogue, in its own order"
+    );
+    assert_eq!(
+        asked.load(Ordering::SeqCst),
+        0,
+        "permission is asked per call; enumerating what exists is not a call"
+    );
+}
+
+/// The flag the **caller** holds is the flag the session obeys.
+///
+/// `a7_…` proves the notification path end to end; it cannot notice a session
+/// that mints its own flag, because `session/cancel` reaches whatever flag
+/// `Registered` was given. This one never sends a notification: it sets the
+/// `Arc` it put into `SessionParts` and requires the run to end.
+///
+/// That is the property slice 027 needs, and it is what lets one flag reach a
+/// running child process: the tool transport is built by the same caller, from
+/// the same `Arc`, long before a session exists.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a14_a_session_obeys_the_cancellation_flag_its_caller_supplied() {
+    let model_calls = Arc::new(AtomicUsize::new(0));
+    let observed = Observed::default();
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (gate_tx, gate_rx) = std::sync::mpsc::channel();
+
+    let script = vec![
+        asks_for("read_file"),
+        asks_for("read_file"),
+        asks_for("read_file"),
+        finishes("never reached"),
+    ];
+    let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let supplied = cancelled.clone();
+    let calls = model_calls.clone();
+    let mut once = Some((started_tx, gate_rx));
+    let agent = HeddleAgent::new(move || {
+        let (started, gate) = once.take().expect("one session only");
+        Ok(SessionParts {
+            client: ScriptedModel {
+                gate: Some(gate),
+                started: Some(started),
+                ..ScriptedModel::playing(script.clone(), calls.clone())
+            },
+            probe: StaticProbe(true),
+            transport: CountingTransport {
+                calls: Arc::new(AtomicUsize::new(0)),
+                content: "file contents".into(),
+            },
+            policy: ToolPolicy::new(read_only("read_file"), Vec::new()),
+            redactor: Redactor::new(Vec::new()),
+            budget: LoopBudget::new(8, 10_000, 8),
+            ledger: Ledger::new(),
+            cancelled: supplied.clone(),
+        })
+    });
+
+    let started_rx = Arc::new(Mutex::new(started_rx));
+    let (_session_id, stop) = with_facade(
+        agent,
+        Answer::Allow,
+        observed.clone(),
+        async |cx: ConnectionTo<Agent>| {
+            let session_id = open_session(&cx).await?;
+            let sent = cx.send_request(prompt(&session_id, "go"));
+
+            let waiter = started_rx.clone();
+            tokio::task::spawn_blocking(move || waiter.lock().unwrap().recv())
+                .await
+                .expect("join")
+                .expect("the first turn started");
+            // No `session/cancel`. The caller's own handle on the run, which is
+            // the handle a tool transport is also holding.
+            cancelled.store(true, Ordering::SeqCst);
+            for _ in 0..4 {
+                let _ = gate_tx.send(());
+            }
+
+            let response = sent.block_task().await?;
+            Ok((session_id, response.stop_reason))
+        },
+    )
+    .await;
+
+    assert_eq!(stop, StopReason::Cancelled);
+    assert!(
+        model_calls.load(Ordering::SeqCst) < 4,
+        "the run stopped before the script ran out"
+    );
+}
+
+/// A cancellation landing *after* the engine decided the run is a race, not an
+/// outcome. The chain records `Exit(FinalOutput)` and the client has the whole
+/// answer; telling it `Cancelled` anyway makes it discard or re-request text it
+/// already holds, and contradicts the chain the facade is supposed to be a view
+/// of. The three cancellations that arrive in time — pre-turn, mid-stream and
+/// mid-permission — are `x1`, `a13` and `p5`/`p9`; this is the fourth
+/// interleaving, where the flag simply lost.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a15_a_cancel_that_lands_after_the_answer_reports_the_runs_own_outcome() {
+    let observed = Observed::default();
+    let flag = Arc::new(AtomicBool::new(false));
+    let supplied = flag.clone();
+    let agent = HeddleAgent::new(move || {
+        Ok(SessionParts {
+            client: ScriptedModel {
+                cancels_on_answering: Some(supplied.clone()),
+                ..ScriptedModel::playing(vec![finishes("42")], Arc::new(AtomicUsize::new(0)))
+            },
+            probe: StaticProbe(true),
+            transport: CountingTransport {
+                calls: Arc::new(AtomicUsize::new(0)),
+                content: "unused".into(),
+            },
+            policy: ToolPolicy::new(Vec::new(), Vec::new()),
+            redactor: Redactor::new(Vec::new()),
+            budget: LoopBudget::new(8, 10_000, 8),
+            ledger: Ledger::new(),
+            cancelled: supplied.clone(),
+        })
+    });
+
+    let inspect = agent.clone();
+    let (session_id, stop) = with_facade(
+        agent,
+        Answer::Allow,
+        observed.clone(),
+        async |cx: ConnectionTo<Agent>| {
+            let session_id = open_session(&cx).await?;
+            let response = cx
+                .send_request(prompt(&session_id, "go"))
+                .block_task()
+                .await?;
+            Ok((session_id, response.stop_reason))
+        },
+    )
+    .await;
+
+    assert_eq!(stop, StopReason::EndTurn);
+    assert!(flag.load(Ordering::SeqCst), "the flag really was raised");
+
+    let session = inspect.session(&session_id).expect("session is registered");
+    let session = session.lock().unwrap();
+    let run_id = format!("{session_id}#1");
+    let log = session.ledger().log(&run_id);
+    let last = log.last().expect("the run left steps on the chain");
+    assert_eq!(last.kind, StepKind::Exit);
+    assert_eq!(
+        last.payload, "FinalOutput",
+        "the stop reason has to be the one the chain records"
+    );
+    assert_eq!(observed.chunks(), vec!["42"], "the client got its answer");
+}

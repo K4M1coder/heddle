@@ -1,6 +1,6 @@
 # Tasks: an ACP facade over the native loop (v0 slice)
 
-**Spec:** `specs/008-acp-facade/spec.md` · TDD (red→green), product code in `crates/skein-acp`,
+**Spec:** `specs/008-acp-facade/spec.md` · TDD (red→green), product code in `crates/heddle-acp`,
 branch `008-acp-facade` cut from `dev`.
 
 ## Constitution Check (ADR-0004 D1 solo-v0 bar)
@@ -8,7 +8,7 @@ branch `008-acp-facade` cut from `dev`.
   no UI) · II Local-first ✅ (byte-stream transport, in-process duplex in tests; no network
   egress, no listening socket, no process spawned)
 - III Test-First ✅ (T1's smoke test pins the SDK's structural assumptions before any product
-  code; T3 red before T4/T5 green) · IV Inverted coupling ✅ (no `skein-core` file changes at
+  code; T3 red before T4/T5 green) · IV Inverted coupling ✅ (no `heddle-core` file changes at
   all; ACP is adapted through decorators over `ToolTransport` and `ModelClient`)
 - V Traceability ✅ (updates are computed from `Ledger::log(run_id)` — no second record; run ids
   `{session_id}#{n}` keep one `Exit` per chain and `verify_chain` per-run semantics intact)
@@ -35,20 +35,20 @@ branch `008-acp-facade` cut from `dev`.
       both hold, so the `connection.spawn` fallback is **not** adopted (see below). The smoke
       test was deleted at T5: `a1` and `a3` now exercise both patterns against product code.
 - [x] **T2** control baseline: `cargo test --workspace` on `dev` before any edit — **40**
-- [x] **T3** RED — the whole of `crates/skein-acp/tests/acp_session.rs` against the
-      not-yet-existing `skein_acp` API; compiler errors recorded below
+- [x] **T3** RED — the whole of `crates/heddle-acp/tests/acp_session.rs` against the
+      not-yet-existing `heddle_acp` API; compiler errors recorded below
 - [x] **T4** GREEN part 1 — `AcpPermissionTransport` (FR-003/004/005) and `CancellableModel`
       (FR-008)
-- [x] **T5** GREEN part 2 — `SkeinAgent`/`SkeinSession`, the `Agent.builder()` wiring
+- [x] **T5** GREEN part 2 — `HeddleAgent`/`HeddleSession`, the `Agent.builder()` wiring
       (FR-007/009) and `project_updates` (FR-006)
 - [x] **T6** gates: `cargo fmt --all --check` clean; `cargo clippy --workspace --all-targets
       -- -D warnings` clean (one `type_complexity` objection to the session map, resolved with a
       `Sessions<C, P, T>` alias); `cargo test --workspace` **52/52** — 40 pre-existing + 12 new,
       2026-09-03. Windows leg observed; macOS and Linux unobserved until the repository has a
       remote (SC-001)
-- [x] **T7** control diff: `git diff dev` empty on `crates/skein-core/`, `crates/skein-mcp/`,
+- [x] **T7** control diff: `git diff dev` empty on `crates/heddle-core/`, `crates/heddle-mcp/`,
       `spikes/`, `.github/` and `rust-toolchain.toml`. The whole slice is
-      `M Cargo.toml` plus added files under `crates/skein-acp/` and `specs/008-acp-facade/`
+      `M Cargo.toml` plus added files under `crates/heddle-acp/` and `specs/008-acp-facade/`
       (SC-003, SC-004, SC-005, FR-002)
 - [x] **T8** drift check recorded below
 - [x] **T9** close out: ticked the ACP bullet in `specs/007-tool-allowlist/tasks.md`, set this
@@ -57,8 +57,8 @@ branch `008-acp-facade` cut from `dev`.
 ## Control baseline (T2)
 
 `cargo test --workspace` on `dev` / `0b0102e`, working tree clean, 2026-09-03: **40 passing** —
-`skein-core/tests/core.rs` 6, `tests/native_loop.rs` 18, `tests/tool_gateway.rs` 9,
-`skein-mcp/tests/rmcp_gateway.rs` 7; 0 failed, 0 ignored. This is the number T6 diffs against.
+`heddle-core/tests/core.rs` 6, `tests/native_loop.rs` 18, `tests/tool_gateway.rs` 9,
+`heddle-mcp/tests/rmcp_gateway.rs` 7; 0 failed, 0 ignored. This is the number T6 diffs against.
 
 ## Pinned SDK surface (T1)
 
@@ -85,7 +85,7 @@ name below is used by the product code exactly as spelled here.
 | `SentRequest::on_receiving_result` | `fn(self, task: impl FnOnce(Result<T, Error>) -> F + Send + 'static) -> Result<(), Error>` where `F: Future<Output = Result<(), Error>> + Send + 'static` |
 | Handler return type | `Result<T, Error>` where `T: IntoHandled<…>`; `impl<T> IntoHandled<T> for ()`, so a handler that answers later returns `Ok(())` |
 
-**The two structural assumptions were proved, not assumed.** `crates/skein-acp/tests/smoke.rs`
+**The two structural assumptions were proved, not assumed.** `crates/heddle-acp/tests/smoke.rs`
 (throwaway, T1 only) ran green on the first attempt, 2026-09-03:
 
 1. a `Responder<PromptResponse>` moved into a `std::thread` responds after the handler has
@@ -102,14 +102,14 @@ method's ordering barrier requires.
 ## Observed red (Constitution III)
 
 - **T3** `cargo build --workspace --all-targets`, 2026-09-03:
-  - `error[E0432]: unresolved imports skein_acp::project_updates, skein_acp::CancellableModel,
-    skein_acp::SessionParts, skein_acp::SkeinAgent`
-    (`crates/skein-acp/tests/acp_session.rs:12:17` — *"no `SkeinAgent` in the root"*,
+  - `error[E0432]: unresolved imports heddle_acp::project_updates, heddle_acp::CancellableModel,
+    heddle_acp::SessionParts, heddle_acp::HeddleAgent`
+    (`crates/heddle-acp/tests/acp_session.rs:12:17` — *"no `HeddleAgent` in the root"*,
     *"no `SessionParts` in the root"*, *"no `CancellableModel` in the root"*,
     *"no `project_updates` in the root"*)
-  - `error[E0433]: cannot find AcpPermissionTransport in skein_acp`
-    (`crates/skein-acp/tests/acp_session.rs:649:52`)
-  - `error: could not compile skein-acp (test "acp_session") due to 2 previous errors`
+  - `error[E0433]: cannot find AcpPermissionTransport in heddle_acp`
+    (`crates/heddle-acp/tests/acp_session.rs:649:52`)
+  - `error: could not compile heddle-acp (test "acp_session") due to 2 previous errors`
   - As in slice 007, rustc abandons the crate once import resolution fails, so these two
     diagnostics are the whole red: every name the suite needs is unresolved, and no
     type-level error is reached.
@@ -117,10 +117,10 @@ method's ordering barrier requires.
 ## Drift (T8)
 
 - **Dependency growth.** `cargo tree -e normal,build,dev` resolves **66** distinct
-  package-versions for `skein-core` + `skein-mcp` and **115** for the whole workspace: the ACP
+  package-versions for `heddle-core` + `heddle-mcp` and **115** for the whole workspace: the ACP
   crate adds **49**, dominated by the `futures` / `async-io` / `async-process` / `blocking` stack
   the SDK needs to stay runtime-agnostic, plus `schemars`, `serde_with`, `jiff` and
-  `windows-sys`/`rustix`. All of it is confined to `skein-acp`; `skein-core` still has exactly
+  `windows-sys`/`rustix`. All of it is confined to `heddle-acp`; `heddle-core` still has exactly
   four dependencies. (`Cargo.lock` is `.gitignore`d in this repository, so the graph is the
   measurable artefact rather than a lockfile diff.)
 - **No toolchain change.** `agent-client-protocol` 2.0.0 declares MSRV **1.88.0**;
@@ -130,15 +130,15 @@ method's ordering barrier requires.
 - **`serde_json/preserve_order` (risk R1): real, and inert. Nothing was edited.**
   Both `agent-client-protocol` and `agent-client-protocol-schema` declare
   `serde_json = { features = ["preserve_order", "raw_value"] }`, so under one feature-unified
-  build graph `skein-core` also compiles against an order-preserving `serde_json::Map`. That the
-  unification really happens is visible in the build: the isolated `cargo test -p skein-core -p
-  skein-mcp` run reuses the pre-slice test binaries (`skein_core-aa3d4cd03cb6a11c`), while
+  build graph `heddle-core` also compiles against an order-preserving `serde_json::Map`. That the
+  unification really happens is visible in the build: the isolated `cargo test -p heddle-core -p
+  heddle-mcp` run reuses the pre-slice test binaries (`heddle_core-aa3d4cd03cb6a11c`), while
   `cargo test --workspace` rebuilds them under a different hash. **Both runs are 40/40 green.**
   No pre-existing assertion flipped, because none depends on JSON object ordering: every
   `ToolCall.args` literal in `tests/native_loop.rs`, `tests/tool_gateway.rs` and
   `tests/rmcp_gateway.rs` is a single-key object, and the payload assertions are substring
   (`contains("denied")`, `contains("***")`) or single scalars (`"60"`, `"prompt exact"`). The
-  risk stands for any *future* multi-key payload assertion in `skein-core`, and is recorded here
+  risk stands for any *future* multi-key payload assertion in `heddle-core`, and is recorded here
   rather than defended against — no pre-existing test body was touched.
 
 ## Next slice (not this feature)
@@ -154,4 +154,4 @@ method's ordering barrier requires.
 - [ ] session persistence / `session/load` / resume, behind the durable silo-backed Ledger
 - [ ] multi-modal `ContentBlock`s, once `Content` grows past `Text`
 - [ ] `schema::v2`, the `AcpAgent`/`Stdio` subprocess transports, and ACP MCP-server passthrough
-- [ ] `skein-cli`, Principle I's reference client — the next consumer of this facade
+- [ ] `heddle-cli`, Principle I's reference client — the next consumer of this facade

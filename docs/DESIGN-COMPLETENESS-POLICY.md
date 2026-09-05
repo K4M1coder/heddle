@@ -15,7 +15,7 @@ Expensive or impossible to change once code and data exist. Get these right firs
 - **Constitution** (principles, incl. VIII loop discipline) and **architecture invariants** (ADs).
 - **Event-sourcing schema** (Step identity, correlation, effect classification, loop event types) — the Ledger is the project's principal one-way door; migrating persisted history later is costly.
 - **Silo isolation model** and the **config resolution + security-floor rule** (value-vs-lock semantics) — stamped into every table and every authz check.
-- **Loop ownership** (Skein owns the reason→act→observe loop; Goose is a turn/tool executor) — determines whether LoopController, per-step Ledger, and resume are even possible.
+- **Loop ownership** (Heddle owns the reason→act→observe loop; Goose is a turn/tool executor) — determines whether LoopController, per-step Ledger, and resume are even possible.
 - **Egress enforcement boundary** (Local = no egress as a network boundary, not self-declaration).
 - **GDPR erasure mechanism** (crypto-shredding key model) — the encryption/keying must exist from the first stored record.
 

@@ -1,7 +1,7 @@
-# Feature Specification: `skein-gateway` — the first real `ModelClient`, and `skein chat` (v0 slice)
+# Feature Specification: `heddle-gateway` — the first real `ModelClient`, and `heddle chat` (v0 slice)
 
 **Feature Branch:** `012-model-gateway` · **Created:** 2026-09-03 · **Status:** Implemented (v0 slice)
-**Input:** `specs/011-skein-cli/tasks.md` "Next slice" — *"**`skein acp-agent` and `skein chat`,
+**Input:** `specs/011-heddle-cli/tasks.md` "Next slice" — *"**`heddle acp-agent` and `heddle chat`,
 together with the real `ModelClient`** (BMAD Story 1.4)"* · Constitution I (**the CLI is the core's
 complete, authoritative client**), II (**local-first, NON-NEGOTIABLE**), III (**test-first**),
 IV (**inverted coupling**), V (**traceability**), VII (**no capability without a real need**),
@@ -12,33 +12,33 @@ ADR-0002 D4 (Local mode enforces a **loopback allowlist**) · ADR-0004 D3 (*"one
 Eight merged slices (004–011) built a governed, ACP-reachable, persistently-storing agentic loop
 with real secret resolution and a real CLI. **None of it had ever spoken to a model.** Before this
 slice, `grep -rn "impl ModelClient" crates/` returned four hits, all in `tests/` — a `ScriptedModel`
-each in `skein-acp/tests/acp_session.rs`, `skein-core/tests/native_loop.rs`,
-`skein-mcp/tests/rmcp_gateway.rs` and `skein-silo/tests/silo_ledger.rs`. The only `ModelClient` in
-product code was `skein-acp`'s `CancellableModel`, a decorator generic over an inner client with no
+each in `heddle-acp/tests/acp_session.rs`, `heddle-core/tests/native_loop.rs`,
+`heddle-mcp/tests/rmcp_gateway.rs` and `heddle-silo/tests/silo_ledger.rs`. The only `ModelClient` in
+product code was `heddle-acp`'s `CancellableModel`, a decorator generic over an inner client with no
 real inner client anywhere. `grep -rn "reqwest\|hyper\|ureq\|axum" crates/*/Cargo.toml Cargo.toml`
 returned nothing: the workspace made no HTTP call of any kind.
 
-This slice ships the first one. `crates/skein-gateway` holds one `ModelClient` speaking the
+This slice ships the first one. `crates/heddle-gateway` holds one `ModelClient` speaking the
 OpenAI-compatible chat-completions wire format to a **loopback-only** local provider, and
-`skein chat` is its caller — the first command in the product that runs the governed loop.
+`heddle chat` is its caller — the first command in the product that runs the governed loop.
 
 ## What this slice lets a user do, and what it does not
 
 **It does:**
 
 ```
-skein chat --silo <ID> [--root <PATH>] --model <NAME> [--base-url <URL>]
+heddle chat --silo <ID> [--root <PATH>] --model <NAME> [--base-url <URL>]
            [--prompt <TEXT>] [--run-id <ID>]
            [--max-iters N] [--max-tokens N] [--no-progress-limit N] [--timeout-secs S]
 ```
 
 One prompt, one run. The prompt comes from `--prompt` or, absent it, from stdin read to EOF. The
-run is appended to the **real silo chain**, so `skein ledger log|show|verify` from slice 011 become
+run is appended to the **real silo chain**, so `heddle ledger log|show|verify` from slice 011 become
 newly meaningful against a real conversation. **stdout carries the assistant's answer and nothing
 else**; the run id goes to stderr, so stdout stays the scriptable contract slice 011 established.
 
-**It does not serve ACP.** There is no `skein acp-agent` in this slice. That is a different concern
-with its own machinery — a stdio `ConnectTo<Agent>` transport, a `tokio` runtime inside `skein-cli`
+**It does not serve ACP.** There is no `heddle acp-agent` in this slice. That is a different concern
+with its own machinery — a stdio `ConnectTo<Agent>` transport, a `tokio` runtime inside `heddle-cli`
 (which still has **no** async dependency at all), a `SessionParts` factory and a subprocess ACP
 end-to-end test. It is on `tasks.md`'s `## Next slice` list, which is this repository's way of
 recording a deferral.
@@ -59,10 +59,10 @@ These are load-bearing and are stated here rather than in a footnote.
 1. **The test suite needs no Ollama; the feature does.** Every automated test in this slice runs
    against a `std::net::TcpListener` stub server speaking real HTTP/1.1 bytes inside the test
    process. `cargo test --workspace` is therefore green on a machine — and on a CI runner — with
-   no local model installed. `skein chat` itself is useful only against a real local provider.
-2. **When nothing is listening, `skein chat` fails loudly and fast.** `ureq` surfaces
+   no local model installed. `heddle chat` itself is useful only against a real local provider.
+2. **When nothing is listening, `heddle chat` fails loudly and fast.** `ureq` surfaces
    `io: Connection refused` on a closed loopback port in well under a second; the client maps it to
-   `SkeinError::Model` naming the endpoint and asking whether a local provider is listening. Not a
+   `HeddleError::Model` naming the endpoint and asking whether a local provider is listening. Not a
    hang, not a panic, not an empty answer.
 3. **The chain records the translated `TurnRequest`/`TurnResponse`, not the provider's raw wire
    bytes.** `NativeLoop::run` appends `serde_json::to_string(&req)`/`(&resp)`. Design §4.5's
@@ -88,12 +88,12 @@ As an operator, I ask a question and get the model's answer on stdout, with the 
 inspectable afterwards.
 **Acceptance:**
 1. **Given** a local OpenAI-compatible provider listening on loopback, **When**
-   `skein chat --root <root> --silo <id> --model <name> --prompt "…"` is invoked, **Then** the exit
+   `heddle chat --root <root> --silo <id> --model <name> --prompt "…"` is invoked, **Then** the exit
    code is 0, **stdout is exactly the assistant's answer**, and stderr names the run id.
-2. **Given** that invocation completed, **When** `skein ledger log --root <root> --silo <id>` is
+2. **Given** that invocation completed, **When** `heddle ledger log --root <root> --silo <id>` is
    invoked as a **second process**, **Then** the run's steps are listed —
    `iteration_boundary`, `llm_request`, `llm_response`, `budget_spent`, `exit` — and
-   `skein ledger verify` reports the run `ok`.
+   `heddle ledger verify` reports the run `ok`.
 
 ### User Story 2 — The wire is the OpenAI chat-completions contract, exactly (P1)
 As a maintainer, the request the client puts on the socket must be the documented contract, not
@@ -104,19 +104,19 @@ something that merely happens to work against one provider.
    body whose `model` is the configured name, whose `messages` are the conversation's roles and
    texts **in order**, and whose `stream` is `false`.
 2. **Given** a conversation holding system, user and assistant messages, **When** it is sent,
-   **Then** the three `skein_core::Role`s map to `"system"`, `"user"` and `"assistant"`, in order.
+   **Then** the three `heddle_core::Role`s map to `"system"`, `"user"` and `"assistant"`, in order.
 
 ### User Story 3 — A local provider is the only thing this can talk to (P1)
 As a security reviewer, "local-first" must be checkable, not asserted.
 **Acceptance:**
 1. **Given** a base URL naming a public host (`http://ollama.example.com/v1`), **When**
-   `LocalEndpoint::parse` is called, **Then** it fails with `SkeinError::Model` **before any socket
+   `LocalEndpoint::parse` is called, **Then** it fails with `HeddleError::Model` **before any socket
    or DNS query exists** — the name is refused without being resolved.
 2. **Given** a base URL naming a private-LAN literal (`http://192.168.1.10:11434/v1`), **When**
    it is parsed, **Then** it fails: a valid IP that is not loopback is refused (ADR-0002 D4).
 3. **Given** an `https://` base URL, **When** it is parsed, **Then** it fails on the scheme with a
    message naming local-only operation.
-4. **Given** `skein chat --base-url http://192.168.1.10:11434/v1`, **When** it is invoked against a
+4. **Given** `heddle chat --base-url http://192.168.1.10:11434/v1`, **When** it is invoked against a
    silo, **Then** the exit code is 1 and **the silo's ledger holds no run** — the refusal happens
    before the loop starts.
 
@@ -129,7 +129,7 @@ than an error.
 2. **Given** a response carrying `usage.prompt_tokens` and `usage.completion_tokens` but no
    `total_tokens`, **When** it is parsed, **Then** `tokens_used` is their sum.
 3. **Given** a response with **no** `usage` object at all, **When** it is parsed, **Then** the turn
-   fails with `SkeinError::Model` naming the missing metering. It does **not** meter zero.
+   fails with `HeddleError::Model` naming the missing metering. It does **not** meter zero.
 
 ### User Story 5 — A truncated answer is not a completed answer (P1)
 As a maintainer, only the engine may decide a run is done (Principle VIII(a)).
@@ -138,33 +138,33 @@ As a maintainer, only the engine may decide a run is done (Principle VIII(a)).
    `final_output` is `false` — the provider truncated the model mid-thought, and calling that a
    completed answer would let a truncation launder itself past `LoopController`.
 2. **Given** a response carrying `tool_calls`, **When** it is parsed, **Then** the calls are
-   translated into `skein_core::ToolCall`s and `final_output` is `false`.
+   translated into `heddle_core::ToolCall`s and `final_output` is `false`.
 
 ### User Story 6 — A provider failure is legible, and never silent (P1)
 As an operator, when the model does not answer I need to know why, in one line.
 **Acceptance:**
 1. **Given** nothing listening on the configured port, **When** a turn is taken, **Then**
-   `SkeinError::Model` names the base URL and asks whether a local provider is listening.
+   `HeddleError::Model` names the base URL and asks whether a local provider is listening.
 2. **Given** a provider answering `404` with `{"error":{"message":"model \"nope\" not found"}}`,
-   **When** a turn is taken, **Then** `SkeinError::Model` carries **the provider's own message**.
+   **When** a turn is taken, **Then** `HeddleError::Model` carries **the provider's own message**.
 3. **Given** a provider that accepts the request and never replies, **When** a turn is taken,
    **Then** the turn fails on a timeout rather than blocking the run.
 4. **Given** a body that is not a recognisable chat-completions response, **When** a turn is taken,
-   **Then** `SkeinError::Model` says so and names the endpoint.
+   **Then** `HeddleError::Model` says so and names the endpoint.
 
 ### User Story 7 — A run the engine stopped does not look like an answer (P1)
 As an operator, an empty answer with exit 0 is slice 011's User Story 4 failure.
 **Acceptance:**
-1. **Given** a provider that never returns `finish_reason: "stop"`, **When** `skein chat` runs with
+1. **Given** a provider that never returns `finish_reason: "stop"`, **When** `heddle chat` runs with
    a budget it exhausts, **Then** the exit code is 1, **stdout is empty**, and stderr names the exit
-   (`MaxIters`, `MaxTokens` or `NoProgress`) via `SkeinError::Unfinished`.
+   (`MaxIters`, `MaxTokens` or `NoProgress`) via `HeddleError::Unfinished`.
 
 ## Requirements
 
-- **FR-001**: A new crate `crates/skein-gateway` MUST hold the only `ModelClient` implementation in
+- **FR-001**: A new crate `crates/heddle-gateway` MUST hold the only `ModelClient` implementation in
   product code, and MUST be the only crate in the product naming HTTP or the OpenAI wire format.
-  `skein-core` MUST NOT depend on it (Principle IV).
-- **FR-002**: `skein-core`'s dependency list MUST remain `serde`, `serde_json`, `thiserror`, `sha2`,
+  `heddle-core` MUST NOT depend on it (Principle IV).
+- **FR-002**: `heddle-core`'s dependency list MUST remain `serde`, `serde_json`, `thiserror`, `sha2`,
   `zeroize`.
 - **FR-003**: `ureq` MUST be declared with `default-features = false`, so **no TLS backend is
   compiled in** and an `https://` endpoint is unreachable at the transport. This is a structural
@@ -180,35 +180,35 @@ As an operator, an empty answer with exit 0 is slice 011's User Story 4 failure.
 - **FR-006**: The request body MUST be
   `{"model": …, "messages": [{"role": …, "content": …}], "stream": false}`. `"stream": false` MUST
   be explicit: a provider defaulting to SSE would break the parse silently.
-- **FR-007**: `skein_core::Role::{User, Assistant, System}` MUST map to `"user"`, `"assistant"`,
+- **FR-007**: `heddle_core::Role::{User, Assistant, System}` MUST map to `"user"`, `"assistant"`,
   `"system"`, and message order MUST be preserved.
 - **FR-008**: `final_output` MUST be `finish_reason == "stop"` **and** `tool_calls` empty. A
   `finish_reason` of `"length"` MUST NOT be final.
 - **FR-009**: A `tool_calls` array in the response MUST be translated into
-  `Vec<skein_core::ToolCall>` with `tool = function.name` and `args` parsed from
+  `Vec<heddle_core::ToolCall>` with `tool = function.name` and `args` parsed from
   `function.arguments`. Silently dropping a model intent would weaken Principle V, because the
   chain records the `TurnResponse` and not the raw body.
 - **FR-010**: `tokens_used` MUST come from `usage.total_tokens`, else from
   `usage.prompt_tokens + usage.completion_tokens`, else the turn MUST fail with
-  `SkeinError::Model`. A `0` fallback is forbidden: `LoopController::should_exit` stops on
+  `HeddleError::Model`. A `0` fallback is forbidden: `LoopController::should_exit` stops on
   `tokens >= max_tokens`, so a silent zero would disable the token budget while looking like it
   worked (Principle VIII, NON-NEGOTIABLE).
-- **FR-011**: Every provider failure MUST surface as `SkeinError::Model` whose message names the
+- **FR-011**: Every provider failure MUST surface as `HeddleError::Model` whose message names the
   endpoint. A non-2xx MUST carry the provider's own body, truncated.
 - **FR-012**: Connect and global timeouts MUST be configured explicitly, and the global timeout MUST
-  be settable from `skein chat --timeout-secs` (default 120s).
-- **FR-013**: `skein-core` MUST gain exactly one additive `SkeinError` variant,
+  be settable from `heddle chat --timeout-secs` (default 120s).
+- **FR-013**: `heddle-core` MUST gain exactly one additive `HeddleError` variant,
   `Unfinished { run_id, exit }`, and nothing else. No existing signature may change.
-- **FR-014**: `skein chat` MUST require `--model` with no default. Defaulting to a model the machine
+- **FR-014**: `heddle chat` MUST require `--model` with no default. Defaulting to a model the machine
   may not have would produce a 404 that looks like a bug.
-- **FR-015**: The base URL MUST come from `--base-url`, else `$SKEIN_MODEL_BASE_URL`, else
-  `http://localhost:11434/v1`, mirroring the `--root`/`$SKEIN_ROOT` precedent.
-- **FR-016**: `skein chat` MUST write the assistant's answer to **stdout and nothing else**, and the
+- **FR-015**: The base URL MUST come from `--base-url`, else `$HEDDLE_MODEL_BASE_URL`, else
+  `http://localhost:11434/v1`, mirroring the `--root`/`$HEDDLE_ROOT` precedent.
+- **FR-016**: `heddle chat` MUST write the assistant's answer to **stdout and nothing else**, and the
   run id to stderr.
 - **FR-017**: An exit other than `Exit::FinalOutput` MUST produce exit code 1 with **empty stdout**.
   `LoopRun.final_message` is `None` for every non-`FinalOutput` exit, so there is nothing to print,
   and printing nothing with exit 0 would be a silently wrong answer.
-- **FR-018**: `skein chat` MUST supply `NativeLoop`'s two structurally-required collaborators
+- **FR-018**: `heddle chat` MUST supply `NativeLoop`'s two structurally-required collaborators
   without shipping a fake: a `ToolTransport` that is **unreachable by construction** (paired with
   `ToolPolicy::new(vec![], vec![])`, so deny-by-default refuses every name before the transport is
   consulted) and a `ProgressProbe` that returns `false` always, because a chat with no tools has
@@ -216,26 +216,26 @@ As an operator, an empty answer with exit 0 is slice 011's User Story 4 failure.
   for one.
 - **FR-019**: No automated test may require a running Ollama. The one live test MUST be `#[ignore]`d
   and MUST skip cleanly when its environment variable is unset.
-- **FR-020**: `crates/skein-mcp`, `crates/skein-acp` and `crates/skein-silo` MUST be unchanged.
+- **FR-020**: `crates/heddle-mcp`, `crates/heddle-acp` and `crates/heddle-silo` MUST be unchanged.
 
 ## Success Criteria
 
 - **SC-001**: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
   `cargo test --workspace` and `cargo build --workspace` all clean; the suite is 82 pre-existing +
   the slice's new tests, with the measured number recorded in `tasks.md`.
-- **SC-002**: `skein chat --help` succeeds, and a hand-run `skein chat` against a real local Ollama
-  is recorded with its transcript and the resulting `skein ledger log`/`verify` output — the
+- **SC-002**: `heddle chat --help` succeeds, and a hand-run `heddle chat` against a real local Ollama
+  is recorded with its transcript and the resulting `heddle ledger log`/`verify` output — the
   slice's headline claim, checked by running it.
 - **SC-003**: Every wire test asserts **bytes on a real socket** served by `std::net::TcpListener`.
   No HTTP-mocking dependency (`wiremock`, `mockito`) is added, and no test asserts an intent where
   it could assert a byte.
-- **SC-004**: Every `skein chat` test is a **process invocation of the real binary**, following
+- **SC-004**: Every `heddle chat` test is a **process invocation of the real binary**, following
   slice 011's SC-003.
-- **SC-005**: `git diff dev -- crates/skein-mcp/ crates/skein-acp/ crates/skein-silo/ spikes/
+- **SC-005**: `git diff dev -- crates/heddle-mcp/ crates/heddle-acp/ crates/heddle-silo/ spikes/
   .github/ rust-toolchain.toml` is empty.
-- **SC-006**: `git diff dev -- crates/skein-core/` is one added error variant plus its test; all 82
+- **SC-006**: `git diff dev -- crates/heddle-core/` is one added error variant plus its test; all 82
   pre-existing tests stay live controls with their bodies unchanged.
-- **SC-007**: `cargo tree -e normal -p skein-gateway` shows **no TLS crate** — no `rustls`, no
+- **SC-007**: `cargo tree -e normal -p heddle-gateway` shows **no TLS crate** — no `rustls`, no
   `native-tls`, no `webpki`. FR-003 is asserted by measurement, not by the manifest's intent.
 - As in specs 004–011, the macOS and Linux legs of `core.yml` are unobserved until the repository
   has a remote; only the Windows leg is run locally.

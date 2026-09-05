@@ -5,7 +5,7 @@ Goal: **resume work from any machine** with one command right after `git clone` 
 ## Quick start
 
 ```bash
-git clone <repo> skein && cd skein
+git clone <repo> heddle && cd heddle
 # Windows (PowerShell 7+):
 pwsh -File scripts/bootstrap.ps1 -WithOllama
 # macOS / Linux:
@@ -20,9 +20,9 @@ The scripts are **idempotent** (safe to re-run; each step checks before installi
 |---|---|---|
 | Languages | **Rust 1.97** (rustup; pinned by `rust-toolchain.toml`) · **Node LTS** (npx) · **Python 3.11+ via uv** | core / installers / sidecar & LiteLLM |
 | Quality | `rustfmt`, `clippy` (as toolchain components) · **pre-commit** | Constitution: `fmt` + `clippy -D warnings` green before merge |
-| Tests | `cargo test` (built-in) · workspace dev-deps pulled by Cargo on first build: `tempfile`, `rusqlite`, `tokio`. CLI end-to-end tests need **no** harness crate — Cargo's own `CARGO_BIN_EXE_skein` + `std::process::Command` reach the real binary. (`wiremock` is used only by the excluded `spikes/` tree; nothing in the workspace uses `assert_cmd`.) | TDD (Constitution III) |
+| Tests | `cargo test` (built-in) · workspace dev-deps pulled by Cargo on first build: `tempfile`, `rusqlite`, `tokio`. CLI end-to-end tests need **no** harness crate — Cargo's own `CARGO_BIN_EXE_heddle` + `std::process::Command` reach the real binary. (`wiremock` is used only by the excluded `spikes/` tree; nothing in the workspace uses `assert_cmd`.) | TDD (Constitution III) |
 | Model gateway | **LiteLLM** (`uv tool install litellm`) · config `config/litellm.config.yaml` | single OpenAI-compat entry point (design §4.5) |
-| Local inference | **Ollama** (optional flag) + `llama3.1` | Local mode, egress OFF (design §7.3). `skein chat --model <NAME>` reaches it **directly** at Ollama's own OpenAI-compatible endpoint — `--base-url`, else `$SKEIN_MODEL_BASE_URL`, else `http://localhost:11434/v1`. No LiteLLM sidecar is needed for this path. `skein-gateway` compiles `ureq` with no TLS backend, so **loopback `http://` is the only thing it can reach** (Constitution II) |
+| Local inference | **Ollama** (optional flag) + `llama3.1` | Local mode, egress OFF (design §7.3). `heddle chat --model <NAME>` reaches it **directly** at Ollama's own OpenAI-compatible endpoint — `--base-url`, else `$HEDDLE_MODEL_BASE_URL`, else `http://localhost:11434/v1`. No LiteLLM sidecar is needed for this path. `heddle-gateway` compiles `ureq` with no TLS backend, so **loopback `http://` is the only thing it can reach** (Constitution II) |
 | Agent runtime | **Goose** (manual install; see script step 6) | evaluated by the **ADR 0001 spike** — integration path is `goosed` / embedded crate / **native loop** (ADR 0002 D1/D11) |
 | Planning framework | **BMAD-METHOD** (`npx bmad-method install`) → `_bmad/`, `_bmad-output/`, skills `bmad-*` | bridge: BMAD plans (docs/METHODOLOGY.md) |
 | Execution framework | **Spec-Kit** (`uvx specify init`) → `.specify/`, skills `speckit-*` | bridge: Spec-Kit executes, constitution-gated |
@@ -30,9 +30,9 @@ The scripts are **idempotent** (safe to re-run; each step checks before installi
 
 ## MCP connectors & their connections
 
-- **Embedded, default full-local** (design §4.3): `fs`/`git`/`shell` run in-process with no network egress — each is **opt-in per session**, never on by default. `--fs-root <PATH>` (on `skein chat` and `skein acp-agent`) is the only way either command gains a tool at all: it enables the `fs` tools always and the `git` tools when that directory is a git repository. `shell`'s sandboxed `proc_run` needs a second opt-in, `--allow-run` on `acp-agent` only (Windows-only in v0; `--run-dir` names the directories whose executables it may resolve by bare name). **Network connectors (Atlassian Jira/Bitbucket/Confluence, M365 Outlook/SharePoint/Teams) ship disabled**.
+- **Embedded, default full-local** (design §4.3): `fs`/`git`/`shell` run in-process with no network egress — each is **opt-in per session**, never on by default. `--fs-root <PATH>` (on `heddle chat` and `heddle acp-agent`) is the only way either command gains a tool at all: it enables the `fs` tools always and the `git` tools when that directory is a git repository. `shell`'s sandboxed `proc_run` needs a second opt-in, `--allow-run` on `acp-agent` only (Windows-only in v0; `--run-dir` names the directories whose executables it may resolve by bare name). **Network connectors (Atlassian Jira/Bitbucket/Confluence, M365 Outlook/SharePoint/Teams) ship disabled**.
 - Enabling one is a **scope-owner authorization** resolved through the hierarchy Silo ▸ (Team) ▸ Project ▸ Conversation, under the egress boundary (ADR 0002 D3/D4).
-- For development, authenticate interactively: run `claude` in the repo and use `claude mcp` (OAuth flows). **Never** store tokens in files — secrets are references (`keychain://…`, design §7.13); put them in the OS keychain with `printf %s "$TOKEN" | skein secret set keychain://<service>/<account>`. The value is read from stdin only — there is no `--value` flag, because one would land in shell history and in process listings — and `skein` refuses to read a secret from an interactive terminal.
+- For development, authenticate interactively: run `claude` in the repo and use `claude mcp` (OAuth flows). **Never** store tokens in files — secrets are references (`keychain://…`, design §7.13); put them in the OS keychain with `printf %s "$TOKEN" | heddle secret set keychain://<service>/<account>`. The value is read from stdin only — there is no `--value` flag, because one would land in shell history and in process listings — and `heddle` refuses to read a secret from an interactive terminal.
 
 ## Frameworks usage (after bootstrap)
 
@@ -49,7 +49,7 @@ The scripts are **idempotent** (safe to re-run; each step checks before installi
 
 - Windows 11 / macOS 13+ / recent Linux; ~10 GB free (toolchains + one local model)
 - Windows: `winget` available (the script uses it) · macOS: Homebrew recommended · Linux: curl + build-essential
-- **A C compiler**, on every platform: `skein-silo` takes `rusqlite` with the `bundled` feature,
+- **A C compiler**, on every platform: `heddle-silo` takes `rusqlite` with the `bundled` feature,
   which compiles the SQLite amalgamation from source rather than linking a system library — so
   there is no per-OS SQLite prerequisite, at the cost of needing MSVC build tools (Windows),
   Xcode command-line tools (macOS) or `build-essential` (Linux). The three rows above already

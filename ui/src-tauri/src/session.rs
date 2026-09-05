@@ -1,11 +1,11 @@
-//! The ACP client the desktop app runs on: one child `skein acp-agent`, one
+//! The ACP client the desktop app runs on: one child `heddle acp-agent`, one
 //! session, and three things a window can ask of it.
 //!
-//! Wiring only, like every `skein` subcommand: the protocol is
+//! Wiring only, like every `heddle` subcommand: the protocol is
 //! `agent-client-protocol`'s, the loop and the chain are the child's, and this
 //! module adds no capability of its own. `prompt` is `session/prompt`, `cancel`
 //! is `session/cancel`, and starting up is `initialize` + `session/new` — the
-//! same three calls `crates/skein-cli/tests/cli_acp_agent.rs` makes against the
+//! same three calls `crates/heddle-cli/tests/cli_acp_agent.rs` makes against the
 //! same binary. That is Constitution I as code rather than as a promise.
 //!
 //! **No Tauri type appears here.** Updates leave through a caller-supplied
@@ -16,7 +16,7 @@
 //! every request is issued through `on_receiving_result` rather than awaited:
 //! a `cancel` has to be deliverable *while* a prompt is in flight, which it
 //! would not be if the closure sat awaiting the prompt's response. That is the
-//! same reason `crates/skein-acp/src/permission.rs` registers a callback
+//! same reason `crates/heddle-acp/src/permission.rs` registers a callback
 //! instead of blocking its dispatch task.
 
 use agent_client_protocol::schema::v1::{
@@ -31,12 +31,12 @@ use futures::StreamExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-/// How the child `skein acp-agent` is launched: a program, its argv, and the
+/// How the child `heddle acp-agent` is launched: a program, its argv, and the
 /// directory `session/new` is told about.
 ///
 /// The flags are the CLI's own (`--root`, `--silo`, `--model`, `--base-url`,
 /// `--fs-root`, …). The shell invents none of its own configuration surface;
-/// it passes through what `skein acp-agent` already documents.
+/// it passes through what `heddle acp-agent` already documents.
 #[derive(Clone, Debug)]
 pub struct AgentLaunch {
     command: PathBuf,
@@ -120,7 +120,7 @@ impl Drop for Inner {
 }
 
 /// Ends the connection and waits for its thread. Closing the client's end of
-/// the pipe is what stops the child: `skein acp-agent` exits zero when its
+/// the pipe is what stops the child: `heddle acp-agent` exits zero when its
 /// client disconnects, so there is nothing to kill and nothing to leak.
 fn shut_down(inner: &Inner) {
     let _ = inner.requests.unbounded_send(Request::Close);
@@ -131,7 +131,7 @@ fn shut_down(inner: &Inner) {
     }
 }
 
-/// A live ACP session with a child `skein acp-agent`.
+/// A live ACP session with a child `heddle acp-agent`.
 ///
 /// Cloneable, and the child outlives every clone: the session ends when the
 /// last handle is dropped.
@@ -160,7 +160,7 @@ impl SessionHandle {
         let (ready, started) = std::sync::mpsc::channel::<Result<String, String>>();
 
         let worker = std::thread::Builder::new()
-            .name("skein-ui-acp".to_string())
+            .name("heddle-ui-acp".to_string())
             .spawn(move || {
                 let cwd = launch.cwd.clone();
                 let transport = AcpAgent::new(
@@ -170,7 +170,7 @@ impl SessionHandle {
                 let outcome = futures::executor::block_on(
                     Client
                         .builder()
-                        .name("skein-ui")
+                        .name("heddle-ui")
                         .on_receive_notification(
                             async move |notification: SessionNotification, _cx| {
                                 on_update(notification);
@@ -229,7 +229,7 @@ impl SessionHandle {
     /// Sends one `session/prompt` and resolves when the child answers it.
     ///
     /// Every `session/update` for the run has already been delivered to
-    /// `on_update` by the time this resolves — `skein-acp` sends the batch
+    /// `on_update` by the time this resolves — `heddle-acp` sends the batch
     /// before the response, deliberately.
     pub async fn prompt(&self, text: &str) -> Result<StopReason, String> {
         let (reply, answer) = oneshot::channel();
@@ -243,7 +243,7 @@ impl SessionHandle {
     /// Sends one `session/cancel`.
     ///
     /// Takes effect at the **next** turn boundary: a model call already in
-    /// flight always completes (`crates/skein-acp/src/cancel.rs`). With no
+    /// flight always completes (`crates/heddle-acp/src/cancel.rs`). With no
     /// prompt in flight it is a no-op, not an error.
     pub fn cancel(&self) -> Result<(), String> {
         self.dispatch(Request::Cancel)
@@ -354,7 +354,7 @@ async fn serve(
 /// widen it (Constitution VI). `docs/UI.md` says so in the user's words.
 ///
 /// The option is picked out of the ones the agent offered, by protocol kind,
-/// rather than by naming an id `skein-acp` happens to use today.
+/// rather than by naming an id `heddle-acp` happens to use today.
 fn decline(request: &RequestPermissionRequest) -> RequestPermissionResponse {
     let rejection = request
         .options

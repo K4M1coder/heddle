@@ -1,21 +1,21 @@
 # Tasks: tool advertisement on the `TurnRequest` path (v0 slice)
 
 **Spec:** `specs/015-tool-advertisement/spec.md` · **Plan:** `specs/015-tool-advertisement/plan.md` ·
-TDD (red→green), product code in `crates/skein-core`, `crates/skein-gateway` and `crates/skein-acp`,
+TDD (red→green), product code in `crates/heddle-core`, `crates/heddle-gateway` and `crates/heddle-acp`,
 branch `015-tool-advertisement` cut from `dev` after slice 014 merged.
 
 ## Constitution Check (ADR-0004 D1 solo-v0 bar)
-- I Headless core ✅ the whole mechanism lives in `skein-core` — a type, a defaulted trait method,
-  one gateway method and one loop call. `skein-gateway` gains only the translation of that type onto
-  its own wire format, and `skein-acp` only a one-line forward. No CLI change and no new capability ·
+- I Headless core ✅ the whole mechanism lives in `heddle-core` — a type, a defaulted trait method,
+  one gateway method and one loop call. `heddle-gateway` gains only the translation of that type onto
+  its own wire format, and `heddle-acp` only a one-line forward. No CLI change and no new capability ·
   II Local-first ✅ NON-NEGOTIABLE and unchanged: no new egress path, no new dependency, the loopback
   guard and the no-TLS build property are untouched. Advertisement adds bytes to a request that was
   already going to the same local endpoint
 - III Test-First ✅ every step's red observed and recorded in `## Observed red` before its green ·
-  IV Inverted coupling ✅ `skein-core` still names no protocol: `advertise` asks a `ToolTransport`,
+  IV Inverted coupling ✅ `heddle-core` still names no protocol: `advertise` asks a `ToolTransport`,
   which is the port, and `ToolSpec.parameters` is an opaque `serde_json::Value` because the schema is
-  the server's document and the core never interprets it. `skein-gateway` remains the only crate
-  naming the OpenAI wire format, `skein-mcp` the only one naming MCP
+  the server's document and the core never interprets it. `heddle-gateway` remains the only crate
+  naming the OpenAI wire format, `heddle-mcp` the only one naming MCP
 - V Traceability ✅ no new `StepKind` and none needed: the advertisement travels inside `TurnRequest`,
   which `run` already captures as `LlmRequest` through `Redactor::redact_json`, so tool descriptions
   and schemas are scrubbed by `redact_value`'s existing recursion. A run's captured request now shows
@@ -38,8 +38,8 @@ branch `015-tool-advertisement` cut from `dev` after slice 014 merged.
 - [x] **T0** `specs/015-tool-advertisement/{spec.md,plan.md,tasks.md}`; branch
       `015-tool-advertisement` cut from `dev` with slice 014 merged
 - [x] **T1** control baseline: `cargo test --workspace` before any edit — **120 passed, 1 ignored**
-- [x] **T2** RED→GREEN — `ToolSpec` in `crates/skein-core/src/tool.rs`, re-exported from `lib.rs`,
-      with its round-trip test in `crates/skein-core/tests/core.rs`
+- [x] **T2** RED→GREEN — `ToolSpec` in `crates/heddle-core/src/tool.rs`, re-exported from `lib.rs`,
+      with its round-trip test in `crates/heddle-core/tests/core.rs`
 - [x] **T3** RED→GREEN — `ToolTransport::list` with its defaulted body and the docstring arguing why
       *this* silent default is the safe one
 - [x] **T4** RED→GREEN — `ToolGateway::advertise`: list, filter to the allowlist, in allowlist order
@@ -48,7 +48,7 @@ branch `015-tool-advertisement` cut from `dev` after slice 014 merged.
       `TurnRequest`; a `list` failure is fatal
 - [x] **T7** RED→GREEN — `AcpPermissionTransport::list` forwards to its inner transport (the slice's
       highest-risk line, its own test)
-- [x] **T8** RED→GREEN — `ChatRequest.tools` in `crates/skein-gateway/src/lib.rs`, byte-exact
+- [x] **T8** RED→GREEN — `ChatRequest.tools` in `crates/heddle-gateway/src/lib.rs`, byte-exact
 - [x] **T9** gates, control diff, dependency drift, close-out
 
 ## Control baseline (T1)
@@ -66,34 +66,34 @@ against.
 
 All on 2026-09-03.
 
-- **T2** `cargo test -p skein-core --test core` with the round-trip test written against a type that
+- **T2** `cargo test -p heddle-core --test core` with the round-trip test written against a type that
   did not exist — **1 compile error**, and the file did not build:
-  - `error[E0432]: unresolved import skein_core::ToolSpec` at `crates/skein-core/tests/core.rs:5:79`
+  - `error[E0432]: unresolved import heddle_core::ToolSpec` at `crates/heddle-core/tests/core.rs:5:79`
     — `no ToolSpec in the root`
-  - `error: could not compile skein-core (test "core") due to 1 previous error`
+  - `error: could not compile heddle-core (test "core") due to 1 previous error`
   - Green: **18 passed** where 17 had passed, with the seventeen unchanged.
 
-- **T3** `cargo test -p skein-core --test tool_gateway` with the defaulted-body test written against
+- **T3** `cargo test -p heddle-core --test tool_gateway` with the defaulted-body test written against
   a trait that had only `call` — **1 compile error**:
   - `error[E0599]: no method named list found for struct UnlistedTransport in the current scope` at
-    `crates/skein-core/tests/tool_gateway.rs:70:27`
-  - `error: could not compile skein-core (test "tool_gateway") due to 1 previous error`
+    `crates/heddle-core/tests/tool_gateway.rs:70:27`
+  - `error: could not compile heddle-core (test "tool_gateway") due to 1 previous error`
   - Green: **11 passed** where 10 had passed, with the ten unchanged — the proof that a defaulted
     method left all nine pre-existing `impl ToolTransport` sites compiling untouched.
 
-- **T4** `cargo test -p skein-core --test tool_gateway` with the three advertisement tests written
+- **T4** `cargo test -p heddle-core --test tool_gateway` with the three advertisement tests written
   against a gateway that had no such method — **3 compile errors**, one per new test:
   - `error[E0599]: no method named advertise found for struct ToolGateway<T> in the current scope`,
-    at `crates/skein-core/tests/tool_gateway.rs:127`, `:152` and `:171`
-  - `error: could not compile skein-core (test "tool_gateway") due to 3 previous errors`
+    at `crates/heddle-core/tests/tool_gateway.rs:127`, `:152` and `:171`
+  - `error: could not compile heddle-core (test "tool_gateway") due to 3 previous errors`
   - Green: **14 passed** where 11 had passed, with the eleven unchanged. `CountingTransport` gained
     an additive `catalogue` field and an `offering` constructor; no existing body moved.
 
-- **T5** `cargo test -p skein-core --test core` with the no-`tools`-key serialization test written
+- **T5** `cargo test -p heddle-core --test core` with the no-`tools`-key serialization test written
   against a two-field `TurnRequest` — **1 compile error**:
   - `error[E0560]: struct TurnRequest has no field named tools` at
-    `crates/skein-core/tests/core.rs:361:9`
-  - `error: could not compile skein-core (test "core") due to 1 previous error`
+    `crates/heddle-core/tests/core.rs:361:9`
+  - `error: could not compile heddle-core (test "core") due to 1 previous error`
   - Then a **second, behavioural red** once the field existed, because the test's byte-exact literal
     guessed serde's default externally-tagged enum shape for `Content` rather than reading it:
     `left: "…\"parts\":[{\"type\":\"text\",\"text\":\"hello\"}]…"` /
@@ -105,11 +105,11 @@ All on 2026-09-03.
     nothing else; `openai_compat.rs`'s byte-exact no-tools assertion is still green with an
     **unchanged body**, which is what D5's skip-when-empty exists to achieve.
 
-- **T6** `cargo test -p skein-core --test native_loop` with the four advertisement tests written
+- **T6** `cargo test -p heddle-core --test native_loop` with the four advertisement tests written
   against a `run` that never listed anything — **2 failed, 23 passed**:
   - `the_advertised_catalogue_reaches_every_turn_of_the_run` —
     `assertion left == right failed: once per run, not once per turn: the catalogue does not change
-    mid-run / left: 0 / right: 1`, at `crates/skein-core/tests/native_loop.rs:1131`
+    mid-run / left: 0 / right: 1`, at `crates/heddle-core/tests/native_loop.rs:1131`
   - `a_catalogue_that_cannot_be_read_ends_the_run_before_it_starts` — panicked at `:1163` on
     `expect_err("an inventory we could not read leaves the run's capabilities unknown")`: the run
     completed happily, because nothing had asked the transport anything.
@@ -121,22 +121,22 @@ All on 2026-09-03.
     dropped.
   - Green: **25 passed** where 21 had passed, with the twenty-one unchanged.
 
-- **T7** `cargo test -p skein-acp --test acp_session p4` before the override existed — **1 failed**,
+- **T7** `cargo test -p heddle-acp --test acp_session p4` before the override existed — **1 failed**,
   and the failure is the exact bug the plan called the slice's highest-risk line:
   - `assertion left == right failed: the inner transport's catalogue, in its own order / left: [] /
-    right: ["fs_read", "fs_list"]`, at `crates/skein-acp/tests/acp_session.rs:1118`
+    right: ["fs_read", "fs_list"]`, at `crates/heddle-acp/tests/acp_session.rs:1118`
   - Worth stating plainly: this red **compiled cleanly**. Inheriting a defaulted trait method is not
-    a compile error, so nothing but this test stands between the tree and a `skein acp-agent` that
-    silently advertises nothing while `skein chat` works.
+    a compile error, so nothing but this test stands between the tree and a `heddle acp-agent` that
+    silently advertises nothing while `heddle chat` works.
   - Green: **16 passed** where 15 had passed, with the fifteen unchanged. `CataloguedTransport` is a
     new double rather than a field on `CountingTransport`, so the three pre-existing permission
     tests stay controls.
 
-- **T8** `cargo test -p skein-gateway --test openai_compat advertised` before `ChatRequest` had the
+- **T8** `cargo test -p heddle-gateway --test openai_compat advertised` before `ChatRequest` had the
   field — **1 failed**, the client having silently dropped the whole array:
   - `left: "{\"model\":\"llama3.1\",\"messages\":[…],\"stream\":false}"` /
     `right: "…,\"stream\":false,\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"fs_read\",…}}]}"`,
-    at `crates/skein-gateway/tests/openai_compat.rs:256`
+    at `crates/heddle-gateway/tests/openai_compat.rs:256`
   - Green: **15 passed, 1 ignored** where 14 had passed, and
     `turn_sends_an_openai_chat_completions_request`'s byte-exact literal is **unchanged** — the
     control D5 exists to keep.
@@ -151,8 +151,8 @@ All on 2026-09-03.
 remote (the standing caveat of specs 004–014).
 
 - `cargo fmt --all -- --check` — clean. It was **not** clean on first ask: rustfmt rewrapped one
-  import in `crates/skein-core/tests/core.rs` and one iterator chain in
-  `crates/skein-acp/tests/acp_session.rs`. `cargo fmt --all` applied both; no logic moved.
+  import in `crates/heddle-core/tests/core.rs` and one iterator chain in
+  `crates/heddle-acp/tests/acp_session.rs`. `cargo fmt --all` applied both; no logic moved.
 - `cargo clippy --workspace --all-targets -- -D warnings` — clean, no warning on any of the six
   crates. `ToolPolicy::advertisable` takes `&[ToolSpec]` rather than `Vec<ToolSpec>` because it only
   reads.
@@ -172,13 +172,13 @@ remote (the standing caveat of specs 004–014).
 ## A build-graph hazard this slice ran into, recorded because it will recur
 
 `advertised_tools_are_sent_in_openais_function_shape` **passed** under
-`cargo test -p skein-gateway` and **failed** under `cargo test --workspace`, on nothing but the key
+`cargo test -p heddle-gateway` and **failed** under `cargo test --workspace`, on nothing but the key
 order inside the `parameters` schema — insertion order in the workspace build, sorted order in the
 single-crate build.
 
 The cause is the one slice 008 recorded under its risk R1 and verified as *"real, and inert"*:
 `agent-client-protocol` declares `serde_json = { features = ["preserve_order", …] }`, and **Cargo
-unifies features per build graph**. A graph containing `skein-acp` compiles `serde_json` with
+unifies features per build graph**. A graph containing `heddle-acp` compiles `serde_json` with
 `preserve_order`, so `Map` is an insertion-ordered `IndexMap`; a graph without it gets a sorted
 `BTreeMap`. Slice 008's note held only because no assertion in the tree depended on object ordering.
 A byte-exact assertion over a multi-key `serde_json::Value` is the first thing in the tree that does.
@@ -193,13 +193,13 @@ and this does not touch them.
 Two of slice 014's statements are false in the light of this, and are **left unedited** here rather
 than quietly corrected in a closed slice: `specs/014-ledger-redaction/spec.md:44` and `plan.md:137`
 both tell readers `preserve_order` is not enabled, and that Ledger payloads are therefore
-alphabetically keyed. In the shipped binary — `skein-cli` depends on `skein-acp` — it is enabled and
+alphabetically keyed. In the shipped binary — `heddle-cli` depends on `heddle-acp` — it is enabled and
 they are not. No behaviour is wrong; the prose is. Recorded as a discovery for review to consolidate,
 and put on the next-slice list below.
 
 ## Control diff (T9)
 
-`git diff dev --stat -- crates/skein-cli/ crates/skein-silo/ spikes/ .github/ rust-toolchain.toml` is
+`git diff dev --stat -- crates/heddle-cli/ crates/heddle-silo/ spikes/ .github/ rust-toolchain.toml` is
 **empty** — a genuinely empty control diff, where slice 014 had to declare one mechanical exception.
 `spikes/` is untouched (ADR-0004 D2), and so are `.github/` and `rust-toolchain.toml`.
 
@@ -207,7 +207,7 @@ Over the whole branch, **1167 insertions and 13 deletions** across 14 files, thr
 slice's spec artifacts. Every one of the 13 deletions is accounted for, and **not one is an
 assertion**:
 
-- five `use skein_core::{…}` import lines that grew a name and were rewrapped — in `tests/core.rs`,
+- five `use heddle_core::{…}` import lines that grew a name and were rewrapped — in `tests/core.rs`,
   `tests/native_loop.rs`, `tests/tool_gateway.rs`, `tests/acp_session.rs` and
   `tests/openai_compat.rs`;
 - one comment in `tests/openai_compat.rs`, corrected from *"This client advertises no tools"* to
@@ -226,7 +226,7 @@ else. That is what D5's skip-when-empty bought.
 **Zero new packages and zero new dependency edges — by construction, not by measurement.**
 `git diff dev -- Cargo.toml crates/*/Cargo.toml Cargo.lock` is **empty**: no manifest and no lockfile
 in the workspace changed, so the graph `cargo` resolves is the same graph it resolved on `dev`.
-Everything the slice needed — `serde`, `serde_json`, and the crates' existing edges to `skein-core` —
+Everything the slice needed — `serde`, `serde_json`, and the crates' existing edges to `heddle-core` —
 was already declared.
 
 No toolchain change and no new build prerequisite: no crate entered the graph, so nothing can have
@@ -254,8 +254,8 @@ Four, all recorded rather than absorbed:
    client writes and never reads — so `default` would be inert. `TurnRequest.tools` has both, because
    it *is* deserialized out of the Ledger and the default is what lets an old chain replay.
 4. **Four `TurnRequest` construction sites in the plan, three in the tree.** The plan's T5 names
-   *"`native_loop.rs`'s `run`, `crates/skein-acp/tests/acp_session.rs`, and
-   `crates/skein-gateway/tests/openai_compat.rs`'s `ask` helper"* as four; that list is three, and
+   *"`native_loop.rs`'s `run`, `crates/heddle-acp/tests/acp_session.rs`, and
+   `crates/heddle-gateway/tests/openai_compat.rs`'s `ask` helper"* as four; that list is three, and
    `grep` finds exactly those three literal constructions in the workspace. Nothing was missed —
    every other use of `TurnRequest` in the tree is by reference.
 
@@ -267,20 +267,20 @@ guard D4's placement instead of driving it.
 
 Deliberately not done, so no one helpfully does it. Identical to the spec's list, and in particular:
 
-- **Every part of slice 016** — `crates/skein-connectors`, `FsRoot`, the `fs` server, `--fs-root`,
-  and all `skein-cli` wiring. This slice ships advertisement machinery with **no caller in the
-  shipped binary**, exactly as slice 005 shipped the whole `ToolGateway` before `skein chat` existed.
+- **Every part of slice 016** — `crates/heddle-connectors`, `FsRoot`, the `fs` server, `--fs-root`,
+  and all `heddle-cli` wiring. This slice ships advertisement machinery with **no caller in the
+  shipped binary**, exactly as slice 005 shipped the whole `ToolGateway` before `heddle chat` existed.
   Both loop-running commands still carry `NoTools` and an empty policy, so `advertise` returns empty
   and no `tools` key is serialized anywhere.
 - **`git` and `shell` tools.** ADR-0004 D3's sixth item stays open for both.
 - **Deriving `ToolAccess` from MCP tool annotations**; **denying advertisement to an unapproved
   `Mutating` tool**; **`role: "tool"`/`tool_call_id` replay**; **`strict`, `tool_choice`, parallel
   tool calls, streaming**; **a new `StepKind`**; **per-turn re-listing**; **a `ToolCatalog` trait**.
-- **`crates/skein-cli/`, `crates/skein-silo/`, `spikes/`, `.github/`, `rust-toolchain.toml`** — all
+- **`crates/heddle-cli/`, `crates/heddle-silo/`, `spikes/`, `.github/`, `rust-toolchain.toml`** — all
   verified empty in the control diff above.
 
 ## Next slice (not this feature)
-- [ ] **the `fs` connector (slice 016)** — a new `crates/skein-connectors` holding a root-bounded
+- [ ] **the `fs` connector (slice 016)** — a new `crates/heddle-connectors` holding a root-bounded
       embedded rmcp filesystem server, opt-in via `--fs-root`, wired into both commands with named
       allowlists. This is what gives this slice a caller, and where the governed tool path is finally
       exercised against something real. ADR-0004 D3 closes for `fs` there and **remains open for

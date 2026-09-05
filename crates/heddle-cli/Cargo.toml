@@ -1,0 +1,41 @@
+[package]
+name = "heddle-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# No `lib` target: the CLI is the outermost layer and nothing may depend on it
+# (Constitution IV).
+[[bin]]
+name = "heddle"
+path = "src/main.rs"
+
+[dependencies]
+heddle-acp = { path = "../heddle-acp" }
+heddle-connectors = { path = "../heddle-connectors" }
+heddle-core = { path = "../heddle-core" }
+heddle-gateway = { path = "../heddle-gateway" }
+# Unconditional, and reached directly rather than through `heddle-connectors`:
+# `heddle sandbox prune` is not an MCP tool, and routing it through the tool crate
+# would hide a non-tool capability behind the tool boundary. The measured cost
+# off Windows is zero new third-party packages — this crate's only non-Windows
+# dependency is `sha2`, already in the graph.
+heddle-sandbox = { path = "../heddle-sandbox" }
+heddle-silo = { path = "../heddle-silo" }
+clap.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+# The acceptance criterion is a real ACP client driving the real binary as a
+# subprocess, so the test binary names the protocol crate deliberately. Product
+# code must not (FR-007).
+agent-client-protocol.workspace = true
+futures.workspace = true
+tempfile.workspace = true
+rusqlite.workspace = true
+# The acceptance tests point `--fs-root` at a real repository with real commits,
+# built here through `git2`. Product code in this crate must never see it: the
+# CLI reaches the connector only through `ToolTransport` and asks
+# `heddle_connectors::is_git_repository` whether a root is one.
+git2.workspace = true

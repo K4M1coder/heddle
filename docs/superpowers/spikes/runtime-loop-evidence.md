@@ -17,7 +17,7 @@ Test run: `cargo test` → **4 passed / 0 failed** (commit `712921b`). Reviewed 
 
 ## Adversarial review corrections (applied)
 
-- **C1/Option-C is NOT "FAIL by design".** ACP has a first-class extension mechanism (`_meta` on ~every type; `ExtRequest`/`ExtNotification` for `_`-prefixed methods — `agent-client-protocol-schema-1.4.0/src/v1/ext.rs`; goose already uses it for `_goose/unstable/session/update`). Correct claim: **raw model I/O is unavailable through *existing* workers but protocol-legal via extensions requiring worker cooperation.** This *strengthens* the decision: Skein's own ACP facade can publish full-fidelity evidence through `_meta`.
+- **C1/Option-C is NOT "FAIL by design".** ACP has a first-class extension mechanism (`_meta` on ~every type; `ExtRequest`/`ExtNotification` for `_`-prefixed methods — `agent-client-protocol-schema-1.4.0/src/v1/ext.rs`; goose already uses it for `_goose/unstable/session/update`). Correct claim: **raw model I/O is unavailable through *existing* workers but protocol-legal via extensions requiring worker cooperation.** This *strengthens* the decision: Heddle's own ACP facade can publish full-fidelity evidence through `_meta`.
 - **C3 is PARTIAL** (send-phase cancellation proven; body/tool cancel points are production follow-up).
 - **C1 request-side & C4 wording softened** ("exact pre-serialization payload", "Ledger-shaped in-memory") to match what the tests actually prove. Headers (auth) are not captured; one `received_requests()` byte assertion would close the request-side gap.
 
@@ -27,8 +27,8 @@ The published `goose-sdk 0.1.0-alpha.1` is **not an embeddable agent runtime**: 
 
 ## Decision
 
-1. **Skein's governed execution tier = Option A: native Skein-owned loop.** It is the only option satisfying C1 (byte-exact Ledger capture, design §4.11) — which is non-negotiable for the transparency/reversibility promise.
-2. **Adopt ACP as Skein's client↔core boundary.** The ACP schema (message/thought/tool-call/plan updates, permission requests, cancellation, session ids) is almost exactly Skein's event contract; exposing the native loop *through* ACP buys free interop (Zed, goose clients) — consistent with the landscape recommendation.
+1. **Heddle's governed execution tier = Option A: native Heddle-owned loop.** It is the only option satisfying C1 (byte-exact Ledger capture, design §4.11) — which is non-negotiable for the transparency/reversibility promise.
+2. **Adopt ACP as Heddle's client↔core boundary.** The ACP schema (message/thought/tool-call/plan updates, permission requests, cancellation, session ids) is almost exactly Heddle's event contract; exposing the native loop *through* ACP buys free interop (Zed, goose clients) — consistent with the landscape recommendation.
 3. **External ACP agents (goose acp, OpenCode, …) = reduced-assurance workers** (QUALITY-GATES G5 class): C2–C4 governable; C1 **unavailable absent worker cooperation** (a worker that emits raw model I/O via `_meta`/ext could raise its assurance) → by default their runs carry a typed unavailable-evidence marker, never full Ledger fidelity.
 
 ## Consequences for ADR-0003

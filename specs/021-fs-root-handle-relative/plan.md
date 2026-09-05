@@ -59,9 +59,9 @@ measurements:
 1. **The Win32 layer cannot express it.** `CreateFileW` has no `RootDirectory` parameter.
    Handle-relative opens on Windows require `NtCreateFile` with `OBJECT_ATTRIBUTES.RootDirectory`,
    i.e. the `Wdk_*` feature set of `windows-sys` — a strictly lower layer than the six
-   `Win32_*` features `skein-sandbox` uses. "We already do Win32 FFI here" does not transfer.
-2. **It would put `unsafe` in `skein-connectors`**, breaking the tree's recorded boundary that
-   `skein-sandbox` holds every `unsafe` block in the product — and breaking it in the crate that
+   `Win32_*` features `heddle-sandbox` uses. "We already do Win32 FFI here" does not transfer.
+2. **It would put `unsafe` in `heddle-connectors`**, breaking the tree's recorded boundary that
+   `heddle-sandbox` holds every `unsafe` block in the product — and breaking it in the crate that
    serves model-supplied paths.
 3. **It would need two containment implementations** (`NtCreateFile` and `openat`) where the project
    deliberately has one with no `#[cfg]` in it.
@@ -88,7 +88,7 @@ property the product had claimed. This is the second shape.
 `open_file`, `create_file` and `read_dir`, each with exactly one current caller, plus a private
 `explain`. `resolve_new` is deleted (`fs_write` was its only caller); `resolve` is kept because
 `run::resolve_exe` needs a `PathBuf` for `CreateProcessW`, and its docstring now names that single
-caller and the residual it still carries. No `cap_std` type appears in `skein-core` or in any
+caller and the residual it still carries. No `cap_std` type appears in `heddle-core` or in any
 `ToolTransport` signature (Principle IV, VII).
 
 ### D3 — the error discriminator, and why it is pinned by a test
@@ -135,7 +135,7 @@ would be indistinguishable from the regression it prevents.
   after the change. `SetNamedSecurityInfoW` opens the directory for `WRITE_DAC` separately and is
   compatible with the `Dir` handle's sharing mode. The prepared fallback — opening the `Dir` per
   call — was not needed and was not taken.
-- **Risk 2 — the root can no longer be renamed or deleted while skein runs.** Real, measured
+- **Risk 2 — the root can no longer be renamed or deleted while heddle runs.** Real, measured
   (`os error 32`), and intended. Stated in `spec.md`'s *"What this slice changes for a user"*.
 - **Risk 3 — `explain` depends on a dependency's internal detail.** Mitigated by D3's test.
 - **Risk 4 — dependency footprint drift.** The three `windows-sys` majors come from

@@ -5,8 +5,8 @@ TDD (red→green), branch `027-cancel-tool-call`, fast-forwarded onto `dev` at `
 
 ## Constitution Check (ADR-0004 D1 solo-v0 bar)
 
-- **I Headless core** ✅ no new command, no new flag, no new argument, no output change. `skein chat`
-  is behaviourally identical — it passes a flag nobody holds a second reference to. `skein ledger
+- **I Headless core** ✅ no new command, no new flag, no new argument, no output change. `heddle chat`
+  is behaviourally identical — it passes a flag nobody holds a second reference to. `heddle ledger
   log`/`show`/`verify` render a cancelled run's chain with zero CLI change, read back from a live
   one below.
 - **II Local-first** ✅ no new dependency, no `Cargo.toml` change, no socket, no second process. The
@@ -16,9 +16,9 @@ TDD (red→green), branch `027-cancel-tool-call`, fast-forwarded onto `dev` at `
   red D is a second compile absence at the port that had to change. **Red E is the slice's most
   important measurement**: with two `Arc`s at the composition root every assertion but the clock
   still passes, and the run takes 30.80 s instead of 0.26 s.
-- **IV Inverted coupling** ✅ `skein-core` is **untouched**. `ToolTransport` is not widened; no port
+- **IV Inverted coupling** ✅ `heddle-core` is **untouched**. `ToolTransport` is not widened; no port
   gains a method. The flag travels as a parameter through the crates that already depend on one
-  another, and `skein-sandbox` learns only that a caller may want its child to stop — it does not
+  another, and `heddle-sandbox` learns only that a caller may want its child to stop — it does not
   name ACP, a session, or cancellation-as-a-protocol.
 - **V Traceability** ✅ the cancelled tool call lands on the chain as an ordinary `ToolResult` whose
   payload is the refusal the model was shown, verbatim, and the run's chain verifies. No `StepKind`,
@@ -47,22 +47,22 @@ TDD (red→green), branch `027-cancel-tool-call`, fast-forwarded onto `dev` at `
       command **pinned by measurement** and three rejected candidates recorded with their failures
 - [x] **S2** controls — the timeout still fires, still says so, and does not say cancelled; and a run
       spanning many poll slices still returns its real exit code. See *Deviations* 1
-- [x] **S3** GREEN — `skein-sandbox`: `POLL_SLICE`, the `terminate` helper, the polling `wait`,
+- [x] **S3** GREEN — `heddle-sandbox`: `POLL_SLICE`, the `terminate` helper, the polling `wait`,
       `Sandbox::run`'s parameter on both platform arms
 - [x] **S4** RED-by-revert — the cancellation check removed from the loop (red B), restored
 - [x] **S5** RED — `proc_run` must stop on the flag its server was built with (red C, by sabotage —
       see *Deviations* 2)
-- [x] **S6** GREEN — `skein-connectors`: the `Launcher` struct, and the parameter on `run::execute`,
+- [x] **S6** GREEN — `heddle-connectors`: the `Launcher` struct, and the parameter on `run::execute`,
       `EmbeddedServer::with_run` and `local_connector_with_run`
 - [x] **S7** RED — a session must obey the flag its **caller** supplied (red D)
-- [x] **S8** GREEN — `skein-acp`: `SessionParts.cancelled`; `SkeinSession::new` stops minting one.
+- [x] **S8** GREEN — `heddle-acp`: `SessionParts.cancelled`; `HeddleSession::new` stops minting one.
       `a7`, `a13` and `x1` **unmodified** beyond the new field
-- [x] **S9** GREEN — `skein-cli`: `ToolArgs::transport`'s parameter; `chat.rs`'s never-set flag;
+- [x] **S9** GREEN — `heddle-cli`: `ToolArgs::transport`'s parameter; `chat.rs`'s never-set flag;
       `acp.rs`'s one-per-session mint handed to both the session and the transport
 - [x] **S10** RED-by-sabotage — two different `Arc`s wired in `acp.rs` (red E), restored. **Not
       skipped**: it is the test that proves the wiring test tests the wiring
 - [x] **S11** live hand-verification — **part of this run**, against the real Ollama, the real
-      binary, and real process death read from outside Skein
+      binary, and real process death read from outside Heddle
 - [x] **S12** close-out
 
 ## Control baseline (S0)
@@ -78,11 +78,11 @@ Measured on this worktree immediately after the fast-forward to `ac37966`, befor
 ## The command this slice runs, and the three it cannot (S1)
 
 Every candidate was launched in the real fixture under a 2 s bound. These are measurements, not
-assumptions, and they are recorded in `crates/skein-sandbox/tests/cancel.rs`'s module docstring:
+assumptions, and they are recorded in `crates/heddle-sandbox/tests/cancel.rs`'s module docstring:
 
 | candidate | measured |
 |---|---|
-| `waitfor.exe /t 30 SkeinCancelProbe` | exit 1 in **24.8 ms** — *"impossible d'attendre le signal spécifié"*: it needs a named kernel object an AppContainer with zero capability SIDs cannot create |
+| `waitfor.exe /t 30 HeddleCancelProbe` | exit 1 in **24.8 ms** — *"impossible d'attendre le signal spécifié"*: it needs a named kernel object an AppContainer with zero capability SIDs cannot create |
 | `timeout.exe /t 30` | exit 1 in **28.7 ms** — *"la redirection de l'entrée n'est pas prise en charge"*: every stream here is a pipe |
 | `ping.exe -n 30 127.0.0.1` | exit 1 in **28.5 ms** — *"Impossible de contacter le pilote IP"*: ICMP is capability-gated exactly as TCP is |
 | `cmd.exe /c cmd.exe /c for /l %i in (1,1,2000000000) do @rem` | **still running at 2.0148 s**, terminated by the bound |
@@ -97,7 +97,7 @@ middle two reproduce, independently, the two rejections slice 019 recorded in pr
 
 ```
 error[E0061]: this method takes 4 arguments but 5 arguments were supplied
-   --> crates\skein-sandbox\tests\cancel.rs:108:10
+   --> crates\heddle-sandbox\tests\cancel.rs:108:10
     |
 108 |         .run(&system32("cmd.exe"), &forever(), 16 * 1024, GENEROUS, &cancelled)
     |          ^^^                                                        ---------- unexpected argument #5 of type `&Arc<Atomic<bool>>`
@@ -109,7 +109,7 @@ The finished implementation with **only** the two-line `cancelled.load(…)` gua
 `wait`'s loop:
 
 ```
-thread 'a_flag_set_while_a_child_runs_kills_it_long_before_its_timeout' (22052) panicked at crates\skein-sandbox\tests\cancel.rs:99:5:
+thread 'a_flag_set_while_a_child_runs_kills_it_long_before_its_timeout' (22052) panicked at crates\heddle-sandbox\tests\cancel.rs:99:5:
 the refusal must name the cancellation so the model is not told it timed out: the run exceeded the 20s limit and was terminated
 
 test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.64s
@@ -123,7 +123,7 @@ exactly the decision, and the wall clock is what shows it.
 `crate::run::execute` handed `&AtomicBool::new(false)` instead of `&launcher.cancelled`:
 
 ```
-thread 'a_flag_set_while_proc_run_is_executing_ends_it_with_a_named_refusal' (42448) panicked at crates\skein-connectors\tests\run_server.rs:348:5:
+thread 'a_flag_set_while_proc_run_is_executing_ends_it_with_a_named_refusal' (42448) panicked at crates\heddle-connectors\tests\run_server.rs:348:5:
 the model must be told which of the two bounds stopped it: the run exceeded the 30s limit and was terminated
 
 test result: FAILED. 10 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.32s
@@ -135,7 +135,7 @@ test result: FAILED. 10 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out;
 
 ```
 error[E0560]: struct `SessionParts<ScriptedModel, StaticProbe, CountingTransport>` has no field named `cancelled`
-    --> crates\skein-acp\tests\acp_session.rs:1389:13
+    --> crates\heddle-acp\tests\acp_session.rs:1389:13
 ```
 
 ### Red E — two `Arc`s at the composition root (S10)
@@ -143,7 +143,7 @@ error[E0560]: struct `SessionParts<ScriptedModel, StaticProbe, CountingTransport
 `acp.rs` handing `tools.transport` a **freshly minted** flag instead of `cancelled.clone()`:
 
 ```
-thread 'acp_agent_cancelling_a_proc_run_kills_it_without_waiting_for_its_timeout' (48196) panicked at crates\skein-cli\tests\cli_acp_agent.rs:1741:5:
+thread 'acp_agent_cancelling_a_proc_run_kills_it_without_waiting_for_its_timeout' (48196) panicked at crates\heddle-cli\tests\cli_acp_agent.rs:1741:5:
 the child must die on the flag and not on its own 30s clock; the prompt took 30.8012074s
 
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.89s
@@ -159,19 +159,19 @@ there, because the sabotaged run of the very same test waits for that process's 
 
 ## Live verification (S11)
 
-`2026-09-04T06:36:19Z` — `2026-09-04T06:37:11Z`. The real `target/debug/skein.exe acp-agent
+`2026-09-04T06:36:19Z` — `2026-09-04T06:37:11Z`. The real `target/debug/heddle.exe acp-agent
 --allow-run` spawned as a subprocess and driven over its actual stdio with newline-delimited
 JSON-RPC, against the real `gemma4:latest` on `http://localhost:11434/v1`. The model — not a stub —
-chose the tool call. Process liveness read with `Get-CimInstance Win32_Process`, from outside Skein
-entirely, so the ground truth for the death is the OS process table and not Skein's report of it:
+chose the tool call. Process liveness read with `Get-CimInstance Win32_Process`, from outside Heddle
+entirely, so the ground truth for the death is the OS process table and not Heddle's report of it:
 
 ```
   stderr: serving acp on stdio: silo live027 at http://localhost:11434/v1
-[  3.50s] session = skein-1
+[  3.50s] session = heddle-1
 [ 12.24s] sandboxed children before the prompt: []
 [ 12.24s] ==> session/prompt sent
 [ 47.88s] <== session/request_permission for proc_run
-[ 47.88s] ==> permission answered skein.allow-once
+[ 47.88s] ==> permission answered heddle.allow-once
 [ 48.01s] LIVE sandboxed children (Get-CimInstance): [70152]
 [ 48.01s] ==> session/cancel sent
 [ 48.07s] <== session/prompt RESPONSE {'stopReason': 'cancelled'}
@@ -194,20 +194,20 @@ would read.
 The chain that run left, read back by a second process:
 
 ```
-> skein ledger log --root … --silo live027 --run "skein-1#1"
-skein-1#1  0  iteration_boundary  1d470fb7…
-skein-1#1  1  llm_request         d555fc1c…
-skein-1#1  2  wire_exchange       f82c7cbf…
-skein-1#1  3  llm_response        7353d34d…
-skein-1#1  4  budget_spent        63b40694…
-skein-1#1  5  tool_call           3a950aa0…
-skein-1#1  6  approval            5e909e57…
-skein-1#1  7  tool_result         34fb4dbf…
-skein-1#1  8  iteration_boundary  af2e359b…
-skein-1#1  9  llm_request         37985103…
+> heddle ledger log --root … --silo live027 --run "heddle-1#1"
+heddle-1#1  0  iteration_boundary  1d470fb7…
+heddle-1#1  1  llm_request         d555fc1c…
+heddle-1#1  2  wire_exchange       f82c7cbf…
+heddle-1#1  3  llm_response        7353d34d…
+heddle-1#1  4  budget_spent        63b40694…
+heddle-1#1  5  tool_call           3a950aa0…
+heddle-1#1  6  approval            5e909e57…
+heddle-1#1  7  tool_result         34fb4dbf…
+heddle-1#1  8  iteration_boundary  af2e359b…
+heddle-1#1  9  llm_request         37985103…
 
-> skein ledger verify --root … --silo live027
-skein-1#1  ok  10 steps
+> heddle ledger verify --root … --silo live027
+heddle-1#1  ok  10 steps
 ```
 
 Ten steps, verifying, and the shape is the whole story: the tool was called, approved and produced a
@@ -225,7 +225,7 @@ Not a timeout, not a truncated success: the cancellation, in the model's own tra
 the run survived long enough to record.
 
 The AppContainer profile the live run created was pruned afterwards
-(`skein sandbox prune --profile skein-4cdf2719554d0231` → `revoked … / deleted profile`), leaving no
+(`heddle sandbox prune --profile heddle-4cdf2719554d0231` → `revoked … / deleted profile`), leaving no
 machine state behind.
 
 ## Final gates
@@ -239,14 +239,14 @@ machine state behind.
 ## Deviations
 
 1. **The run order said slice 019 never wrote a timeout-path control test. It did.**
-   `the_job_object_kills_the_tree_when_the_clock_runs_out` (`skein-sandbox/tests/escape.rs:158`)
+   `the_job_object_kills_the_tree_when_the_clock_runs_out` (`heddle-sandbox/tests/escape.rs:158`)
    proves the tree dies on the clock, and it names two of the three rejected long-running commands in
    prose. The code decided: it was kept, unmodified apart from the new argument, and S2 wrote the two
    controls that genuinely were missing and that **D2's loop is what puts at risk** — that the
    timeout still says *timeout* and not *cancelled*, that a sliced wait does not expire on its first
    slice, and that a run outliving many slices still returns its real exit code through the loop's
    normal exit.
-2. **Red C was obtained by sabotage rather than as a compile absence.** `skein-connectors`' library
+2. **Red C was obtained by sabotage rather than as a compile absence.** `heddle-connectors`' library
    had to compile before its test target could be built at all, so a pure absence there would have
    been the same error red A already recorded, one crate along. Sabotaging the wiring inside
    `proc_run` produces a *behavioural* red at that layer instead, which is strictly more informative
@@ -272,5 +272,5 @@ machine state behind.
   starts a process and kills it one poll slice later.
 - **50 ms of latency** between the `store` and the `TerminateProcess`, by construction. D2 records
   the rejected `WaitForMultipleObjects` that would remove it and what it would cost.
-- **`skein chat` has no cancellation surface**, unchanged from slice 026's boundary.
+- **`heddle chat` has no cancellation surface**, unchanged from slice 026's boundary.
 - **The five non-process tools cannot be cancelled**, and nothing has been built as if they could.

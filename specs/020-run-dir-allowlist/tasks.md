@@ -4,9 +4,9 @@
 TDD (red→green), branch `020-run-dir-allowlist` cut from `dev` at `09d61f8`.
 
 ## Constitution Check (ADR-0004 D1 solo-v0 bar)
-- I Headless core ✅ no CLI of its own; `skein acp-agent` gains one repeatable flag and stays the
+- I Headless core ✅ no CLI of its own; `heddle acp-agent` gains one repeatable flag and stays the
   authoritative client. The rule that decides which executable a `command` may name stays in
-  `skein-connectors`, and the ACL grant stays in `skein-sandbox` · II Local-first ✅ NON-NEGOTIABLE
+  `heddle-connectors`, and the ACL grant stays in `heddle-sandbox` · II Local-first ✅ NON-NEGOTIABLE
   and untouched: the AppContainer profile still carries zero capability SIDs and the launch still
   passes `CapabilityCount: 0`, so WFP has no permit filter to match on. A run directory is granted
   read and execute; nothing about the network changes, and slice 019's loopback gate with its
@@ -17,10 +17,10 @@ TDD (red→green), branch `020-run-dir-allowlist` cut from `dev` at `09d61f8`.
   had none because T3's green is the mechanism they exercise, so each carries an **in-test
   ungranted control** plus a measured counterfactual instead — which is a stronger guarantee than a
   red, because it keeps working after the fact
-- IV Inverted coupling ✅ `skein-core` gains nothing and depends on nothing new. `skein-sandbox`
-  remains a leaf depending on no Skein crate; `skein-connectors` still reaches it through one
+- IV Inverted coupling ✅ `heddle-core` gains nothing and depends on nothing new. `heddle-sandbox`
+  remains a leaf depending on no Heddle crate; `heddle-connectors` still reaches it through one
   `#[cfg]`-gated module with no type of the dependency in any public signature. `RunDirs` lives in
-  `skein-connectors` because it must exist on all three platforms, and `Sandbox` takes it as
+  `heddle-connectors` because it must exist on all three platforms, and `Sandbox` takes it as
   `&[PathBuf]`
 - V Traceability ✅ unchanged machinery, unchanged shape: a `proc_run` call still lands `ToolCall` →
   `Approval` → `ToolResult` on the chain. No new `StepKind`, no change to `ToolGateway`,
@@ -40,9 +40,9 @@ TDD (red→green), branch `020-run-dir-allowlist` cut from `dev` at `09d61f8`.
   ADR-0006's scope.** ADR-0006 authorizes shipping `shell` on one OS first; the Constitution's "no
   OS-specific call without `#[cfg]` + an equivalent" is met on the `#[cfg]` and **not** on the
   equivalent, which is deferred to a Linux (Landlock) and a macOS (Seatbelt) slice each. On the
-  macOS and Linux CI legs `skein-sandbox` still compiles to a crate whose only reachable behaviour
+  macOS and Linux CI legs `heddle-sandbox` still compiles to a crate whose only reachable behaviour
   is a loud refusal, `proc_run` is still absent from every catalogue, and `RunDirs` compiles there
-  because it is plain path validation in `skein-connectors` rather than anything Win32.
+  because it is plain path validation in `heddle-connectors` rather than anything Win32.
 
 ## Tasks
 - [x] **T0** `specs/020-run-dir-allowlist/{spec.md,plan.md,tasks.md}`; branch
@@ -74,7 +74,7 @@ On `020-run-dir-allowlist` @ `09d61f8`, working tree clean, Windows 11 Pro 10.0.
   `fs_server` 7, `git_root` 5, `git_server` 13, `governed_fs_run` 4 (+1 ignored), `governed_git_run`
   4 (+1 ignored), `governed_proc_run` 0 (+1 ignored), `run_server` 7, `core` 19, `native_loop` 25,
   `tool_gateway` 14, `governed_run` 2, `openai_compat` 15 (+1 ignored), `rmcp_gateway` 9,
-  `skein-sandbox` `src/lib.rs` unit target 4 (`argv`), `escape` 3, `launch` 3, `profile` 2,
+  `heddle-sandbox` `src/lib.rs` unit target 4 (`argv`), `escape` 3, `launch` 3, `profile` 2,
   `silo_ledger` 7, `silo_secret` 5. Every other `src/lib.rs` and `src/main.rs` unit target reports 0.
 
 Slice 019's close records 193 at `b82f37a`, before its own tests landed; the delta of +24 is slice
@@ -82,11 +82,11 @@ Slice 019's close records 193 at `b82f37a`, before its own tests landed; the del
 
 ## Observed red
 
-**T3** — `cargo test -p skein-sandbox --test profile`, the one new test:
+**T3** — `cargo test -p heddle-sandbox --test profile`, the one new test:
 
 ```
 thread 'a_run_dir_is_granted_read_and_execute_and_the_root_is_not' panicked at
-crates\skein-sandbox\tests\profile.rs:185:5:
+crates\heddle-sandbox\tests\profile.rs:185:5:
 the run directory's DACL must name the AppContainer SID at all, got
 [("S-1-5-21-1203453866-3760803099-1050353712-1008", 1245631),
  ("S-1-5-21-1411561155-2461164688-2535433281-4238526846", 1245631),
@@ -102,10 +102,10 @@ the two users, SYSTEM, Administrators and the owner, at `0x1301FF` and `0x1F01FF
 
 One **stated deviation** from the plan's control diff, made to get this red at all: the test needs
 `FILE_GENERIC_READ`, `FILE_READ_DATA`, `WRITE_DAC` and their neighbours, which live behind the
-`windows` crate's `Win32_Storage_FileSystem` feature. That feature was added to `skein-sandbox`'s
+`windows` crate's `Win32_Storage_FileSystem` feature. That feature was added to `heddle-sandbox`'s
 existing `[target.'cfg(windows)'.dev-dependencies]` `windows` entry, beside the `Win32_UI_Shell` the
 argv oracle already needs. **No product dependency and no product feature changed** — the plan's
-"`skein-sandbox`'s dependency set is untouched" holds for `[dependencies]`. The rejected alternative
+"`heddle-sandbox`'s dependency set is untouched" holds for `[dependencies]`. The rejected alternative
 was hand-copied hex constants in a security test, which is exactly the kind of second source of
 truth this codebase refuses.
 
@@ -143,11 +143,11 @@ test result: FAILED. 0 passed; 1 failed
 `profile.rs` reads the absent write bit off the descriptor; this reads it off the filesystem. Two
 independent proofs of one claim, which is what `escape.rs` already documents about itself.
 
-**T6** — `cargo test -p skein-connectors --test run_server`, the two new resolution tests:
+**T6** — `cargo test -p heddle-connectors --test run_server`, the two new resolution tests:
 
 ```
 thread 'a_bare_name_in_an_allowlisted_run_dir_resolves_and_runs' panicked at
-crates\skein-connectors\tests\run_server.rs:207:10:
+crates\heddle-connectors\tests\run_server.rs:207:10:
 a bare name in a named run directory is not a refusal: "toolchain.exe is in neither
 C:\windows\System32 nor C:\windows; %PATH% is deliberately not searched, so name an executable in
 one of those two directories or a path relative to the configured root"
@@ -163,11 +163,11 @@ After the green, `a_command_that_resolves_nowhere_names_both_places_it_looked` s
 assertion text **byte-identical**: it pins `System32` and `PATH`, both of which the new enumerating
 message carries. FR-012's stop condition never fired.
 
-**T7** — `cargo test -p skein-connectors --test connector`:
+**T7** — `cargo test -p heddle-connectors --test connector`:
 
 ```
 thread 'the_advertised_description_names_the_allowlisted_directories' panicked at
-crates\skein-connectors\tests\connector.rs:380:5:
+crates\heddle-connectors\tests\connector.rs:380:5:
 a model cannot ask for what it is not told it can reach: Run one program inside a Windows sandbox
 over the configured root, … Each output stream is truncated at 16384 bytes with a note saying how
 much was dropped.
@@ -178,13 +178,13 @@ The static `#[tool(description = …)]` string, reaching the model unchanged —
 point of the step. rmcp 2.2.0's `ToolRouter::map` and `ToolRoute::attr` are `pub` as the plan's fact
 12 records, and mutating an already-registered route's description worked first time.
 
-**T8** — `cargo test -p skein-cli --test cli_acp_agent run_dir`, all three:
+**T8** — `cargo test -p heddle-cli --test cli_acp_agent run_dir`, all three:
 
 ```
 thread 'run_dir_without_allow_run_is_an_exit_code_naming_both_flags' panicked at
-crates\skein-cli\tests\cli_acp_agent.rs:1369:5:
+crates\heddle-cli\tests\cli_acp_agent.rs:1369:5:
 the refusal must name both flags: error: unexpected argument '--run-dir' found
-Usage: skein acp-agent --silo <ID> --model <NAME> --root <PATH> --fs-root <PATH>
+Usage: heddle acp-agent --silo <ID> --model <NAME> --root <PATH> --fs-root <PATH>
 test result: FAILED. 0 passed; 3 failed
 ```
 
@@ -295,12 +295,12 @@ On `020-run-dir-allowlist`, working tree clean:
   `a_live_model_runs_a_real_toolchain_binary`.
 - **No pre-existing assertion's text changed.** FR-012's stop condition never fired. Only
   constructor spellings moved, at T2.
-- **Control diff empty** for `crates/skein-silo/`, `crates/skein-core/`, `crates/skein-gateway/`,
-  `crates/skein-mcp/`, `spikes/`, `.github/` and `rust-toolchain.toml` — verified with
+- **Control diff empty** for `crates/heddle-silo/`, `crates/heddle-core/`, `crates/heddle-gateway/`,
+  `crates/heddle-mcp/`, `spikes/`, `.github/` and `rust-toolchain.toml` — verified with
   `git diff --stat 09d61f8 -- …`, which produces no output.
 - **`Cargo.lock` is untouched.** Two manifests changed, both dev-only and both stated:
-  `crates/skein-connectors/Cargo.toml` gains `skein-silo` under `[dev-dependencies]` (the plan's one
-  named exception), and `crates/skein-sandbox/Cargo.toml` adds the `Win32_Storage_FileSystem`
+  `crates/heddle-connectors/Cargo.toml` gains `heddle-silo` under `[dev-dependencies]` (the plan's one
+  named exception), and `crates/heddle-sandbox/Cargo.toml` adds the `Win32_Storage_FileSystem`
   feature to its existing dev-only `windows` entry (T3's recorded deviation). **No product
   dependency and no product feature changed anywhere**, and no new `unsafe` block was added — the
   mask parameter reuses `grant`'s existing one.
@@ -316,24 +316,24 @@ Target: `D:\Users\cthedrez\.rustup\toolchains\1.97-x86_64-pc-windows-msvc\bin`, 
 grant succeeds **without elevation**; it holds the real `cargo.exe` and `rustc.exe` plus the
 `rustc_driver-*.dll` and `std-*.dll` they load, all in the one directory one inheritable ACE covers;
 and `cargo --version` was measured to exit 0 under the sandbox's exact five-variable environment
-block. `node --version` is the documented fallback and needs an **elevated** skein, because
+block. `node --version` is the documented fallback and needs an **elevated** heddle, because
 `C:\Program Files\nodejs` is owned by SYSTEM and carries no AppContainer ACE. `~\.cargo\bin` is
 deliberately not the target: it holds the rustup **shim**, which re-executes the real cargo under a
 toolchain `bin`.
 
 ```powershell
-$env:SKEIN_LIVE_MODEL     = "gemma4:latest"   # or whatever `ollama list` actually offers
-$env:SKEIN_LIVE_RUN_DIR   = "D:\Users\cthedrez\.rustup\toolchains\1.97-x86_64-pc-windows-msvc\bin"
-$env:SKEIN_LIVE_SILO_ROOT = "$env:TEMP\skein-live-020"
-cargo test -p skein-connectors --test governed_proc_run -- --ignored --nocapture
-skein ledger log  --root $env:SKEIN_LIVE_SILO_ROOT --silo live020
-skein ledger show --root $env:SKEIN_LIVE_SILO_ROOT --silo live020 <the ToolResult step id>
+$env:HEDDLE_LIVE_MODEL     = "gemma4:latest"   # or whatever `ollama list` actually offers
+$env:HEDDLE_LIVE_RUN_DIR   = "D:\Users\cthedrez\.rustup\toolchains\1.97-x86_64-pc-windows-msvc\bin"
+$env:HEDDLE_LIVE_SILO_ROOT = "$env:TEMP\heddle-live-020"
+cargo test -p heddle-connectors --test governed_proc_run -- --ignored --nocapture
+heddle ledger log  --root $env:HEDDLE_LIVE_SILO_ROOT --silo live020
+heddle ledger show --root $env:HEDDLE_LIVE_SILO_ROOT --silo live020 <the ToolResult step id>
 ```
 
 Pass condition: the model chose `proc_run` with `{"command":"cargo","args":["--version"]}` (or
 `cargo.exe`), the chain carries `ToolCall` → `Approval {decision: allowed}` → `ToolResult`, and that
 `ToolResult` payload contains a real `cargo 1.97.…` line produced by a real `CreateProcessW` inside
-the AppContainer. The `skein ledger show` output for that step is the evidence to paste here.
+the AppContainer. The `heddle ledger show` output for that step is the evidence to paste here.
 
 If the model declines to call the tool, that is a model-selection finding and not a defect — slice
 019's live section says so and this one inherits the wording.
@@ -351,10 +351,10 @@ picked up by the advertisement's appended sentence naming the allowlisted direct
 read back in a second process:
 
 ```
-$ skein ledger verify --root $env:TEMP\skein-live-020 --silo live020
+$ heddle ledger verify --root $env:TEMP\heddle-live-020 --silo live020
 run-live-020    ok      12 steps
 
-$ skein ledger show --root $env:TEMP\skein-live-020 --silo live020 3b0b50605c884ea9650139f70137869cb9720fc86510e72fd6f5d6cd3eebe2a5
+$ heddle ledger show --root $env:TEMP\heddle-live-020 --silo live020 3b0b50605c884ea9650139f70137869cb9720fc86510e72fd6f5d6cd3eebe2a5
 id      3b0b50605c884ea9650139f70137869cb9720fc86510e72fd6f5d6cd3eebe2a5
 parent  55e6137c3365136d10f3fde20030d80073dac7fa675ccb07d06d5a0611f3ea83
 run     run-live-020

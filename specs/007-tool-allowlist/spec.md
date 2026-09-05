@@ -19,7 +19,7 @@ As an operator, a tool I never classified at all is refused, not admitted by omi
 **Acceptance:**
 1. **Given** a name absent from the allowlist and absent from any mutating classification,
    **When** it is called through the gateway, **Then** the call returns
-   `SkeinError::ToolDenied`, the transport is never invoked, the run's kinds are exactly
+   `HeddleError::ToolDenied`, the transport is never invoked, the run's kinds are exactly
    `[ToolCall, Approval]`, the `Approval` payload records `"denied"`, and `verify_chain` passes.
 2. **Given** the same against a **live** embedded MCP server that really exposes the tool,
    **When** it is called, **Then** the server's own invocation counter stays at 0.
@@ -56,7 +56,7 @@ crashed run.
 ## Requirements
 - **FR-001**: `ToolPolicy` MUST deny any tool name not explicitly allowlisted, before any
   mutation consideration (Constitution VI).
-- **FR-002**: The denial MUST reuse `SkeinError::ToolDenied` and the existing
+- **FR-002**: The denial MUST reuse `HeddleError::ToolDenied` and the existing
   `[ToolCall, Approval]` Ledger shape — no second denial mechanism and no new `StepKind`
   (Constitution V).
 - **FR-003**: The mutating/approved distinction MUST still govern mutation *within* the
@@ -72,7 +72,7 @@ crashed run.
 - **SC-002**: The allowlist denial is proven against a live embedded rmcp server for a tool the
   server really implements — the server's own counter is the ground truth.
 - **SC-003**: `git diff dev` on every `Cargo.toml` in the repository is empty.
-- **SC-004**: `git diff dev` on `crates/skein-core/src/native_loop.rs`, `src/loop_ctl.rs`,
+- **SC-004**: `git diff dev` on `crates/heddle-core/src/native_loop.rs`, `src/loop_ctl.rs`,
   `src/ledger.rs` and `src/error.rs` is empty, and the diff in the three test files is confined
   to helper functions plus added tests — no pre-existing test *body* changes, so they remain
   controls.

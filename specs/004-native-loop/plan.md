@@ -3,11 +3,11 @@
 **Branch**: `004-native-loop` | **Date**: 2026-09-03 | **Spec**: `specs/004-native-loop/spec.md`
 
 ## Summary
-Compose the four inert modules of `skein-core` into a running loop. Add the provider port
+Compose the four inert modules of `heddle-core` into a running loop. Add the provider port
 (`ModelClient` + `TurnRequest`/`TurnResponse`) and the runner (`NativeLoop`, `ProgressProbe`,
 `LoopRun`) that drives turns until `LoopController` says stop, writing every turn into the
 hash-chained `Ledger`. This promotes the *design* validated by Spike 1 Option A (native
-Skein-owned loop) — not its code, which stays quarantined under `spikes/` per ADR-0004 D2.
+Heddle-owned loop) — not its code, which stays quarantined under `spikes/` per ADR-0004 D2.
 
 ## Technical Context
 **Language/Version**: Rust 1.79 (MSRV, pinned in `rust-toolchain.toml`)
@@ -50,15 +50,15 @@ specs/004-native-loop/
 
 ### Source Code (repository root)
 ```text
-crates/skein-core/
+crates/heddle-core/
   src/model.rs         # new — TurnRequest / TurnResponse / ModelClient
   src/native_loop.rs   # new — ProgressProbe / LoopRun / NativeLoop
   src/lib.rs           # +2 modules, +2 re-export lines
-  src/error.rs         # +1 variant: SkeinError::Model(String)
+  src/error.rs         # +1 variant: HeddleError::Model(String)
   tests/native_loop.rs # new — 9 acceptance tests + ScriptedModel/ScriptedProbe
 .github/workflows/core.yml  # new — tri-OS fmt/clippy/test for the workspace
 ```
-**Structure Decision**: everything lands in `skein-core`. Design §4.2 places the agentic loop
+**Structure Decision**: everything lands in `heddle-core`. Design §4.2 places the agentic loop
 in the core; a new crate would need a justification that does not exist. `ledger.rs`,
 `loop_ctl.rs`, `content.rs` and `tests/core.rs` are not touched, so spec 003's 6/6 remains an
 independent control.

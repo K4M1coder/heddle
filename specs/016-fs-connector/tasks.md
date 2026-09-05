@@ -1,20 +1,20 @@
 # Tasks: the `fs` connector (v0 slice)
 
 **Spec:** `specs/016-fs-connector/spec.md` · **Plan:** `specs/016-fs-connector/plan.md` · TDD
-(red→green), product code in a new `crates/skein-connectors` plus `crates/skein-mcp` and
-`crates/skein-cli`, branch `016-fs-connector` cut from `dev` after slice 015 merged.
+(red→green), product code in a new `crates/heddle-connectors` plus `crates/heddle-mcp` and
+`crates/heddle-cli`, branch `016-fs-connector` cut from `dev` after slice 015 merged.
 
 ## Constitution Check (ADR-0004 D1 solo-v0 bar)
-- I Headless core ✅ the capability lives in a library crate; `skein-cli` gains one flag and the
-  wiring that turns it into a transport plus two named policies. `skein-core` is **untouched** by
+- I Headless core ✅ the capability lives in a library crate; `heddle-cli` gains one flag and the
+  wiring that turns it into a transport plus two named policies. `heddle-core` is **untouched** by
   this slice: 015 already built everything it needed · II Local-first ✅ NON-NEGOTIABLE. The
   connector is **in-process** — an `rmcp` client and server over a `tokio::io::duplex`, no socket, no
   child process, no Node runtime. A third-party out-of-process server was rejected on exactly this
   ground (plan D1). No new egress path exists to guard
 - III Test-First ✅ every step's red observed and recorded in `## Observed red` before its green ·
-  IV Inverted coupling ✅ `skein-core` still names no protocol. `skein-mcp` remains the only crate
-  naming MCP as a **client** and `skein-connectors` becomes the only one naming it as a **server** —
-  the invariant is amended in both crates rather than left stale (FR-002). `skein-cli` reaches the
+  IV Inverted coupling ✅ `heddle-core` still names no protocol. `heddle-mcp` remains the only crate
+  naming MCP as a **client** and `heddle-connectors` becomes the only one naming it as a **server** —
+  the invariant is amended in both crates rather than left stale (FR-002). `heddle-cli` reaches the
   connector only through `ToolTransport`
 - V Traceability ✅ no new `StepKind` and none needed. A tool call lands as
   `ToolCall`/`Approval`/`ToolResult` through the gateway 005 built, and the advertisement travels
@@ -41,7 +41,7 @@
 - [x] **T0** `specs/016-fs-connector/{spec.md,plan.md,tasks.md}`; branch `016-fs-connector` cut from
       `dev` with slice 015 merged
 - [x] **T1** control baseline: `cargo test --workspace` before any edit — **132 passed, 1 ignored**
-- [x] **T2** RED→GREEN — `crates/skein-connectors` with `FsRoot`, and the amended MCP invariant
+- [x] **T2** RED→GREEN — `crates/heddle-connectors` with `FsRoot`, and the amended MCP invariant
 - [x] **T3** RED→GREEN — `FsServer`: `#[tool_router]` and the three `#[tool]` methods over derived
       schemas
 - [x] **T4** RED→GREEN — `RmcpToolTransport::list`, then `LocalConnector` / `fs_connector`
@@ -50,9 +50,9 @@
 - [x] **T6** RED→GREEN — the refusal twins: unlisted `fs_write` never reaches the server; an
       out-of-root read is refused by the server and the run survives
 - [x] **T7** RED→GREEN — a secret in a file's **contents** is scrubbed from every Ledger payload
-- [x] **T8** RED→GREEN — `skein-cli`: `ToolArgs`, `ConfiguredTools`, the two policies, `--fs-root`
+- [x] **T8** RED→GREEN — `heddle-cli`: `ToolArgs`, `ConfiguredTools`, the two policies, `--fs-root`
 - [x] **T9** RED→GREEN — CLI acceptance tests against the real binary
-- [x] **T10** the `#[ignore]`d live-model test, gated on `SKEIN_LIVE_MODEL`
+- [x] **T10** the `#[ignore]`d live-model test, gated on `HEDDLE_LIVE_MODEL`
 - [x] **T11** gates, control diff, dependency drift, close-out
 - [ ] **T12** hand-verification against live Ollama — **not part of the implementation run**;
       performed separately and recorded below under `## Live verification`
@@ -71,21 +71,21 @@ figure exactly (120 + its 12), and it is the number T11 diffs against.
 
 All on 2026-09-03.
 
-- **T2** `cargo test -p skein-connectors --test fs_root` with ten containment tests written against a
+- **T2** `cargo test -p heddle-connectors --test fs_root` with ten containment tests written against a
   crate whose `lib.rs` held only its docstring — **1 compile error**:
-  - `error[E0432]: unresolved import skein_connectors::FsRoot` at
-    `crates/skein-connectors/tests/fs_root.rs:10:5` — `no FsRoot in the root`
+  - `error[E0432]: unresolved import heddle_connectors::FsRoot` at
+    `crates/heddle-connectors/tests/fs_root.rs:10:5` — `no FsRoot in the root`
   - Green: **10 passed**. One follow-on red between the two, worth recording because it changed the
     product: `error[E0277]: FsRoot doesn't implement Debug`, from the two `expect_err` calls on
     `FsRoot::new`. The derive was added rather than the assertions weakened.
 
-- **T3** `cargo test -p skein-connectors --test fs_server` with seven tool tests written against a
+- **T3** `cargo test -p heddle-connectors --test fs_server` with seven tool tests written against a
   crate that had no server — **1 compile error** naming all five missing items:
-  - `error[E0432]: unresolved imports skein_connectors::FsServer, ::ListParams, ::ReadParams,
-    ::WriteParams, ::READ_BYTE_CAP` at `crates/skein-connectors/tests/fs_server.rs:10:32`
+  - `error[E0432]: unresolved imports heddle_connectors::FsServer, ::ListParams, ::ReadParams,
+    ::WriteParams, ::READ_BYTE_CAP` at `crates/heddle-connectors/tests/fs_server.rs:10:32`
   - Green: **7 passed**.
 
-- **T4a** `cargo test -p skein-mcp --test rmcp_gateway` with two new tests against the **existing**
+- **T4a** `cargo test -p heddle-mcp --test rmcp_gateway` with two new tests against the **existing**
   client and the **existing** live-server fixture — **2 failures, and nothing failed to compile.**
   This is the slice's most valuable red:
   - `assertion left == right failed: the catalogue is the server's own, not a hand-written list`
@@ -96,13 +96,13 @@ All on 2026-09-03.
     `list` and advertised **nothing** against a real MCP server offering two tools, with no compile
     error and no runtime error to say so. Green: **9 passed** where 7 had passed, the seven unchanged.
 
-- **T4b** `cargo test -p skein-connectors --test connector` — **1 compile error**:
-  - `error[E0432]: unresolved imports skein_connectors::fs_connector, skein_connectors::LocalConnector`
-    at `crates/skein-connectors/tests/connector.rs:8:24`
-  - Green: **4 passed**, including the `Send` bound `SkeinAgent` requires.
+- **T4b** `cargo test -p heddle-connectors --test connector` — **1 compile error**:
+  - `error[E0432]: unresolved imports heddle_connectors::fs_connector, heddle_connectors::LocalConnector`
+    at `crates/heddle-connectors/tests/connector.rs:8:24`
+  - Green: **4 passed**, including the `Send` bound `HeddleAgent` requires.
 
-- **T5** `cargo test -p skein-connectors --test governed_fs_run` — **1 compile error**
-  (`error[E0432]: unresolved import skein_gateway`, before the dev-dependency existed), then **1
+- **T5** `cargo test -p heddle-connectors --test governed_fs_run` — **1 compile error**
+  (`error[E0432]: unresolved import heddle_gateway`, before the dev-dependency existed), then **1
   assertion failure** once it compiled:
   - `the file's actual contents must reach the model: [tool_result tool=fs_read status=ok]
     {"content":[{"type":"text","text":"the first line of notes\nand a second one"}],"isError":false}`
@@ -126,7 +126,7 @@ All on 2026-09-03.
   `no payload of the run may carry a configured secret: [… "content":"{\"content\":[{\"type\":\"text\",\"text\":\"api_key=sk-from-disk-SECRET-abc123\\nendpoint=…` —
   the value in cleartext in both the `ToolResult` payload and the next `LlmRequest`. Restored, green.
 
-- **T8** `skein chat … --fs-root <dir>` against the real binary — the flag did not exist:
+- **T8** `heddle chat … --fs-root <dir>` against the real binary — the flag did not exist:
   - `error: unexpected argument '--fs-root' found`, clap exit **2** where the test expects 0
   - Green after `wiring::ToolArgs`, `ConfiguredTools` and the two commands' wiring: **9 passed** in
     `cli_chat` where 8 had passed.
@@ -136,7 +136,7 @@ All on 2026-09-03.
   byte-identical promise now that a caller exists.
 
 - **T10** The `#[ignore]`d live test was run twice with `-- --ignored --nocapture` and no
-  `SKEIN_LIVE_MODEL`: it prints `SKEIN_LIVE_MODEL is unset; skipping the live model tool-call test`
+  `HEDDLE_LIVE_MODEL`: it prints `HEDDLE_LIVE_MODEL is unset; skipping the live model tool-call test`
   and passes, which is the behaviour that keeps `cargo test --workspace` green on a machine without
   Ollama.
 
@@ -162,7 +162,7 @@ an opt-in capability discoverable. Per file: `connector` 4, `fs_root` 10, `fs_se
 
 ## Control diff (T11)
 
-`git diff dev --stat -- crates/skein-silo/ spikes/ .github/ rust-toolchain.toml` is **empty**.
+`git diff dev --stat -- crates/heddle-silo/ spikes/ .github/ rust-toolchain.toml` is **empty**.
 `spikes/` is untouched (ADR-0004 D2), and so are `.github/` and `rust-toolchain.toml` — the workspace
 is `members = ["crates/*"]` and `core.yml`'s `paths:` already reads `crates/**`, so the new member is
 picked up with no CI edit.
@@ -175,10 +175,10 @@ one is an assertion** — nine lines in total:
   moment the stub started reporting request bodies;
 - six lines of the same two files' `read_request` plumbing, which now returns the body it already
   read instead of discarding it (`Option<()>` → `Option<String>`);
-- one `use skein_core::{…}` line in `rmcp_gateway.rs`, rewrapped after gaining `ToolTransport`.
+- one `use heddle_core::{…}` line in `rmcp_gateway.rs`, rewrapped after gaining `ToolTransport`.
 
-The remaining deletions are in product code this slice exists to change: `skein-mcp`'s docstring
-invariant, and `skein-cli`'s `chat.rs`/`acp.rs` `NoTools` + empty-`ToolPolicy` literals.
+The remaining deletions are in product code this slice exists to change: `heddle-mcp`'s docstring
+invariant, and `heddle-cli`'s `chat.rs`/`acp.rs` `NoTools` + empty-`ToolPolicy` literals.
 
 ## Drift (T11)
 
@@ -186,21 +186,21 @@ invariant, and `skein-cli`'s `chat.rs`/`acp.rs` `NoTools` + empty-`ToolPolicy` l
 to the workspace.** Recorded the way slices 012 and 014 recorded their own cases, rather than
 claiming the zero slice 015 could truthfully claim.
 
-- **One new workspace member**, `crates/skein-connectors`, and **one new dependency edge**,
-  `skein-cli → skein-connectors`. Those are the whole manifest diff: `git diff dev --
+- **One new workspace member**, `crates/heddle-connectors`, and **one new dependency edge**,
+  `heddle-cli → heddle-connectors`. Those are the whole manifest diff: `git diff dev --
   Cargo.toml crates/*/Cargo.toml` touches exactly two files, adding 27 lines and removing none. The
   root `Cargo.toml` is **unchanged** — every dependency the new crate needed (`rmcp`, `tokio`,
   `schemars`, `serde`, `serde_json`, `tempfile`) was already in `[workspace.dependencies]`.
-- **Twelve package names are newly reachable from the `skein` binary**: `skein-connectors`,
-  `skein-mcp`, `rmcp`, `rmcp-macros`, `tokio`, `tokio-macros`, `tokio-stream`, `tokio-util`,
-  `async-trait`, `chrono`, `num-traits`, `pastey`. Measured, not estimated: `cargo tree -p skein-cli
+- **Twelve package names are newly reachable from the `heddle` binary**: `heddle-connectors`,
+  `heddle-mcp`, `rmcp`, `rmcp-macros`, `tokio`, `tokio-macros`, `tokio-stream`, `tokio-util`,
+  `async-trait`, `chrono`, `num-traits`, `pastey`. Measured, not estimated: `cargo tree -p heddle-cli
   -e normal` compared name-by-name against the same command in a throwaway worktree of `dev`.
-- **All twelve were already resolved for the workspace on `dev`** — as `skein-mcp`'s own product
+- **All twelve were already resolved for the workspace on `dev`** — as `heddle-mcp`'s own product
   dependencies and the transitive closure of `rmcp` — so the workspace's package set is unchanged and
   no new build prerequisite appears. What changed is that they now **ship**. Nothing was removed.
 - **`schemars` and `rmcp`'s `server` / `macros` / `transport-async-rw` features become product
-  dependencies** where they were `skein-mcp` dev-dependencies. That promotion is the whole reason
-  plan D5 put the server in a new crate instead of in `skein-mcp`, whose rmcp features are
+  dependencies** where they were `heddle-mcp` dev-dependencies. That promotion is the whole reason
+  plan D5 put the server in a new crate instead of in `heddle-mcp`, whose rmcp features are
   deliberately client-only.
 - No toolchain change: `rust-toolchain.toml` and `workspace.package.rust-version` are untouched, and
   no package entered the graph that could have raised the MSRV.
@@ -261,12 +261,12 @@ Deliberately not done, so no one helpfully does it. Identical to the spec's list
 - **Filesystem breadth** — no glob, recursion, rename, delete, mkdir, diff, MIME sniffing, ZIP or
   watch. **Deriving `ToolAccess` from MCP annotations.** **`role: "tool"` replay**, `strict`,
   `tool_choice`, parallel tool calls, streaming.
-- **`crates/skein-silo/`, `spikes/`, `.github/`, `rust-toolchain.toml`** — all verified empty in the
+- **`crates/heddle-silo/`, `spikes/`, `.github/`, `rust-toolchain.toml`** — all verified empty in the
   control diff above.
 
 ## Next slice (not this feature)
 - [ ] **the ACP permission gate, exercised.** `AcpPermissionTransport` is finally reachable —
-      `fs_write` is allowlisted and approved for `skein acp-agent`, so the client is asked. What this
+      `fs_write` is allowlisted and approved for `heddle acp-agent`, so the client is asked. What this
       slice does **not** have is a test where a real ACP client *answers* a permission request:
       `cli_acp_agent.rs`'s client registers no permission handler, and building one is a slice of its
       own. Until then the gate is wired and unproven end to end, which is exactly the shape slice 015
@@ -284,14 +284,14 @@ Deliberately not done, so no one helpfully does it. Identical to the spec's list
 ## Live verification (T12)
 
 Not performed in the implementation run. `a_live_model_calls_a_real_fs_tool` in
-`crates/skein-connectors/tests/governed_fs_run.rs` is the repeatable form of it:
+`crates/heddle-connectors/tests/governed_fs_run.rs` is the repeatable form of it:
 
 ```text
-$env:SKEIN_LIVE_MODEL = "<a tool-capable model>"
-cargo test -p skein-connectors --test governed_fs_run -- --ignored --nocapture
+$env:HEDDLE_LIVE_MODEL = "<a tool-capable model>"
+cargo test -p heddle-connectors --test governed_fs_run -- --ignored --nocapture
 ```
 
-The by-hand transcript against a live Ollama — `skein chat --fs-root …`, then `skein ledger log`,
+The by-hand transcript against a live Ollama — `heddle chat --fs-root …`, then `heddle ledger log`,
 `show` and `verify`, then a second run asking for a write and confirming the `Approval` step records
 `denied` / `tool is not in the allowlist` with no file created — belongs under this heading and is
 still to be recorded.

@@ -3,21 +3,21 @@
 **Branch**: `008-acp-facade` | **Date**: 2026-09-03 | **Spec**: `specs/008-acp-facade/spec.md`
 
 ## Summary
-A new workspace crate `skein-acp` exposes the existing governed loop over the Agent Client
-Protocol. It adds no capability to `skein-core` and changes no file in it: ACP reaches the core
+A new workspace crate `heddle-acp` exposes the existing governed loop over the Agent Client
+Protocol. It adds no capability to `heddle-core` and changes no file in it: ACP reaches the core
 through two decorators over ports the core already defines.
 
 - `AcpPermissionTransport<T: ToolTransport>` wraps the operator's real transport, so it is
   constructed *inside* `ToolGateway`. `call_captured` therefore consults `ToolPolicy` first,
   always — an unlisted tool never becomes an ACP permission request. The client's answer can only
-  further restrict. A decline returns `SkeinError::ToolDenied`, which `NativeLoop::mediate`
+  further restrict. A decline returns `HeddleError::ToolDenied`, which `NativeLoop::mediate`
   already turns into `[tool_result … status=denied]` while the run continues.
 - `CancellableModel<C: ModelClient>` wraps the injected model client and returns
-  `SkeinError::Model` once the session's cancel flag is set. `NativeLoop::run` propagates that
+  `HeddleError::Model` once the session's cancel flag is set. `NativeLoop::run` propagates that
   out immediately, ending the run at a turn boundary with the chain still verifiable — the path
   the pre-existing `provider_error_leaves_the_chain_verifiable` test already covers.
 
-The sync/async boundary is a plain `std::thread`. `skein-core` is deliberately synchronous; ACP
+The sync/async boundary is a plain `std::thread`. `heddle-core` is deliberately synchronous; ACP
 is async, and the SDK documents that `SentRequest::block_task` *"will deadlock if called in
 handlers"* because handler callbacks run on the connection's single dispatch task. So the
 `session/prompt` handler moves the `Responder` into a thread and returns `Ok(())` immediately;
@@ -37,17 +37,17 @@ Assumptions and deferred to the slice that gives `Ledger` an append-observer.
 **Primary Dependencies**: `agent-client-protocol = "2.0.0"` (schema `v1`), plus the existing
 `serde_json`. Dev-only: `tokio` (`rt-multi-thread`, `io-util`, `macros`, `time`) and `tokio-util`
 (`compat`), used solely to build the in-process duplex byte stream the tests connect over —
-exactly as `skein-mcp`'s live rmcp fixture does. The SDK itself is runtime-agnostic: its own
+exactly as `heddle-mcp`'s live rmcp fixture does. The SDK itself is runtime-agnostic: its own
 `tokio` dependency is a dev-dependency.
 **Storage**: the existing in-memory `Ledger`
 **Testing**: `cargo test`; a real ACP client and a real ACP agent over `tokio::io::duplex`
 adapted with `tokio_util::compat` into `ByteStreams`. Model, probe and tool-transport doubles are
-new in this crate, modelled on the ones in `skein-core`'s and `skein-mcp`'s test binaries (copied,
+new in this crate, modelled on the ones in `heddle-core`'s and `heddle-mcp`'s test binaries (copied,
 not shared — those are private to their test binaries and must not be moved).
 **Target Platform**: Windows + macOS + Linux
 **Project Type**: library (three workspace members)
 **Performance Goals**: N/A
-**Constraints**: no file in `crates/skein-core/` or `crates/skein-mcp/` changes; no network
+**Constraints**: no file in `crates/heddle-core/` or `crates/heddle-mcp/` changes; no network
 egress and no listening socket; deny-by-default tool policy runs before the client is consulted
 **Scale/Scope**: one new crate, five ACP methods (`initialize`, `session/new`, `session/prompt`,
 `session/request_permission`, `session/cancel`), one protocol version
@@ -61,9 +61,9 @@ egress and no listening socket; deny-by-default tool policy runs before the clie
   transitive dependency (for the SDK's subprocess transport) but this slice spawns no process.
 - **III. Test-First**: ✅ T1's smoke test pins the SDK's two structural assumptions before any
   product code exists; T3's red is observed and recorded before T4/T5.
-- **IV. Inverted coupling**: ✅ **no `skein-core` trait signature changes and no `skein-core`
+- **IV. Inverted coupling**: ✅ **no `heddle-core` trait signature changes and no `heddle-core`
   file changes at all.** ACP is adapted through decorators over `ToolTransport` and
-  `ModelClient`. `skein-core` never names ACP. The `Send + 'static` bounds the facade needs are
+  `ModelClient`. `heddle-core` never names ACP. The `Send + 'static` bounds the facade needs are
   bounds on *its own* generics, not on the core's traits.
 - **V. Traceability**: ✅ ACP updates are computed from `Ledger::log(run_id)`; there is no second
   record, and T7's test asserts the correspondence. Run ids are `{session_id}#{n}`, keeping one
@@ -100,21 +100,21 @@ specs/008-acp-facade/
 ### Source Code (repository root)
 ```text
 Cargo.toml                     # +agent-client-protocol, +tokio-util in [workspace.dependencies]
-crates/skein-acp/
+crates/heddle-acp/
   Cargo.toml                   # new member (picked up by `members = ["crates/*"]`)
-  src/lib.rs                   # SkeinAgent, SkeinSession, SessionParts, serve, project_updates
+  src/lib.rs                   # HeddleAgent, HeddleSession, SessionParts, serve, project_updates
   src/permission.rs            # AcpPermissionTransport — gate 2
   src/cancel.rs                # CancellableModel
   tests/acp_session.rs         # the real-client/real-agent suite
 ```
-**Structure Decision**: nothing outside `crates/skein-acp/`, `specs/008-acp-facade/` and two
-lines of the root `Cargo.toml` changes. `crates/skein-core/` and `crates/skein-mcp/` are
+**Structure Decision**: nothing outside `crates/heddle-acp/`, `specs/008-acp-facade/` and two
+lines of the root `Cargo.toml` changes. `crates/heddle-core/` and `crates/heddle-mcp/` are
 byte-identical to `dev`, so specs 003–007 all remain independent controls.
 
 ## Complexity Tracking
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
-| **A third workspace crate, and the largest dependency graph the repo has taken on** (Principle VII) | ACP is the boundary ADR-0003 decided on, and the SDK is the only real implementation of it. Putting `async-io`, `async-process`, `blocking`, `uuid`, `rustc-hash`, `shell-words` and a pinned schema crate behind `skein-core`'s four-dependency list would permanently widen the trust and build surface of the one crate that must stay boring. `skein-mcp` set this precedent for rmcp; the isolation argument is stronger here. | Adding the dependency to `skein-core`: violates Principle IV outright — the core would name a protocol. Hand-rolling a JSON-RPC subset: a stand-in for the protocol, which SC-002 exists to forbid, and it would buy none of the interop ADR-0003 wanted. |
-| **`std::thread` + `std::sync::mpsc` as the sync/async boundary, rather than the ecosystem-standard `spawn_blocking`** | The SDK is runtime-agnostic; adding tokio to the *library* would impose a runtime choice on every future embedder for no gain. `std::thread` has no executor semantics to reason about and its deadlock analysis fits in one sentence: the prompt handler returns immediately, so the dispatch loop stays free to deliver the permission response the loop thread is blocked on. | `tokio::task::spawn_blocking` + a runtime in the library: imposes tokio on embedders (FR-010). `blocking::unblock` + `futures::executor::block_on`: two more direct dependencies to reach the same place. Awaiting the loop inside the prompt handler: deadlocks by construction — the handler occupies the dispatch task the permission response must arrive on. Making `skein-core`'s traits async: rewrites four merged slices and violates FR-002. |
-| **Session updates are emitted after the turn, not streamed during it** (a visible functional gap) | Streaming needs an append-observer seam on `Ledger`, and `ledger.rs` may not change this slice; the only alternative is a parallel event channel out of the loop, which is precisely the second record Principle V prohibits. Emitting a projection of the finished chain keeps "a view, not a record" structural. | A `Vec<SessionUpdate>` accumulated inside the loop and drained afterwards: identical latency, but a second in-memory record that could drift from the chain. An observer callback on `NativeLoop`: a `skein-core` signature change (FR-002). |
+| **A third workspace crate, and the largest dependency graph the repo has taken on** (Principle VII) | ACP is the boundary ADR-0003 decided on, and the SDK is the only real implementation of it. Putting `async-io`, `async-process`, `blocking`, `uuid`, `rustc-hash`, `shell-words` and a pinned schema crate behind `heddle-core`'s four-dependency list would permanently widen the trust and build surface of the one crate that must stay boring. `heddle-mcp` set this precedent for rmcp; the isolation argument is stronger here. | Adding the dependency to `heddle-core`: violates Principle IV outright — the core would name a protocol. Hand-rolling a JSON-RPC subset: a stand-in for the protocol, which SC-002 exists to forbid, and it would buy none of the interop ADR-0003 wanted. |
+| **`std::thread` + `std::sync::mpsc` as the sync/async boundary, rather than the ecosystem-standard `spawn_blocking`** | The SDK is runtime-agnostic; adding tokio to the *library* would impose a runtime choice on every future embedder for no gain. `std::thread` has no executor semantics to reason about and its deadlock analysis fits in one sentence: the prompt handler returns immediately, so the dispatch loop stays free to deliver the permission response the loop thread is blocked on. | `tokio::task::spawn_blocking` + a runtime in the library: imposes tokio on embedders (FR-010). `blocking::unblock` + `futures::executor::block_on`: two more direct dependencies to reach the same place. Awaiting the loop inside the prompt handler: deadlocks by construction — the handler occupies the dispatch task the permission response must arrive on. Making `heddle-core`'s traits async: rewrites four merged slices and violates FR-002. |
+| **Session updates are emitted after the turn, not streamed during it** (a visible functional gap) | Streaming needs an append-observer seam on `Ledger`, and `ledger.rs` may not change this slice; the only alternative is a parallel event channel out of the loop, which is precisely the second record Principle V prohibits. Emitting a projection of the finished chain keeps "a view, not a record" structural. | A `Vec<SessionUpdate>` accumulated inside the loop and drained afterwards: identical latency, but a second in-memory record that could drift from the chain. An observer callback on `NativeLoop`: a `heddle-core` signature change (FR-002). |

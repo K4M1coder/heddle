@@ -5,7 +5,7 @@
 **Branch**: `001-phase0-walking-skeleton` | **Date**: 2026-07-15 | **Spec**: `specs/001-phase0-walking-skeleton/spec.md`
 
 ## Summary
-Prove Skein's vertical slice (CLI → Skein control plane → selected per-turn runtime/worker → model gateway → local model) with Local silo persistence, an event-sourced Ledger, context manifest and SecretProvider foundation. The concrete runtime is selected by ADR-0003 evidence; a batch CLI subprocess is not a valid core-loop implementation.
+Prove Heddle's vertical slice (CLI → Heddle control plane → selected per-turn runtime/worker → model gateway → local model) with Local silo persistence, an event-sourced Ledger, context manifest and SecretProvider foundation. The concrete runtime is selected by ADR-0003 evidence; a batch CLI subprocess is not a valid core-loop implementation.
 
 ## Technical Context
 **Language/Version**: Rust 1.79 (MSRV)
@@ -40,16 +40,16 @@ specs/001-phase0-walking-skeleton/
 ├── plan.md      # this file
 └── tasks.md     # executable breakdown
 ```
-The **exhaustive bite-sized** TDD plan (complete code per step) lives in `docs/superpowers/plans/2026-07-15-skein-phase0-walking-skeleton.md` and is authoritative for execution; `tasks.md` is its Spec-Kit index.
+The **exhaustive bite-sized** TDD plan (complete code per step) lives in `docs/superpowers/plans/2026-07-15-heddle-phase0-walking-skeleton.md` and is authoritative for execution; `tasks.md` is its Spec-Kit index.
 
 > **Deviation note (recorded)**: the Spec-Kit `research.md` / `data-model.md` / `quickstart.md` / `contracts/` artifacts are **intentionally consolidated** into `docs/superpowers/*` (design + exhaustive plan) and, for the Goose spike, into ADR 0001. `contracts/` is waived (this is a CLI/library; the CLI surface in FR-001/Task T007 is the contract). This is a conscious deviation from the template, not an omission.
 
 ### Source Code (repository root)
 ```text
 crates/
-  skein-core/
+  heddle-core/
     src/{lib,content,event,error,silo,gateway,runtime,session,ledger,secrets}.rs
-  skein-cli/
+  heddle-cli/
     src/main.rs
     tests/cli.rs
 config/litellm.config.yaml
@@ -61,4 +61,4 @@ config/litellm.config.yaml
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
-| Principle VIII (loop discipline) only partially satisfied in Phase 0 (wall-clock bound, no per-step `LoopController`) | Phase 0's job is the vertical skeleton; per-step loop control depends on the loop-ownership decision (ADR 0002 D1: Skein owns the loop via goosed/embedded + MCP proxy), which the T000 spike resolves. Building `LoopController` before that decision would be rework. | Implementing full `LoopController` now would either force the loop-ownership decision prematurely or be built against a stub that cannot provide per-step hooks — net rework. Deferred to Epic 6 (FR-16), tracked in DESIGN-COMPLETENESS-POLICY bucket C. |
+| Principle VIII (loop discipline) only partially satisfied in Phase 0 (wall-clock bound, no per-step `LoopController`) | Phase 0's job is the vertical skeleton; per-step loop control depends on the loop-ownership decision (ADR 0002 D1: Heddle owns the loop via goosed/embedded + MCP proxy), which the T000 spike resolves. Building `LoopController` before that decision would be rework. | Implementing full `LoopController` now would either force the loop-ownership decision prematurely or be built against a stub that cannot provide per-step hooks — net rework. Deferred to Epic 6 (FR-16), tracked in DESIGN-COMPLETENESS-POLICY bucket C. |

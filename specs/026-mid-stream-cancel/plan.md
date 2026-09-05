@@ -2,7 +2,7 @@
 
 **Target artifacts:** `specs/026-mid-stream-cancel/{spec.md,plan.md,tasks.md}` plus the code changes
 below. **Branch:** `026-mid-stream-cancel`, cut from `dev`. **No PR** (the bare mirror at
-`D:/claudecode/skein-origin.git` exists only for Archon's worktree isolation). Conventional Commits.
+`D:/claudecode/heddle-origin.git` exists only for Archon's worktree isolation). Conventional Commits.
 Strict TDD (Constitution III): red before green.
 
 ---
@@ -21,21 +21,21 @@ slice 025 and is absent from `d364405`. **T0 of the implementation run: fast-for
 
 | anchor | file | fact |
 |---|---|---|
-| `TextSink` | `skein-core/src/model.rs` | one method, `on_text(&mut self, delta: &str)`; `Send` |
-| `ModelClient::set_text_sink` | `skein-core/src/model.rs` | defaulted to dropping the sink |
-| `drain` | `skein-gateway/src/lib.rs` | `loop { read_until(b'\n') … }`, one line per iteration |
-| `StreamFault` | `skein-gateway/src/lib.rs` | private enum, two variants: `Unreadable`, `Unparseable` |
-| the fault match | `skein-gateway/src/lib.rs`, in `turn` | sits **above** `if answer.events == 0` |
-| `WireExchange` | `skein-core/src/model.rs` | `url`, `status`, `request`, `response`, `streamed` |
-| `AcpTextSink` | `skein-acp/src/stream.rs` | holds connection, session id, redactor, `emitted` |
-| `SkeinSession::new` | `skein-acp/src/lib.rs` | holds the `Arc<AtomicBool>` **and** builds the sink |
-| `SkeinSession::run` | `skein-acp/src/lib.rs` | resets the flag per run; maps a set flag to `StopReason::Cancelled` |
-| `CancellableModel` | `skein-acp/src/cancel.rs` | checks the flag **before** delegating `turn` |
-| `a7_…`, `x1_…` | `skein-acp/tests/acp_session.rs` | the existing cancellation proofs |
+| `TextSink` | `heddle-core/src/model.rs` | one method, `on_text(&mut self, delta: &str)`; `Send` |
+| `ModelClient::set_text_sink` | `heddle-core/src/model.rs` | defaulted to dropping the sink |
+| `drain` | `heddle-gateway/src/lib.rs` | `loop { read_until(b'\n') … }`, one line per iteration |
+| `StreamFault` | `heddle-gateway/src/lib.rs` | private enum, two variants: `Unreadable`, `Unparseable` |
+| the fault match | `heddle-gateway/src/lib.rs`, in `turn` | sits **above** `if answer.events == 0` |
+| `WireExchange` | `heddle-core/src/model.rs` | `url`, `status`, `request`, `response`, `streamed` |
+| `AcpTextSink` | `heddle-acp/src/stream.rs` | holds connection, session id, redactor, `emitted` |
+| `HeddleSession::new` | `heddle-acp/src/lib.rs` | holds the `Arc<AtomicBool>` **and** builds the sink |
+| `HeddleSession::run` | `heddle-acp/src/lib.rs` | resets the flag per run; maps a set flag to `StopReason::Cancelled` |
+| `CancellableModel` | `heddle-acp/src/cancel.rs` | checks the flag **before** delegating `turn` |
+| `a7_…`, `x1_…` | `heddle-acp/tests/acp_session.rs` | the existing cancellation proofs |
 
 ### 0.3 What ureq 3.4.0 does with a half-read body — read from its source, not assumed
 
-Resolved version is `ureq v3.4.0` (`cargo tree -p skein-gateway -i ureq`).
+Resolved version is `ureq v3.4.0` (`cargo tree -p heddle-gateway -i ureq`).
 
 1. `ureq-3.4.0/src/pool.rs:125` — `Connection::reuse` is the only path back into the agent's pool.
 2. `ureq-3.4.0/src/run.rs:610` — `cleanup(connection, must_close, now)` is the **only** caller of
@@ -81,7 +81,7 @@ pub trait TextSink: Send {
 
 Defaulted to `true` because that is the *true* answer for a sink with nothing to cancel, in the same
 way `take_wire_exchange`'s `None` and `set_text_sink`'s drop are true answers rather than
-conveniences. `skein-core` does not learn what cancellation is; it learns that a consumer may stop
+conveniences. `heddle-core` does not learn what cancellation is; it learns that a consumer may stop
 wanting text.
 
 **Rejected — `on_text` returns `bool`.** It conflates "here is text" with "keep going", changes the
@@ -90,7 +90,7 @@ arrives. A cancel landing during a run of tool-call fragment events, or during a
 ~150 empty-content events, would not be seen until the next non-empty delta.
 
 **Rejected — thread an `Arc<AtomicBool>` into `OpenAiCompatClient`.** That makes the gateway name a
-cancellation mechanism owned by ACP, and gives `skein chat` — which installs no sink — a flag it has
+cancellation mechanism owned by ACP, and gives `heddle chat` — which installs no sink — a flag it has
 no way to set. The sink is *already* the one object the caller owns on the far side of the port.
 
 **Rejected — a `Cancellable` trait separate from `TextSink`.** Two ports where one suffices
@@ -112,7 +112,7 @@ loop {
 
 Per **line**, not per event: a cancel is noticed on the next line of any kind. `is_some_and` on the
 `Option<Box<dyn TextSink>>` makes "no sink installed" mean "nobody to cancel", which is exactly
-`skein chat`.
+`heddle chat`.
 
 **Known and accepted: a cancel cannot interrupt a `read_until` already blocked.** It takes effect
 when the next line lands. On a live token stream that is one token — measured in S8. On a provider
@@ -124,7 +124,7 @@ a custom `Connector`/`Transport` — see D5.
 
 ```rust
 Some(StreamFault::Cancelled) => {
-    return Err(SkeinError::Model(format!(
+    return Err(HeddleError::Model(format!(
         "{} stopped mid-stream: the client cancelled the turn",
         self.endpoint.base_url
     )))
@@ -171,10 +171,10 @@ correct. Not this slice, and not until something measures the latency as a real 
 
 ### D6 — `AcpTextSink` answers `wants_more` from the flag the session already holds
 
-`SkeinSession::new` is the one place holding both the `Arc<AtomicBool>` and the sink's construction,
+`HeddleSession::new` is the one place holding both the `Arc<AtomicBool>` and the sink's construction,
 so the sink takes a clone of the flag it already resets per run. No new state, no second channel, no
 change to how `session/cancel` is received or to how `StopReason::Cancelled` is decided —
-`SkeinSession::run`'s existing "flag set ⇒ `Cancelled`" mapping is what turns D3's error into the
+`HeddleSession::run`'s existing "flag set ⇒ `Cancelled`" mapping is what turns D3's error into the
 right stop reason, unchanged.
 
 `CancellableModel` is **not** touched, beyond its docstring: its pre-turn check is still the right
@@ -187,19 +187,19 @@ completes"* becomes false and must be corrected.
 
 - **S0** fast-forward onto `dev` at `2806ecf`, measure the control baseline, write
   `specs/026-mid-stream-cancel/{spec.md,plan.md,tasks.md}`.
-- **S1** RED — `skein-gateway/tests/openai_compat.rs`: a sink that stops wanting text ends the read
+- **S1** RED — `heddle-gateway/tests/openai_compat.rs`: a sink that stops wanting text ends the read
   mid-stream; the turn fails naming cancellation; the capture holds what arrived and no `[DONE]`; a
   plain sink that never overrides `wants_more` still reads the whole stream.
 - **S2** RED — same file: a sink that stops **before the first event** is reported as cancelled, not
   as an unrecognised body (the D3 ordering).
-- **S3** GREEN — `skein-core`: the defaulted `TextSink::wants_more`.
-- **S4** GREEN then RED-by-revert — `skein-gateway`: `StreamFault::Cancelled`, the drain check, the
+- **S3** GREEN — `heddle-core`: the defaulted `TextSink::wants_more`.
+- **S4** GREEN then RED-by-revert — `heddle-gateway`: `StreamFault::Cancelled`, the drain check, the
   `turn` arm. Then temporarily revert **only the drain check** and record the red, as slice 025 did
   for its D1/D2, so the red is evidence about this code rather than about its absence.
-- **S5** RED — `skein-acp/tests/acp_session.rs`: a `session/cancel` arriving after the client has
+- **S5** RED — `heddle-acp/tests/acp_session.rs`: a `session/cancel` arriving after the client has
   seen the first chunk ends the turn and reports `Cancelled`, with no further chunk and no
   chain-derived repeat.
-- **S6** GREEN — `skein-acp`: `AcpTextSink` takes the flag and answers `wants_more`; `SkeinSession`
+- **S6** GREEN — `heddle-acp`: `AcpTextSink` takes the flag and answers `wants_more`; `HeddleSession`
   hands it over; `CancellableModel`'s docstring corrected.
   **`a7_session_cancel_ends_the_run_and_reports_cancelled` and
   `x1_cancellable_model_stops_delegating_once_the_flag_is_set` are not modified** — their passing
@@ -218,7 +218,7 @@ completes"* becomes false and must be corrected.
 | format | `cargo fmt --all -- --check` |
 | lint | `cargo clippy --workspace --all-targets -- -D warnings` |
 | tests | `cargo test --workspace` |
-| live | `$env:SKEIN_LIVE_MODEL = "gemma4:latest"; cargo test -p skein-gateway --test openai_compat -- --ignored --nocapture` |
+| live | `$env:HEDDLE_LIVE_MODEL = "gemma4:latest"; cargo test -p heddle-gateway --test openai_compat -- --ignored --nocapture` |
 
 The control baseline is the same three gates measured immediately after the fast-forward, before any
 edit.
@@ -241,6 +241,6 @@ edit.
 - Interrupting a **blocked** read (D2's residual, D5's rejected machinery).
 - Cancelling a **tool call** already in flight. `AcpPermissionTransport` runs a tool to completion;
   `session/cancel` during one is still observed at the next turn boundary.
-- Any `skein chat` cancellation surface. `chat` installs no sink and has no cancel channel; giving it
+- Any `heddle chat` cancellation surface. `chat` installs no sink and has no cancel channel; giving it
   one is a CLI slice with its own decisions.
 - Buffered redaction for the live transcript (slice 025's other standing residual).

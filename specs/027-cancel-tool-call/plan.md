@@ -2,7 +2,7 @@
 
 **Target artifacts:** `specs/027-cancel-tool-call/{spec.md,plan.md,tasks.md}` plus the code changes
 below. **Branch:** `027-cancel-tool-call`, cut from `dev`. **No PR** (the bare mirror at
-`D:/claudecode/skein-origin.git` exists only for Archon's worktree isolation). Conventional Commits.
+`D:/claudecode/heddle-origin.git` exists only for Archon's worktree isolation). Conventional Commits.
 Strict TDD (Constitution III): red before green.
 
 ---
@@ -21,23 +21,23 @@ and is absent from `d364405`. **S0 of this run: fast-forward `027-cancel-tool-ca
 
 | anchor | file | fact |
 |---|---|---|
-| `launch::wait` | `skein-sandbox/src/launch.rs` | one `WaitForSingleObject(process, millis)`; on anything but `WAIT_OBJECT_0` it calls `TerminateProcess` and returns the timeout refusal |
-| the job drop | `skein-sandbox/src/launch.rs`, in `run` | `drop(job)` sits between `wait` and the reader joins, on the success path too |
-| `Sandbox::run` | `skein-sandbox/src/lib.rs` | `(&self, exe, args, stream_cap, timeout)`; `#[cfg(not(windows))]` twin is `match self.0 {}` |
-| `run::execute` | `skein-connectors/src/run.rs` | `resolve_exe` then `sandbox.run(&exe, args, RUN_OUTPUT_BYTE_CAP, RUN_TIMEOUT)` |
-| `EmbeddedServer.sandbox` | `skein-connectors/src/server.rs` | `Option<Arc<Sandbox>>`, `Some` exactly when the `proc_run` route is enabled |
-| `EmbeddedServer::with_run` | `skein-connectors/src/server.rs` | fallible; `RunAccess::Allowed(dirs)` builds the `Sandbox` |
-| `local_connector_with_run` | `skein-connectors/src/connector.rs` | `(root, run)`; owns the tokio runtime the server task runs on |
-| `ToolArgs::transport` | `skein-cli/src/wiring.rs` | `(&self, run: RunAccess)`; called by `chat.rs` and by `acp.rs`'s session factory |
-| `SessionParts` | `skein-acp/src/lib.rs` | seven public fields; **no** `cancelled` |
-| `SkeinSession::new` | `skein-acp/src/lib.rs` | **mints** `Arc::new(AtomicBool::new(false))` itself, then clones it into `CancellableModel`, `AcpTextSink` and `Registered` |
-| `SkeinSession::run` | `skein-acp/src/lib.rs` | resets the flag per run; maps a set flag to `StopReason::Cancelled` |
-| the cancel notification | `skein-acp/src/lib.rs`, in `serve` | `registered.cancelled.store(true, SeqCst)` |
-| the timeout proof | `skein-sandbox/tests/escape.rs:158` | `the_job_object_kills_the_tree_when_the_clock_runs_out` — **slice 019 did write one** |
+| `launch::wait` | `heddle-sandbox/src/launch.rs` | one `WaitForSingleObject(process, millis)`; on anything but `WAIT_OBJECT_0` it calls `TerminateProcess` and returns the timeout refusal |
+| the job drop | `heddle-sandbox/src/launch.rs`, in `run` | `drop(job)` sits between `wait` and the reader joins, on the success path too |
+| `Sandbox::run` | `heddle-sandbox/src/lib.rs` | `(&self, exe, args, stream_cap, timeout)`; `#[cfg(not(windows))]` twin is `match self.0 {}` |
+| `run::execute` | `heddle-connectors/src/run.rs` | `resolve_exe` then `sandbox.run(&exe, args, RUN_OUTPUT_BYTE_CAP, RUN_TIMEOUT)` |
+| `EmbeddedServer.sandbox` | `heddle-connectors/src/server.rs` | `Option<Arc<Sandbox>>`, `Some` exactly when the `proc_run` route is enabled |
+| `EmbeddedServer::with_run` | `heddle-connectors/src/server.rs` | fallible; `RunAccess::Allowed(dirs)` builds the `Sandbox` |
+| `local_connector_with_run` | `heddle-connectors/src/connector.rs` | `(root, run)`; owns the tokio runtime the server task runs on |
+| `ToolArgs::transport` | `heddle-cli/src/wiring.rs` | `(&self, run: RunAccess)`; called by `chat.rs` and by `acp.rs`'s session factory |
+| `SessionParts` | `heddle-acp/src/lib.rs` | seven public fields; **no** `cancelled` |
+| `HeddleSession::new` | `heddle-acp/src/lib.rs` | **mints** `Arc::new(AtomicBool::new(false))` itself, then clones it into `CancellableModel`, `AcpTextSink` and `Registered` |
+| `HeddleSession::run` | `heddle-acp/src/lib.rs` | resets the flag per run; maps a set flag to `StopReason::Cancelled` |
+| the cancel notification | `heddle-acp/src/lib.rs`, in `serve` | `registered.cancelled.store(true, SeqCst)` |
+| the timeout proof | `heddle-sandbox/tests/escape.rs:158` | `the_job_object_kills_the_tree_when_the_clock_runs_out` — **slice 019 did write one** |
 
 ### 0.3 What a `session/cancel` reaches today, and where it stops
 
-One `Arc<AtomicBool>` per session, minted inside `SkeinSession::new`, is read from exactly two
+One `Arc<AtomicBool>` per session, minted inside `HeddleSession::new`, is read from exactly two
 places: `CancellableModel::turn`, **before** a turn (slice 013), and `AcpTextSink::wants_more`,
 per line of the provider's stream (slice 026). Nothing between the flag and a running child process
 exists at all: `AcpPermissionTransport::call` blocks the loop thread on the transport, the transport
@@ -58,7 +58,7 @@ nobody will read.
 
 ## 1. Problem
 
-`session/cancel` cannot stop a process Skein launched. The one capability in the product that can
+`session/cancel` cannot stop a process Heddle launched. The one capability in the product that can
 take thirty seconds, burn a core and touch the filesystem is the one capability cancellation does not
 reach.
 
@@ -66,8 +66,8 @@ reach.
 
 ### D1 — One `Arc<AtomicBool>`, injected at the composition root and threaded down
 
-The flag stops being minted inside `SkeinSession::new` and becomes an eighth field of
-`SessionParts`. `skein-cli`'s `acp.rs` — the session factory, which is the one frame that builds
+The flag stops being minted inside `HeddleSession::new` and becomes an eighth field of
+`SessionParts`. `heddle-cli`'s `acp.rs` — the session factory, which is the one frame that builds
 both the transport and the parts — mints one per session and hands the *same* `Arc` to both:
 
 ```rust
@@ -84,8 +84,8 @@ and it flows down, by value, with no new port and no new trait:
 `ToolArgs::transport` → `local_connector_with_run` → `EmbeddedServer::with_run` → `run::execute` →
 `Sandbox::run` → `launch::wait`.
 
-**Rejected — widen `ToolTransport` with a `cancel()` method.** `ToolTransport` is `skein-core`'s
-port and `skein-core` would then name cancellation for a second time, in a second shape, for one
+**Rejected — widen `ToolTransport` with a `cancel()` method.** `ToolTransport` is `heddle-core`'s
+port and `heddle-core` would then name cancellation for a second time, in a second shape, for one
 implementation out of four (`NoTools`, `ConfiguredTools`, `RmcpToolTransport`, `LocalConnector`) —
 three of which have nothing to cancel. Worse, it does not work: `AcpPermissionTransport::call` holds
 `&mut self` for the whole tool call, so there is no `&mut` left for a canceller to reach the
@@ -157,7 +157,7 @@ holding a stop button.
 **Rejected — a second waitable object and `WaitForMultipleObjects`.** It removes the 50 ms and costs
 an `Event` handle per launch, its creation and close on every path including the failure paths, and
 a `SetEvent` reachable from the canceller — which is the `Arc` this slice already has, plus a handle
-it would have to be given. `skein-sandbox` is the one crate in the workspace holding every `unsafe`
+it would have to be given. `heddle-sandbox` is the one crate in the workspace holding every `unsafe`
 block in the product (Constitution VII, and the crate's own module docstring): 50 ms of latency is
 the cheaper side of that trade until something measures it as a real cost.
 
@@ -183,9 +183,9 @@ bounds — `AcpPermissionTransport::call` blocks until a human answers, and the 
 arrives *after* that — and it would be a second read of the flag with no test able to distinguish it
 from the first. Constitution VII: not until something needs it.
 
-### D5 — `skein chat` gets a flag nothing sets, and that is the honest answer
+### D5 — `heddle chat` gets a flag nothing sets, and that is the honest answer
 
-`ToolArgs::transport` is called from `chat.rs` too, and `skein chat` has no cancel channel: it is
+`ToolArgs::transport` is called from `chat.rs` too, and `heddle chat` has no cancel channel: it is
 non-interactive, it has no `session/cancel`, and slice 026 already recorded that giving it one is a
 CLI slice with its own decisions. It passes a freshly-minted `Arc` nobody holds a second reference
 to — "nothing can cancel this run" stated in the wiring rather than in a comment, the same way
@@ -210,7 +210,7 @@ right by hand.
 
 - **S0** fast-forward onto `dev` at `ac37966`, measure the control baseline, write
   `specs/027-cancel-tool-call/{spec.md,plan.md}`. *(`tasks.md` is S12's close-out.)*
-- **S1** RED — `skein-sandbox/tests/escape.rs`: a flag set from another thread while a genuinely
+- **S1** RED — `heddle-sandbox/tests/escape.rs`: a flag set from another thread while a genuinely
   long-running sandboxed command runs makes `Sandbox::run` return a refusal naming cancellation,
   in far less than the timeout, and the child is gone. The command is **pinned by measurement**, with
   every rejected candidate named and its measured failure recorded.
@@ -219,33 +219,33 @@ right by hand.
   loop puts at risk, is *"the timeout still fires, still says so, and does **not** say cancelled,
   when the flag was never set"* and *"a run that outlives several poll slices but finishes inside the
   budget still returns its real exit code"*. Both are written here.
-- **S3** GREEN — `skein-sandbox`: `POLL_SLICE`, the `terminate` helper, the polling `wait`, and
+- **S3** GREEN — `heddle-sandbox`: `POLL_SLICE`, the `terminate` helper, the polling `wait`, and
   `Sandbox::run`'s new parameter on both platform arms.
 - **S4** RED-by-revert — remove **only** the cancellation check from the loop and record the red, so
   the red is evidence about this code rather than about its absence. Restore.
-- **S5** RED — `skein-connectors/tests/run_server.rs`: an `EmbeddedServer::with_run` whose flag is
+- **S5** RED — `heddle-connectors/tests/run_server.rs`: an `EmbeddedServer::with_run` whose flag is
   set from another thread mid-`proc_run` returns an `Err` naming cancellation, fast; and a server
   whose flag is never set runs unchanged.
-- **S6** GREEN — `skein-connectors`: the `Launcher` struct, `run::execute`'s parameter,
+- **S6** GREEN — `heddle-connectors`: the `Launcher` struct, `run::execute`'s parameter,
   `EmbeddedServer::with_run`'s parameter, `local_connector_with_run`'s parameter.
-- **S7** RED — `skein-acp/tests/acp_session.rs`: `SessionParts` carries the flag, and a session built
+- **S7** RED — `heddle-acp/tests/acp_session.rs`: `SessionParts` carries the flag, and a session built
   from a caller-supplied flag hands that same flag to the tool side. `a7_…`, `a13_…` and `x1_…` are
   **not modified** beyond the new field — their passing unchanged is the proof the pre-turn and
   mid-stream paths still work.
-- **S8** GREEN — `skein-acp`: `SessionParts.cancelled`, `SkeinSession::new` consuming it instead of
+- **S8** GREEN — `heddle-acp`: `SessionParts.cancelled`, `HeddleSession::new` consuming it instead of
   minting one.
-- **S9** GREEN — `skein-cli`: `ToolArgs::transport`'s parameter, `chat.rs`'s never-set flag,
+- **S9** GREEN — `heddle-cli`: `ToolArgs::transport`'s parameter, `chat.rs`'s never-set flag,
   `acp.rs`'s one-per-session mint handed to both sides.
 - **S10** RED-by-sabotage — the composition-root wiring test, in
-  `skein-cli/tests/cli_acp_agent.rs`: a real ACP client drives the real binary with `--allow-run`,
+  `heddle-cli/tests/cli_acp_agent.rs`: a real ACP client drives the real binary with `--allow-run`,
   approves a `proc_run` of the long-running command, then sends `session/cancel`; the prompt must be
   answered `Cancelled` **in far less than `RUN_TIMEOUT`**. The red is obtained by deliberately wiring
   **two different `Arc`s** in `acp.rs` — the one composition-root mistake nothing else in this slice
   can catch, because with two flags the run still ends `Cancelled`, just thirty seconds later.
   **This step is not optional.** It is the test that proves the wiring test tests the wiring.
-- **S11** live hand-verification on this machine, timestamped: `skein acp-agent --allow-run` against
+- **S11** live hand-verification on this machine, timestamped: `heddle acp-agent --allow-run` against
   the real Ollama, a real `proc_run`, a real `session/cancel`, and **real process death confirmed
-  through `Get-Process`** — not through Skein's own report of it. Part of this run.
+  through `Get-Process`** — not through Heddle's own report of it. Part of this run.
 - **S12** close-out: `tasks.md` with the reds verbatim, the live run, the deviations and the
   residuals; the three gates green.
 
@@ -285,6 +285,6 @@ edit.
   an untimed `recv()` for the human's answer. A `session/cancel` arriving then is observed when the
   human answers. A real gap, and a different one: it needs a second channel into that `recv`.
 - **A pre-launch check** (D4's stated residual).
-- **Any `skein chat` cancellation surface** (D5; slice 026 recorded the same boundary).
+- **Any `heddle chat` cancellation surface** (D5; slice 026 recorded the same boundary).
 - **Non-Windows.** `Sandbox` is uninhabited off Windows and `--allow-run` is a refusal there, so the
   parameter is added to the `#[cfg(not(windows))]` arm for signature parity and is unreachable.

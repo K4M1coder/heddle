@@ -2,21 +2,21 @@
 
 **Feature Branch:** `010-secret-provider` · **Created:** 2026-09-03 · **Status:** Implemented (v0 slice)
 **Input:** `specs/009-silo-ledger/tasks.md` "Next slice" — *"`SecretProvider` (OS keychain) + JIT
-`Redactor` — spec 010, extending `crates/skein-silo`"* · Constitution VI (**secrets by reference,
+`Redactor` — spec 010, extending `crates/heddle-silo`"* · Constitution VI (**secrets by reference,
 never by value**, resolved just-in-time, redacted from logs), IV (**the core discovers secrets
 through a trait**), III (**test-first**), VII (**no capability without a real need**) ·
 design §7.13, §7.2 ("one keychain per silo"), §7.3 (egress).
 
 Nine merged slices built a governed loop whose Ledger already scrubs secrets — but only secrets
-the operator handed it **by value**. `crates/skein-core/src/tool.rs` said so in `Redactor`'s own
+the operator handed it **by value**. `crates/heddle-core/src/tool.rs` said so in `Redactor`'s own
 doc comment: *"The values are configuration today; they will come from `SecretProvider::resolve`
 (design §7.13) once that lands."* A config that carries the literal secret so the redactor can
 recognise it is precisely the thing Principle VI forbids.
 
-This slice closes that loop. `skein-core` gains the §7.13 seam — `SecretRef` (a URI, never a
+This slice closes that loop. `heddle-core` gains the §7.13 seam — `SecretRef` (a URI, never a
 value), `SecretValue` (zeroized on drop, `Debug`-redacted) and the `SecretProvider` trait — and a
 `Redactor::resolve` constructor that turns configuration-held *references* into in-memory values
-at gateway-construction time. `skein-silo` gains `OsKeychain`, the offline zero-config default
+at gateway-construction time. `heddle-silo` gains `OsKeychain`, the offline zero-config default
 backend, reading the platform credential store.
 
 ## User Scenarios & Testing
@@ -43,7 +43,7 @@ As an operator on Windows, macOS or Linux, the zero-config default reads the pla
 1. **Given** an `OsKeychain`, **When** a value is stored under a test-unique reference, resolved,
    and deleted, **Then** `expose()` matches what was stored and a second `resolve` is `Err`.
 2. **Given** a reference that was never stored, **When** it is resolved, **Then** the result is
-   `Err(SkeinError::Secret)` — never an empty value.
+   `Err(HeddleError::Secret)` — never an empty value.
 3. **Given** a reference in a scheme this backend does not implement (`op://vault/item`),
    **When** it is resolved, **Then** the result is `Err` — the one implemented backend does not
    silently pretend to serve other schemes.
@@ -63,7 +63,7 @@ As an operator in Local mode with egress OFF, only offline backends are usable.
 1. **Given** an `OsKeychain`, **When** `requires_network()` is asked, **Then** it is `false`.
 
 ## Requirements
-- **FR-001**: `skein-core` MUST define `SecretRef`, `SecretValue` and `SecretProvider`, and MUST
+- **FR-001**: `heddle-core` MUST define `SecretRef`, `SecretValue` and `SecretProvider`, and MUST
   NOT name a credential store, `keyring`, or any OS API (Constitution IV).
 - **FR-002**: `SecretValue` MUST zeroize its bytes on drop and MUST NOT render its value through
   `Debug`. Reading it MUST require an explicit `expose()` call.
@@ -74,7 +74,7 @@ As an operator in Local mode with egress OFF, only offline backends are usable.
   `Err` if any one fails.
 - **FR-006**: `Redactor` MUST store its secrets as `SecretValue`, so the values it holds are
   zeroized on drop on both the literal and the resolved path.
-- **FR-007**: `OsKeychain` MUST live in `skein-silo` and MUST implement `SecretProvider` with
+- **FR-007**: `OsKeychain` MUST live in `heddle-silo` and MUST implement `SecretProvider` with
   `requires_network() == false`.
 - **FR-008**: `OsKeychain::resolve` MUST accept only `keychain://<service>/<account>` and MUST
   reject any other scheme, an empty service, or an empty account.
@@ -85,7 +85,7 @@ As an operator in Local mode with egress OFF, only offline backends are usable.
   each behind `#[cfg]`, with no OS-specific call lacking an equivalent.
 - **FR-011**: `OsKeychain` MUST NOT install a process-global default credential store; the store
   is owned by the `OsKeychain` value, so design §7.2's "one keychain per silo" stays expressible.
-- **FR-012**: A missing credential MUST surface as `SkeinError::Secret`, distinct from a
+- **FR-012**: A missing credential MUST surface as `HeddleError::Secret`, distinct from a
   transport or storage failure.
 
 ## Success Criteria
@@ -94,7 +94,7 @@ As an operator in Local mode with egress OFF, only offline backends are usable.
   (2026-09-03).
 - **SC-002**: The `OsKeychain` acceptance runs against the **real** platform credential store. No
   in-memory stand-in for the backend under test.
-- **SC-003**: `git diff dev -- crates/skein-mcp/ crates/skein-acp/` is empty.
+- **SC-003**: `git diff dev -- crates/heddle-mcp/ crates/heddle-acp/` is empty.
 - **SC-004**: `git diff dev -- spikes/ .github/ rust-toolchain.toml` is empty.
 - **SC-005**: `git diff dev -- Cargo.toml` shows only added `[workspace.dependencies]` entries.
 - **SC-006**: Every pre-existing test still passes with its body unchanged — `Redactor::new` is

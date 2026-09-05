@@ -8,14 +8,14 @@ untested-in-production path in the tree"* · ADR-0004 D3's sixth v0 item (*"MCP 
 (**traceability**), VI (**deny-by-default, secrets redacted from logs**), VII (**no capability
 without a real need**) · design §4.2, §4.3, §4.5.
 
-Since slice 005 Skein has had a governed Tool Gateway; since slice 006 the loop mediates every call
+Since slice 005 Heddle has had a governed Tool Gateway; since slice 006 the loop mediates every call
 through it; since slice 007 an allowlist decides; since slice 014 the tool payloads it records are
 scrubbed. The *response* path is complete: `OpenAiCompatClient` already translates a provider's
 `tool_calls` into `ToolCall`s, and `NativeLoop::mediate` already governs them.
 
 The **request** path does not exist. `TurnRequest` carries `{run_id, messages}` and nothing else, so
 no model is ever told a tool exists, so no model ever asks for one.
-`crates/skein-gateway/tests/openai_compat.rs` says so in a comment on its own tool-call test: *"This
+`crates/heddle-gateway/tests/openai_compat.rs` says so in a comment on its own tool-call test: *"This
 client advertises no tools, so a provider should not send these."*
 
 This slice builds the request path and nothing else. It ships **no connector**: the `fs` server that
@@ -28,7 +28,7 @@ and it is what makes each half independently revertible.
 **Nothing, observably.** No new flag, no new subcommand, no new dependency. Both loop-running
 commands still wire `NoTools` behind an empty allowlist, so:
 
-- the bytes `skein chat` puts on the wire are **byte-identical** to slice 014's;
+- the bytes `heddle chat` puts on the wire are **byte-identical** to slice 014's;
 - every Ledger payload of every run has the **same shape** it had before;
 - old chains still deserialize, and chains written after this slice still deserialize if it is
   reverted.
@@ -56,7 +56,7 @@ this slice must not need to, and SC-007 pins it.
    trait's docstring, because "the project distrusts silent defaults" is the right instinct and this
    is the exception that has to justify itself.
 4. **A `Mutating` tool with no approval is still advertised.** It is visible to the model and refused
-   at call time with a reason the model is told. Denying at advertisement would make `skein-acp`'s
+   at call time with a reason the model is told. Denying at advertisement would make `heddle-acp`'s
    `AcpPermissionTransport` permanently unreachable: its entire design is that the policy allows and
    the *client* decides, and `ToolGateway::call_captured` consults the policy **before** the
    transport. FR-004 and SC-004 pin this deliberately, so nobody later "tightens" it and silently
@@ -64,10 +64,10 @@ this slice must not need to, and SC-007 pins it.
 
 ## Functional requirements
 
-- **FR-001** `skein_core::ToolSpec` — `{ name: String, description: String, parameters:
+- **FR-001** `heddle_core::ToolSpec` — `{ name: String, description: String, parameters:
   serde_json::Value }` — lives in `tool.rs` beside `ToolCall` and is re-exported from `lib.rs`.
   `parameters` is an opaque `Value`: the schema is the server's, and a typed mirror of JSON Schema in
-  `skein-core` would be a second source of truth for a document the core never interprets.
+  `heddle-core` would be a second source of truth for a document the core never interprets.
 - **FR-002** `ToolTransport::list(&mut self) -> Result<Vec<ToolSpec>>` has a defaulted body returning
   `Ok(Vec::new())`, so all nine existing `impl ToolTransport` sites compile untouched and the
   120-test baseline stays a live control.
@@ -85,7 +85,7 @@ this slice must not need to, and SC-007 pins it.
   unknown. It propagates before any `IterationBoundary` or `LlmRequest` is appended.
 - **FR-008** `AcpPermissionTransport::list` **overrides** the default and forwards to its inner
   transport. Permission is asked per *call*; enumerating a catalogue is not a call.
-- **FR-009** `skein-gateway`'s `ChatRequest` gains `tools`, serialized as OpenAI's
+- **FR-009** `heddle-gateway`'s `ChatRequest` gains `tools`, serialized as OpenAI's
   `[{"type":"function","function":{"name","description","parameters"}}]` with `strict` omitted, and
   skipped entirely when empty.
 - **FR-010** No new `StepKind`. The advertisement travels inside `TurnRequest`, which `run` already
@@ -109,7 +109,7 @@ this slice must not need to, and SC-007 pins it.
 - **SC-009** One advertised tool produces the exact OpenAI `tools` bytes on the wire.
 - **SC-010** All 120 pre-existing tests pass; the only edits to pre-existing test files are the
   mechanical `TurnRequest { … }` field additions the plan named in advance.
-- **SC-011** `git diff dev -- crates/skein-cli/ crates/skein-silo/ spikes/ .github/
+- **SC-011** `git diff dev -- crates/heddle-cli/ crates/heddle-silo/ spikes/ .github/
   rust-toolchain.toml` is **empty**, and so is `git diff dev -- Cargo.toml crates/*/Cargo.toml`:
   zero new packages, zero new dependency edges.
 
@@ -137,8 +137,8 @@ this slice must not need to, and SC-007 pins it.
 
 Deliberately not done, so nobody helpfully does it:
 
-- **Any connector at all**, and therefore `crates/skein-connectors`, `FsRoot`, `--fs-root`, and every
-  `skein-cli` change. That is slice 016, and it is the half that gives this one a caller.
+- **Any connector at all**, and therefore `crates/heddle-connectors`, `FsRoot`, `--fs-root`, and every
+  `heddle-cli` change. That is slice 016, and it is the half that gives this one a caller.
 - **`git` and `shell` tools.** Named in ADR-0004 D3 and deferred with reasons in 016's plan; shell
   only after an access-scope boundary exists.
 - **Deriving `ToolAccess` from MCP tool annotations.** Classification stays operator configuration;
@@ -154,5 +154,5 @@ Deliberately not done, so nobody helpfully does it:
   models, and two traits would have to be injected and kept in sync at every wiring site.
 - **Raw wire-byte capture**, provider authentication, a config file, `--json` output — still on slice
   014's "next slice" list, and none of them are this.
-- **`crates/skein-cli/`, `crates/skein-silo/`, `spikes/`** (ADR-0004 D2), **`.github/`,
+- **`crates/heddle-cli/`, `crates/heddle-silo/`, `spikes/`** (ADR-0004 D2), **`.github/`,
   `rust-toolchain.toml`.**

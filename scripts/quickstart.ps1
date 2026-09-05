@@ -1,4 +1,4 @@
-# Skein — quickstart: from a clone or an extracted bundle to one real answer,
+# Heddle — quickstart: from a clone or an extracted bundle to one real answer,
 # produced by one real tool call, on a chain you can verify.
 # Idempotent: safe to re-run; a second run appends to the same demo silo.
 #   pwsh -File scripts/quickstart.ps1 [-Model NAME] [-BaseUrl URL] [-FsRoot PATH] [-Prompt TEXT]
@@ -24,7 +24,7 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 
 # Two placements, one script. In a clone this file sits in scripts/ beside the
 # workspace manifest and the crates it builds; in a bundle it sits beside
-# skein.exe with neither. Both markers are checked, so a bundle extracted
+# heddle.exe with neither. Both markers are checked, so a bundle extracted
 # somewhere unlucky cannot be mistaken for a checkout.
 #
 # A function rather than four inline lines because scripts/quickstart.Tests.ps1
@@ -58,17 +58,17 @@ $placement = Resolve-Placement -ScriptDirectory $PSScriptRoot -FsRoot $FsRoot
 $SourceMode = $placement.SourceMode
 $repoRoot = $placement.RepoRoot
 $FsRoot = $placement.FsRoot
-$exeName = if ($IsWindows) { 'skein.exe' } else { 'skein' }
+$exeName = if ($IsWindows) { 'heddle.exe' } else { 'heddle' }
 
 if (-not $BaseUrl) {
   # Mirrors ModelArgs::endpoint: the flag, else the environment, else Ollama's
   # own OpenAI-compatible endpoint. Passing --base-url unconditionally without
   # reading the variable first would silently override an operator who set it.
-  $BaseUrl = if ($env:SKEIN_MODEL_BASE_URL) { $env:SKEIN_MODEL_BASE_URL } else { 'http://localhost:11434/v1' }
+  $BaseUrl = if ($env:HEDDLE_MODEL_BASE_URL) { $env:HEDDLE_MODEL_BASE_URL } else { 'http://localhost:11434/v1' }
 }
 
 if (-not $Prompt) {
-  $Prompt = 'Read the file README.md in the project root and answer in one short paragraph: what is Skein, and what is its current status?'
+  $Prompt = 'Read the file README.md in the project root and answer in one short paragraph: what is Heddle, and what is its current status?'
   if (-not (Test-Path (Join-Path $FsRoot 'README.md'))) {
     Fail "the demo prompt reads README.md, and $FsRoot has none. Run this from the folder you want the agent to read, name that folder with -FsRoot, or ask something else with -Prompt."
   }
@@ -110,8 +110,8 @@ if ($SourceMode) {
   # Always invoked, never guarded by a staleness check of our own: whether a
   # rebuild is needed is cargo's decision, and an already-current no-op costs
   # under a second.
-  Note "cargo build --release -p skein-cli"
-  & cargo build --release -p skein-cli --manifest-path (Join-Path $repoRoot 'Cargo.toml')
+  Note "cargo build --release -p heddle-cli"
+  & cargo build --release -p heddle-cli --manifest-path (Join-Path $repoRoot 'Cargo.toml')
   if ($LASTEXITCODE -ne 0) {
     Fail @'
 the release build failed. The likeliest cause on a fresh machine is a missing C toolchain: SQLite is
@@ -124,11 +124,11 @@ the failure surfaces deep inside a build script as a cc/link.exe error that name
 } else {
   $exe = Join-Path $PSScriptRoot $exeName
 }
-if (-not (Test-Path -LiteralPath $exe)) { Fail "no Skein binary at $exe" }
+if (-not (Test-Path -LiteralPath $exe)) { Fail "no Heddle binary at $exe" }
 $exe = (Resolve-Path -LiteralPath $exe).Path
 
 Step "Local model provider"
-# Tool capability is not on the OpenAI-compatible /v1/models route Skein itself
+# Tool capability is not on the OpenAI-compatible /v1/models route Heddle itself
 # talks to, only on Ollama's native /api/tags — so the probe strips /v1 back off.
 $providerRoot = $BaseUrl -replace '/v1/?$', ''
 Note "GET $providerRoot/api/tags"
@@ -139,7 +139,7 @@ try {
   # arrives in the OS display language — measured French on this machine, in a
   # project whose content is English — and at a shorter timeout it has been
   # measured to blame an HttpClient timeout for a connection refused instantly.
-  Fail "nothing answered at $providerRoot. Skein only ever talks to a provider on this machine over http, so this has to be a local one: start it with 'ollama serve' (install with 'winget install --id Ollama.Ollama -e'), or point elsewhere with -BaseUrl."
+  Fail "nothing answered at $providerRoot. Heddle only ever talks to a provider on this machine over http, so this has to be a local one: start it with 'ollama serve' (install with 'winget install --id Ollama.Ollama -e'), or point elsewhere with -BaseUrl."
 }
 
 $models = @($tags.models)
@@ -180,11 +180,11 @@ if ($Model) {
 }
 
 Step "One real turn"
-$siloRoot = if ($IsWindows) { Join-Path $env:LOCALAPPDATA 'skein/quickstart-demo' } else { Join-Path $HOME '.local/state/skein/quickstart-demo' }
+$siloRoot = if ($IsWindows) { Join-Path $env:LOCALAPPDATA 'heddle/quickstart-demo' } else { Join-Path $HOME '.local/state/heddle/quickstart-demo' }
 New-Item -ItemType Directory -Force -Path $siloRoot | Out-Null
 $siloRoot = (Resolve-Path -LiteralPath $siloRoot).Path
 # Minted here and passed as --run-id so the ledger commands below need nothing
-# parsed out of stderr, where `skein chat` prints the id it would otherwise mint.
+# parsed out of stderr, where `heddle chat` prints the id it would otherwise mint.
 $runId = "quickstart-$(Get-Date -Format 'yyyyMMddHHmmss')"
 Note "silo root : $siloRoot"
 Note "fs root   : $FsRoot"
@@ -206,8 +206,8 @@ $log | ForEach-Object { Note $_ }
 if (($log -join "`n") -notmatch 'tool_call') {
   # The one failure mode nothing else here can catch: a model without tool
   # support answers plausibly and errors nowhere, so the absence of this step
-  # is the only evidence that Skein did not do the work.
-  Warn "this chain has no tool_call step, so the model answered from its own weights and no Skein tool ran. Whatever it said above, this run did not demonstrate Skein."
+  # is the only evidence that Heddle did not do the work.
+  Warn "this chain has no tool_call step, so the model answered from its own weights and no Heddle tool ran. Whatever it said above, this run did not demonstrate Heddle."
 }
 Write-Host ""
 & $exe ledger verify --root $siloRoot --silo demo

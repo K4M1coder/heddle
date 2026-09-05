@@ -8,7 +8,7 @@ Everything named below was read in the working tree at `b82f37a`, or fetched fro
 source, **this session**. Anything marked **new** does not exist yet. Where this plan contradicts
 the request's own assumptions, it says so and gives the measurement.
 
-`git status --short` in `D:\claudecode\skein` was empty when this plan was written and is empty now.
+`git status --short` in `D:\claudecode\heddle` was empty when this plan was written and is empty now.
 Nothing in the repository was modified; all probing was `curl` against crates.io and
 raw.githubusercontent.com, plus reads of the working tree.
 
@@ -24,7 +24,7 @@ backend, and it settles the two crate decisions — `win32job` for Job Object pr
 and hand-rolled restricted-token/AppContainer construction against the official `windows` crate
 rather than the low-adoption `rappct`.
 
-Today a Skein agent can read files (`fs_read`, `fs_list`), write one (`fs_write`, behind the ACP
+Today a Heddle agent can read files (`fs_read`, `fs_list`), write one (`fs_write`, behind the ACP
 permission gate slice 018 proved live), and inspect a repository (`git_status`, `git_log`). It
 cannot run a build, a test suite, or a linter — it can observe a codebase but not act on it. This
 slice adds the missing capability in the smallest shape that is actually safe: a Windows sandbox
@@ -39,15 +39,15 @@ upstream docs summary would have led an implementer to assume; both are called o
 
 ### The tree as it is
 
-1. `crates/` holds seven crates: `skein-acp`, `skein-cli`, `skein-connectors`, `skein-core`,
-   `skein-gateway`, `skein-mcp`, `skein-silo`. Workspace `resolver = "2"`, `exclude = ["spikes"]`,
+1. `crates/` holds seven crates: `heddle-acp`, `heddle-cli`, `heddle-connectors`, `heddle-core`,
+   `heddle-gateway`, `heddle-mcp`, `heddle-silo`. Workspace `resolver = "2"`, `exclude = ["spikes"]`,
    `rust-version = "1.97"`; `rust-toolchain.toml` pins channel `1.97`.
-2. `crates/skein-connectors/src/` is `{lib.rs, connector.rs, fs.rs, git.rs, server.rs}`.
+2. `crates/heddle-connectors/src/` is `{lib.rs, connector.rs, fs.rs, git.rs, server.rs}`.
    `EmbeddedServer::new(root: FsRoot) -> Self` is **infallible** and disables the two git routes via
    `ToolRouter::disable_route` when `git::is_git_repository(&root)` is false.
    `local_connector(root: FsRoot) -> Result<LocalConnector>` owns a `tokio::runtime::Runtime` and
    serves `EmbeddedServer` over a `tokio::io::duplex(DUPLEX_BUFFER)`.
-3. `FsRoot` (`crates/skein-connectors/src/fs.rs`) canonicalizes once in `new`, and exposes
+3. `FsRoot` (`crates/heddle-connectors/src/fs.rs`) canonicalizes once in `new`, and exposes
    `path()`, `resolve(&str)` (existing path: canonicalize, then prefix-check) and `resolve_new(&str)`
    (canonicalize the parent, re-append the file name). `rooted_relative` rejects
    `Component::Prefix` and `Component::RootDir` **before** the join, because `Path::join` with an
@@ -57,42 +57,42 @@ upstream docs summary would have led an implementer to assume; both are called o
    (**truncates and labels the drop**, because `git_status` takes no arguments so there is no
    smaller call to fall back to). This asymmetry is documented in the source and is the precedent
    this slice's own cap decision has to answer to.
-5. `skein_core::ToolPolicy::decide` denies an unlisted name outright; a `ToolAccess::Mutating` name
+5. `heddle_core::ToolPolicy::decide` denies an unlisted name outright; a `ToolAccess::Mutating` name
    runs only when it is also in `approved`. `ToolGateway::call_captured` appends `ToolCall`, then
    `Approval`, then reaches the transport, then appends `ToolResult` — every payload through
    `Redactor`. `ToolGateway::advertise` filters the transport's catalogue through the allowlist.
-6. `skein_acp::AcpPermissionTransport` decorates the transport *inside* `ToolGateway`, offers
-   exactly `skein.allow-once` / `skein.reject-once`, and maps anything but `allow-once` onto
-   `SkeinError::ToolDenied` — which `NativeLoop::mediate` survives. Any other transport error is
+6. `heddle_acp::AcpPermissionTransport` decorates the transport *inside* `ToolGateway`, offers
+   exactly `heddle.allow-once` / `heddle.reject-once`, and maps anything but `allow-once` onto
+   `HeddleError::ToolDenied` — which `NativeLoop::mediate` survives. Any other transport error is
    fatal to the run. This is why an allowlisted-but-absent route is a bug, not a nicety.
-7. `crates/skein-cli/src/wiring.rs`: `ToolArgs { fs_root: Option<PathBuf> }` with
+7. `crates/heddle-cli/src/wiring.rs`: `ToolArgs { fs_root: Option<PathBuf> }` with
    `verify_root()`, `transport() -> Result<ConfiguredTools>`, `chat_policy()`, `agent_policy()`,
    `git_tools()`, `policy()`. `read_only()` is a free function returning the `fs_read`/`fs_list`
    pair. `chat_policy` deliberately omits `fs_write` ("a non-interactive command has nobody to
    ask"); `agent_policy` allowlists **and** approves it, because `call_captured` consults the policy
    before the transport, so an unlisted mutating tool never becomes a question for a human.
    `ModelArgs::timeout_secs` defaults to 120.
-8. `crates/skein-cli/src/main.rs`: `ChatArgs` flattens `ModelArgs`/`RedactArgs`/`ToolArgs`; the
+8. `crates/heddle-cli/src/main.rs`: `ChatArgs` flattens `ModelArgs`/`RedactArgs`/`ToolArgs`; the
    `AcpAgent` variant flattens `SiloArgs`/`ModelArgs`/`RedactArgs`/`ToolArgs` separately. Adding a
    new `#[derive(Args)]` group to **one** subcommand is an established shape here.
-   `crates/skein-cli/src/chat.rs` calls `args.tools.transport()?` and `args.tools.chat_policy()`;
-   `crates/skein-cli/src/acp.rs` calls `tools.verify_root()?` before `Silo::open`, then
+   `crates/heddle-cli/src/chat.rs` calls `args.tools.transport()?` and `args.tools.chat_policy()`;
+   `crates/heddle-cli/src/acp.rs` calls `tools.verify_root()?` before `Silo::open`, then
    `tools.transport()?` and `tools.agent_policy()` inside the session factory.
-9. `crates/skein-cli/tests/cli_acp_agent.rs` holds slice 018's harness: `struct Answered { stop,
+9. `crates/heddle-cli/tests/cli_acp_agent.rs` holds slice 018's harness: `struct Answered { stop,
    asked, updates }` and `fn run_answering(root, silo, fs_root, base_url, answer:
-   PermissionOptionKind) -> Answered`, driving the **real** `skein acp-agent` binary
-   (`env!("CARGO_BIN_EXE_skein")`) against a `StubProvider`, answering every
+   PermissionOptionKind) -> Answered`, driving the **real** `heddle acp-agent` binary
+   (`env!("CARGO_BIN_EXE_heddle")`) against a `StubProvider`, answering every
    `RequestPermissionRequest` by selecting an **offered** option of the requested kind. Helpers
-   `tool_call_reply`, `last_message`, `logged_kinds`, `temp_root`, `root_arg`, `skein`,
+   `tool_call_reply`, `last_message`, `logged_kinds`, `temp_root`, `root_arg`, `heddle`,
    `run_with_timeout`, `chunks`, `reply` are all in the same file. Reusable verbatim.
-10. `crates/skein-connectors/tests/governed_fs_run.rs` is the "the effect on disk is the proof"
+10. `crates/heddle-connectors/tests/governed_fs_run.rs` is the "the effect on disk is the proof"
     precedent (`an_unlisted_write_never_reaches_the_server`,
     `an_out_of_root_read_is_refused_by_the_server_and_the_run_survives`), and
     `cli_acp_agent.rs::an_acp_client_that_rejects_stops_the_fs_write_and_the_run_survives` asserts
     `!files.path().join("planted.txt").exists()` as the whole point of the test.
 11. **There is no `unsafe` in `crates/` today.** `grep -rn unsafe --include=*.rs crates` returns two
-    hits, both the English word inside doc comments (`skein-core/src/tool.rs`,
-    `skein-core/tests/tool_gateway.rs`). This slice introduces the workspace's first real `unsafe`,
+    hits, both the English word inside doc comments (`heddle-core/src/tool.rs`,
+    `heddle-core/tests/tool_gateway.rs`). This slice introduces the workspace's first real `unsafe`,
     and that is the strongest argument for where it goes (see **Approach**, D1).
 12. `.github/workflows/core.yml` runs `windows-latest`, `macos-latest`, `ubuntu-latest` with
     `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and
@@ -289,15 +289,15 @@ All signatures below are from `microsoft/windows-rs` tag `0.61.0`, files under
 ## Approach
 
 One new crate holding the sandbox, one new `#[cfg(windows)]` tool on the existing `EmbeddedServer`,
-one new opt-in flag on `skein acp-agent` only. No new tool-calling path, no new approval mechanism,
+one new opt-in flag on `heddle acp-agent` only. No new tool-calling path, no new approval mechanism,
 no trait for three OSes.
 
-### D1 — The sandbox is a new crate, `crates/skein-sandbox`
+### D1 — The sandbox is a new crate, `crates/heddle-sandbox`
 
-`skein-sandbox` is the workspace's **only** crate containing `unsafe`, and that is its reason to
+`heddle-sandbox` is the workspace's **only** crate containing `unsafe`, and that is its reason to
 exist: fact 11 says there is none today, and this slice adds roughly 400–500 lines of raw Win32 FFI.
 A reviewer auditing memory safety in this workspace should have exactly one directory to read — the
-same discipline that makes `skein-connectors` the only crate naming MCP as a server and `src/git.rs`
+same discipline that makes `heddle-connectors` the only crate naming MCP as a server and `src/git.rs`
 the only module naming `git2`. It also gives the Linux and macOS backends ADR-0006 defers an obvious
 future home without building any of it now.
 
@@ -305,7 +305,7 @@ The crate compiles on all three OSes. Its Windows content is under `#[cfg(window
 macOS `lib.rs` exposes the same public names with non-Windows bodies (D6), so no caller needs a
 `#[cfg]` around a call site.
 
-`crates/skein-sandbox/Cargo.toml`:
+`crates/heddle-sandbox/Cargo.toml`:
 ```toml
 [dependencies]
 sha2.workspace = true                       # the deterministic profile name (D6)
@@ -331,7 +331,7 @@ win32job = "2.0"
 Neither crate appears in any other crate's graph, and `cargo tree` on Linux and macOS shows neither
 at all.
 
-**Rejected: `#[cfg(windows)] mod shell;` inside `skein-connectors`.** ADR-0006 explicitly permits
+**Rejected: `#[cfg(windows)] mod shell;` inside `heddle-connectors`.** ADR-0006 explicitly permits
 it, and `[target.'cfg(windows)'.dependencies]` would keep the deps off the other two OSes there just
 as well — so the dependency-footprint argument does *not* decide it. It loses on the audit surface:
 the crate hosting every MCP tool would also host every `unsafe` block, and its Cargo.toml's careful
@@ -404,7 +404,7 @@ so it could never be resumed.
   unsafe code for a bound the timeout already terminates. **Recorded as a named residual in
   `spec.md`, not silently omitted.**
 
-### D6 — The public surface of `skein-sandbox`
+### D6 — The public surface of `heddle-sandbox`
 
 ```rust
 // present on every OS; on non-Windows every constructor returns Err
@@ -427,7 +427,7 @@ rather than a live `PSID`, and rebuilds a `PSID` per launch with `ConvertStringS
 `LocalFree`. That makes `Sandbox` `Send + Sync` **by construction** — no `unsafe impl` — which
 matters because rmcp's handler must be `Clone + Send + Sync + 'static`.
 
-Profile name: `"skein-"` followed by the first 16 hex characters of `sha256(canonical root path as
+Profile name: `"heddle-"` followed by the first 16 hex characters of `sha256(canonical root path as
 UTF-8)`. `sha2` is already a workspace dependency. Deterministic, so repeated runs over the same root
 reuse one profile and one ACE; 22 characters, comfortably inside AppContainer's 64-character name
 limit. `CreateAppContainerProfile` returning `HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS)` falls
@@ -500,7 +500,7 @@ UTF-16 units. Each is a named `Err(String)`, so the model receives a refusal it 
 than a raw Win32 error code.
 
 **Honest boundary statement, required in `spec.md`:** the tool never interprets shell syntax, and
-Skein never builds a shell command line, so there is nothing in Skein's own code for an argument to
+Heddle never builds a shell command line, so there is nothing in Heddle's own code for an argument to
 be injected *into*. It does **not** follow that the model cannot obtain a shell — nothing stops it
 naming `cmd.exe` as `command`. A blocklist of shell binaries would be theatre (`powershell.exe`,
 `wsl.exe`, `mshta.exe`, a copy of `cmd.exe` placed inside the root). **The containment boundary is
@@ -546,7 +546,7 @@ then drop the `Job` (which kills descendants), which closes the write ends, whic
 then join. The parent's copies of the write ends are closed immediately after `CreateProcessW`, or
 the readers never see EOF.
 
-### D11 — Opt-in at the CLI: `--allow-run`, on `skein acp-agent` only
+### D11 — Opt-in at the CLI: `--allow-run`, on `heddle acp-agent` only
 
 New in `wiring.rs`:
 ```rust
@@ -570,7 +570,7 @@ after a successful handshake.
 Why a flag, and why only `acp-agent`:
 - **Deny-by-default becomes structural, not merely policy** (Constitution VI). Running a process is a
   larger capability than `fs_write`; a second opt-in on top of `--fs-root` is the honest shape.
-- **`skein chat` has nobody to ask.** `proc_run` is `Mutating`. `chat_policy`'s existing docstring
+- **`heddle chat` has nobody to ask.** `proc_run` is `Mutating`. `chat_policy`'s existing docstring
   already spells out why a mutating tool that could only ever be denied should be *absent* rather
   than listed. A flag on `chat` would either contradict that or build an AppContainer and mutate a
   directory's ACL for a tool that can never fire. `chat_policy` and `cli_chat.rs` are therefore
@@ -582,7 +582,7 @@ Why a flag, and why only `acp-agent`:
 - **It gives the "gated off" property a Windows-side test too**, which the acceptance criteria
   explicitly allow ("or a Windows build with the shell feature/cfg artificially disabled").
 
-`RunAccess` is a plain unconditional enum in `skein-connectors`:
+`RunAccess` is a plain unconditional enum in `heddle-connectors`:
 `pub enum RunAccess { Denied, Allowed }`. `ToolArgs` gains `transport(&self, run: RunAccess)` and
 `agent_policy(&self, run: RunAccess)`. Callers: `chat.rs` passes `RunAccess::Denied` (one line),
 `acp.rs` passes the resolved value. `agent_policy` appends `("proc_run", ToolAccess::Mutating)` to
@@ -602,7 +602,7 @@ exactly as `new` already does for the git pair. Same shape one level up:
 
 Both layers are required, and `wiring.rs`'s existing docstring already states the rule: a disabled
 route is *not found*, which rmcp reports as a protocol error, `RmcpToolTransport` maps to
-`SkeinError::Tool`, and `NativeLoop::mediate` treats as **fatal**. So the CLI allowlist must omit
+`HeddleError::Tool`, and `NativeLoop::mediate` treats as **fatal**. So the CLI allowlist must omit
 `proc_run` in exactly the cases the server disables it, or a model's invented `proc_run` ends the run
 instead of being a survivable `denied`.
 
@@ -618,7 +618,7 @@ Ordered; each independently verifiable. Anchors are named items, never line numb
   Windows-only.** ADR-0006 authorizes shipping `shell` on one OS first; the Constitution's "no
   OS-specific call without `#[cfg]` + an equivalent" is met on the `#[cfg]` and **not** on the
   equivalent, which is deferred to a Linux (Landlock) and a macOS (Seatbelt) slice each. On the
-  macOS and Linux CI legs `skein-sandbox` compiles to a crate whose only reachable behaviour is a
+  macOS and Linux CI legs `heddle-sandbox` compiles to a crate whose only reachable behaviour is a
   loud refusal, and `proc_run` is absent from every catalogue — verified by a `#[cfg(not(windows))]`
   test that runs on two of the three legs."* Cut branch `019-shell-connector-windows` from `dev` at
   `b82f37a`.
@@ -626,20 +626,20 @@ Ordered; each independently verifiable. Anchors are named items, never line numb
   -D warnings`, `cargo test --workspace`, each recorded verbatim per target in `tasks.md`. Do not
   quote slice 018's numbers; re-measure.
 - **T2 · manifests, before any behaviour.** Add `windows` and `win32job` to root
-  `[workspace.dependencies]` exactly as D1 spells them. Create `crates/skein-sandbox/` with the D1
+  `[workspace.dependencies]` exactly as D1 spells them. Create `crates/heddle-sandbox/` with the D1
   `Cargo.toml` and a `lib.rs` holding only the D6 signatures — `todo!()` Windows bodies, real
   non-Windows bodies. Verify `cargo build --workspace` succeeds on Windows *and* that
   `cargo check --workspace` is clean with the Windows target's deps absent (i.e. no `#[cfg]`
   mistakes). This is a separate, early step so a dependency or feature-name error lands before any
   behaviour is written — slice 017's T2 discipline.
 - **T3 · RED→GREEN — the AppContainer profile and the ACL grant.** New
-  `crates/skein-sandbox/tests/profile.rs`, `#![cfg(windows)]`. Red: `Sandbox::create(tmp.path())`
+  `crates/heddle-sandbox/tests/profile.rs`, `#![cfg(windows)]`. Red: `Sandbox::create(tmp.path())`
   yields a string SID starting `"S-1-15-2-"`; calling it twice over the same root yields the **same**
   SID (profile reuse, D6); two different roots yield different SIDs; and the root's DACL afterwards
   contains an ACE naming that SID, read back with `GetNamedSecurityInfoW`. Green: a `profile` module
   in the crate.
 - **T4 · RED→GREEN — the launcher walking skeleton.** New
-  `crates/skein-sandbox/tests/launch.rs`, `#![cfg(windows)]`. Red, and **this step validates the
+  `crates/heddle-sandbox/tests/launch.rs`, `#![cfg(windows)]`. Red, and **this step validates the
   whole D7/D8 model at once**: `sandbox.run(System32/cmd.exe, ["/c", "type", "hello.txt"], …)` over a
   root containing `hello.txt` returns `exit_code == 0` and stdout containing the file's bytes. It
   simultaneously proves the child could traverse into a temp-dir root, that the granted ACE is what
@@ -649,46 +649,46 @@ Ordered; each independently verifiable. Anchors are named items, never line numb
   (`FILE_TRAVERSE`, `NO_INHERITANCE`) ACE on each ancestor of the root, which changes D7 and must be
   written into `spec.md` rather than done quietly. Green: a `launch` module implementing D4's
   six-step sequence and D10's reader threads.
-- **T5 · RED→GREEN — the escape reproductions.** `crates/skein-sandbox/tests/escape.rs`,
+- **T5 · RED→GREEN — the escape reproductions.** `crates/heddle-sandbox/tests/escape.rs`,
   `#![cfg(windows)]`, holding V1, V2 and V5 below, each with its unsandboxed positive control. These
   are the slice's security gates, written before the code that makes them pass is finished — slice
   017's containment-repro discipline applied to a process instead of a repository.
-- **T6 · RED→GREEN — argv quoting.** `crates/skein-sandbox/tests/argv.rs`, `#![cfg(windows)]`,
+- **T6 · RED→GREEN — argv quoting.** `crates/heddle-sandbox/tests/argv.rs`, `#![cfg(windows)]`,
   holding V4's `CommandLineToArgvW` round trip and D9's three refusals (argument count, embedded NUL,
   oversized command line).
-- **T7 · RED→GREEN — the tool.** New `#[cfg(windows)] mod run;` in `skein-connectors`, plus the
+- **T7 · RED→GREEN — the tool.** New `#[cfg(windows)] mod run;` in `heddle-connectors`, plus the
   `proc_run` `#[tool]` method, `pub struct RunParams`, `pub const RUN_OUTPUT_BYTE_CAP`,
   `RUN_TIMEOUT`, `RUN_ARG_COUNT_CAP`, and the unconditional `pub enum RunAccess`.
   `EmbeddedServer::with_run` and `local_connector_with_run` per D12; `EmbeddedServer::new` and
   `local_connector` keep their signatures. Driven by a new
-  `crates/skein-connectors/tests/run_server.rs` calling the `#[tool]` method directly — the level
+  `crates/heddle-connectors/tests/run_server.rs` calling the `#[tool]` method directly — the level
   that sees an `Err(String)` before rmcp wraps it, which is `fs_server.rs`/`git_server.rs`'s
   precedent. Covers V7.
 - **T8 · RED→GREEN — the absence gates.** Two tests appended to
-  `crates/skein-connectors/tests/connector.rs` (V6): a `#[cfg(windows)]` one asserting
+  `crates/heddle-connectors/tests/connector.rs` (V6): a `#[cfg(windows)]` one asserting
   `local_connector_with_run(root, RunAccess::Denied)` advertises no `proc_run`, and a
   `#[cfg(not(windows))]` one asserting `Sandbox::create` and
   `EmbeddedServer::with_run(root, RunAccess::Allowed)` both fail loudly and that no catalogue
   contains a `proc_`-prefixed name. `the_connector_lists_the_three_tools_with_their_derived_schemas`
   keeps its body unchanged.
-- **T9 · RED→GREEN — `skein-cli` wiring.** `RunArgs` and `RunArgs::resolve` in `wiring.rs`;
+- **T9 · RED→GREEN — `heddle-cli` wiring.** `RunArgs` and `RunArgs::resolve` in `wiring.rs`;
   `ToolArgs::transport(&self, run)` and `ToolArgs::agent_policy(&self, run)`; `RunArgs` flattened
   into `main.rs`'s `AcpAgent` variant only; `acp::serve` calling `run.resolve()?` before
   `Silo::open`; `chat.rs` passing `RunAccess::Denied`. `chat_policy` untouched. One test that
-  `skein acp-agent --help` documents `--allow-run` and one that `skein chat --help` does not.
+  `heddle acp-agent --help` documents `--allow-run` and one that `heddle chat --help` does not.
 - **T10 · RED→GREEN — the governed end-to-end pair.** Two `#[cfg(windows)]` tests appended to
-  `crates/skein-cli/tests/cli_acp_agent.rs` (V3), reusing `StubProvider`, `tool_call_reply`,
-  `last_message`, `logged_kinds`, `temp_root`, `root_arg`, `skein` **verbatim**. `run_answering`
+  `crates/heddle-cli/tests/cli_acp_agent.rs` (V3), reusing `StubProvider`, `tool_call_reply`,
+  `last_message`, `logged_kinds`, `temp_root`, `root_arg`, `heddle` **verbatim**. `run_answering`
   gains one trailing parameter for extra CLI arguments — or, if that would churn the two existing
   call sites, a sibling `run_answering_with_args` that `run_answering` delegates to — so
   `--allow-run` can be passed without editing slice 018's tests.
-- **T11** One `#[ignore]`d live-model test gated on `SKEIN_LIVE_MODEL`, mirroring
+- **T11** One `#[ignore]`d live-model test gated on `HEDDLE_LIVE_MODEL`, mirroring
   `governed_fs_run.rs::a_live_model_calls_a_real_fs_tool`, so the hand-verification is repeatable
   rather than a one-off.
 - **T12** Gates; dependency drift (state the **measured** package delta for `windows` + `win32job` on
   the Windows leg, and confirm it is zero on the other two); control diff —
-  `git diff dev --stat -- crates/skein-silo/ crates/skein-core/ crates/skein-gateway/
-  crates/skein-mcp/ spikes/ .github/ rust-toolchain.toml` must be empty; close-out with
+  `git diff dev --stat -- crates/heddle-silo/ crates/heddle-core/ crates/heddle-gateway/
+  crates/heddle-mcp/ spikes/ .github/ rust-toolchain.toml` must be empty; close-out with
   `## Observed red` per step.
 - **T13** Hand-verification against live Ollama with `--allow-run`. **Not part of the implementation
   run**; performed separately and recorded under `## Live verification` in `tasks.md`.
@@ -729,9 +729,9 @@ Ordered; each independently verifiable. Anchors are named items, never line numb
   - `an_acp_client_that_allows_lets_a_real_proc_run_execute` — `StubProvider` scripted with
     `tool_call_reply("proc_run", json!({"command":"cmd.exe","args":["/c","type","seed.txt"]}))` and
     `PermissionOptionKind::AllowOnce`. Assert exactly one `RequestPermissionRequest`, whose
-    `tool_call_id` and `title` are `"proc_run"` and whose options are the two `skein.*` ids in order;
+    `tool_call_id` and `title` are `"proc_run"` and whose options are the two `heddle.*` ids in order;
     assert `last_message` starts `[tool_result tool=proc_run status=ok]` and contains the seed file's
-    real bytes; assert `logged_kinds` is the 12-step allow shape; assert `skein ledger verify` exits
+    real bytes; assert `logged_kinds` is the 12-step allow shape; assert `heddle ledger verify` exits
     0 reporting `12 steps`.
   - `an_acp_client_that_rejects_stops_the_proc_run_and_the_run_survives` — `RejectOnce`, with a
     command whose *effect* would be visible (`cmd.exe /c copy seed.txt planted.txt` inside the root).
@@ -767,8 +767,8 @@ mechanism those invariants rest on (V4, V5), or pins a documented cap (V7).
 ## Risks and rollback
 
 **Blast radius.** One new crate; one new `#[cfg(windows)]` module and one new `#[tool]` method in
-`skein-connectors`; three additions in `skein-cli` (`RunArgs`, and a `run` parameter on `transport`
-and `agent_policy`). `skein-core`, `skein-acp`, `skein-silo`, `skein-gateway`, `skein-mcp`,
+`heddle-connectors`; three additions in `heddle-cli` (`RunArgs`, and a `run` parameter on `transport`
+and `agent_policy`). `heddle-core`, `heddle-acp`, `heddle-silo`, `heddle-gateway`, `heddle-mcp`,
 `spikes/`, `.github/` and `rust-toolchain.toml` are untouched. No existing test assertion changes
 (D11).
 
@@ -783,9 +783,9 @@ and `agent_policy`). `skein-core`, `skein-acp`, `skein-silo`, `skein-gateway`, `
 | First `unsafe` in the workspace | Nothing here has needed a memory-safety review before (fact 11) | Confined to one crate (D1); every FFI signature verified against source this session; every raw allocation — `SetEntriesInAclW`'s ACL, `ConvertStringSidToSidW`'s SID, `GetNamedSecurityInfoW`'s descriptor, the proc-thread attribute list, `CreateAppContainerProfile`'s PSID — paired with its documented free (`LocalFree` / `FreeSid` / `DeleteProcThreadAttributeList`) in the same function |
 | A model reaches a shell by naming `cmd.exe` | D9 | Stated, not hidden; the boundary is the sandbox and the per-call human approval, and a blocklist would be theatre |
 
-**Rollback.** `git revert` the merge; or delete `crates/skein-sandbox/`, the two
+**Rollback.** `git revert` the merge; or delete `crates/heddle-sandbox/`, the two
 `[workspace.dependencies]` entries, the `#[cfg(windows)] mod run;` and its `#[tool]` method, and the
-three `skein-cli` additions. The AppContainer profiles and root ACEs a run created **survive the
+three `heddle-cli` additions. The AppContainer profiles and root ACEs a run created **survive the
 revert** and are removed by hand; `spec.md` says so and names the two commands.
 
 ---
@@ -813,8 +813,8 @@ Deliberately not done, so nobody helpfully does it.
 - **Loopback exemptions** (`NetworkIsolationSetAppContainerConfig`, `CheckNetIsolation`,
   `Add-AppModelLoopbackException`). Constitution II is NON-NEGOTIABLE, and the whole point of V2 is
   that loopback stays blocked.
-- **`--allow-run` on `skein chat`.** D11.
+- **`--allow-run` on `heddle chat`.** D11.
 - **Deriving `ToolAccess` from MCP tool annotations.** Classification stays operator configuration.
 - **Slice 016's TOCTOU residual.** Unchanged and still open; `Sandbox::create` inherits it.
-- **`crates/skein-silo/`, `crates/skein-core/`, `crates/skein-gateway/`, `crates/skein-mcp/`,
+- **`crates/heddle-silo/`, `crates/heddle-core/`, `crates/heddle-gateway/`, `crates/heddle-mcp/`,
   `spikes/` (ADR-0004 D2), `.github/`, `rust-toolchain.toml`.**

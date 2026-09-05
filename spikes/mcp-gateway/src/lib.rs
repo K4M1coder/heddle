@@ -1,5 +1,5 @@
 //! SPIKE 4 — MCP tool governance (quarantined per ADR-0004 D2, throwaway).
-//! Proves Skein can proxy a REAL rmcp MCP server through: (C2) policy/approval,
+//! Proves Heddle can proxy a REAL rmcp MCP server through: (C2) policy/approval,
 //! (redaction) secret scrubbing before capture, (capture) Ledger-shaped record,
 //! (replay) answer from the record without re-invoking the downstream tool.
 //! Ground truth = the four governance tests in tests/gateway.rs.
@@ -55,7 +55,7 @@ impl ServerHandler for DownstreamServer {
     }
 }
 
-// ---------- Skein-side governed gateway ----------
+// ---------- Heddle-side governed gateway ----------
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum GatewayEvent {

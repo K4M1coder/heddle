@@ -1,4 +1,4 @@
-# PRD Quality Review — Skein Update Draft
+# PRD Quality Review — Heddle Update Draft
 
 ## Overall verdict
 
@@ -63,9 +63,9 @@ The addendum appropriately carries mechanisms, candidate components, rejected po
 
 ## Strategic coherence — adequate
 
-The thesis is now explicit and consistent: Skein is a governed local-first control plane that owns workflow state, policy, context, evidence, and completion while composing replaceable capabilities (§2–§3). Phase 0, Local Alpha, Team Alpha, V1, and post-V1 capabilities each have a hypothesis and clear boundary (§5). The de-scope order protects the thesis rather than maximizing feature count (§5.6). Core metrics now measure bounded loops, ground truth, policy consistency, evidence, context, isolation, recovery, user control, local value, and team lifecycle (§8), with six counter-metrics guarding against harmful optimization.
+The thesis is now explicit and consistent: Heddle is a governed local-first control plane that owns workflow state, policy, context, evidence, and completion while composing replaceable capabilities (§2–§3). Phase 0, Local Alpha, Team Alpha, V1, and post-V1 capabilities each have a hypothesis and clear boundary (§5). The de-scope order protects the thesis rather than maximizing feature count (§5.6). Core metrics now measure bounded loops, ground truth, policy consistency, evidence, context, isolation, recovery, user control, local value, and team lifecycle (§8), with six counter-metrics guarding against harmful optimization.
 
-The remaining weakness is that V1's adoption hypothesis is not paired with an adoption or comparative user-value oracle. Most metrics establish safety and conformance, not whether Skein is meaningfully simpler or more useful than operating the underlying tools separately.
+The remaining weakness is that V1's adoption hypothesis is not paired with an adoption or comparative user-value oracle. Most metrics establish safety and conformance, not whether Heddle is meaningfully simpler or more useful than operating the underlying tools separately.
 
 ### Findings
 

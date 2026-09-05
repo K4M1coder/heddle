@@ -2,7 +2,7 @@
 
 **Target artifacts:** `specs/025-streaming-sse/{spec.md,plan.md,tasks.md}` plus the code changes
 below. **Branch:** `025-streaming-sse`, cut from `dev`. **No PR** (the bare mirror at
-`D:/claudecode/skein-origin.git` exists only for Archon's worktree isolation). Conventional
+`D:/claudecode/heddle-origin.git` exists only for Archon's worktree isolation). Conventional
 Commits. Strict TDD (Constitution III): red before green.
 
 ---
@@ -16,7 +16,7 @@ driving the **real Ollama instance running on this machine** (`http://localhost:
 
 | Claim | What was verified |
 |---|---|
-| "dev is green after slices 020–024" | True of **`dev`**, not of this worktree. `HEAD` here is `d364405`; `origin/dev` is `9002f73`, **21 commits ahead**. Slices 022, 023 and 024 are absent from the checkout: `specs/` here stops at `020`, `crates/skein-gateway/src/lib.rs` here has no `WireExchange`, no `last_exchange` and no `tool_call_id`, and its `ChatRequest` still carries the comment *"streaming is out of scope for this slice."* |
+| "dev is green after slices 020–024" | True of **`dev`**, not of this worktree. `HEAD` here is `d364405`; `origin/dev` is `9002f73`, **21 commits ahead**. Slices 022, 023 and 024 are absent from the checkout: `specs/` here stops at `020`, `crates/heddle-gateway/src/lib.rs` here has no `WireExchange`, no `last_exchange` and no `tool_call_id`, and its `ChatRequest` still carries the comment *"streaming is out of scope for this slice."* |
 
 **T0 of the implementation run: fast-forward `025-streaming-sse` onto `origin/dev` at `9002f73` and
 re-measure the control baseline** (`cargo test --workspace`), exactly as slices 022 and 023 recorded
@@ -64,35 +64,35 @@ Response headers: `Content-Type: text/event-stream`, `Transfer-Encoding: chunked
 
 ### 0.3 Anchors verified on `dev` (all exist; nothing below is assumed)
 
-- `crates/skein-core/src/model.rs`: `TurnRequest`, `TurnResponse`, `WireExchange { url, status,
+- `crates/heddle-core/src/model.rs`: `TurnRequest`, `TurnResponse`, `WireExchange { url, status,
   request, response }`, `trait ModelClient { fn turn; fn take_wire_exchange() -> Option<WireExchange> }`
   (the latter **defaulted to `None`**).
-- `crates/skein-core/src/ledger.rs`: `StepKind::WireExchange` sits between `LlmRequest` and
+- `crates/heddle-core/src/ledger.rs`: `StepKind::WireExchange` sits between `LlmRequest` and
   `LlmResponse`.
-- `crates/skein-core/src/native_loop.rs`: `NativeLoop::run` calls `self.client.turn(&req)`, then
+- `crates/heddle-core/src/native_loop.rs`: `NativeLoop::run` calls `self.client.turn(&req)`, then
   `self.client.take_wire_exchange()`, scrubs field-by-field with `redact` for `url` and
   `redact_wire` for both bodies, appends `StepKind::WireExchange`, **then** `let resp = resp?`.
-- `crates/skein-core/src/tool.rs`: `Redactor::redact`, `redact_json`, `redact_wire` (matches each
+- `crates/heddle-core/src/tool.rs`: `Redactor::redact`, `redact_json`, `redact_wire` (matches each
   secret literally **and** in `serde_json`-escaped form), `redact_call`.
-- `crates/skein-gateway/src/lib.rs`: `OpenAiCompatClient { endpoint, model, agent, last_exchange }`,
+- `crates/heddle-gateway/src/lib.rs`: `OpenAiCompatClient { endpoint, model, agent, last_exchange }`,
   `fn post(&self, url, body) -> Result<(u16, String)>`, `fn metered(&self, Option<Usage>) -> Result<u64>`,
   `fn unrecognised`, `fn truncated`, `struct ChatRequest { model, messages, stream, tools }`,
   `ChatResponse`/`Choice`/`ChoiceMessage`/`ResponseToolCall`/`ToolFunction`/`Usage`.
-- `crates/skein-acp/src/lib.rs`: `SessionParts`, `SkeinSession { id, engine, ledger, budget,
-  prompts, cancelled }`, `SkeinSession::new(id, parts, connection)`, `SkeinSession::run`,
+- `crates/heddle-acp/src/lib.rs`: `SessionParts`, `HeddleSession { id, engine, ledger, budget,
+  prompts, cancelled }`, `HeddleSession::new(id, parts, connection)`, `HeddleSession::run`,
   `pub fn project_updates(ledger, run_id) -> Vec<SessionUpdate>` (its `StepKind::LlmResponse` arm
   emits exactly one `AgentMessageChunk`), and the `PromptRequest` handler's `std::thread::spawn`
   that loops `for update in project_updates(session.ledger(), &run_id)` and calls
   `cx.send_notification(SessionNotification::new(...))`.
-- `crates/skein-acp/src/cancel.rs`: `CancellableModel` forwards `take_wire_exchange` with a recorded
+- `crates/heddle-acp/src/cancel.rs`: `CancellableModel` forwards `take_wire_exchange` with a recorded
   reason ("inheriting the default would drop the exchange without erroring").
-- `crates/skein-acp/src/permission.rs`: `AcpPermissionTransport { inner, connection:
+- `crates/heddle-acp/src/permission.rs`: `AcpPermissionTransport { inner, connection:
   ConnectionTo<Client>, session_id }` — proof that a `ConnectionTo<Client>` already lives inside the
   session and is already `Send` across the loop worker thread.
-- Tests: `crates/skein-gateway/tests/{governed_run.rs,openai_compat.rs}`,
-  `crates/skein-acp/tests/acp_session.rs` (its `ScriptedModel` already has a `gate:
+- Tests: `crates/heddle-gateway/tests/{governed_run.rs,openai_compat.rs}`,
+  `crates/heddle-acp/tests/acp_session.rs` (its `ScriptedModel` already has a `gate:
   Option<Receiver<()>>` field — the blocking-turn precedent this slice reuses), and
-  `crates/skein-cli/tests/{cli_chat.rs,cli_acp_agent.rs}` (each with its own `StubProvider` +
+  `crates/heddle-cli/tests/{cli_chat.rs,cli_acp_agent.rs}` (each with its own `StubProvider` +
   `reply(...)` helper).
 - `ureq` 3.4.0: `Body::read_to_string` applies `MAX_BODY_SIZE = 10 MiB` and `lossy_utf8(true)`;
   `Body::as_reader()` is documented **"not limited by default"**.
@@ -106,9 +106,9 @@ Response headers: `Content-Type: text/event-stream`, `Transfer-Encoding: chunked
 ## 1. Problem
 
 `OpenAiCompatClient::turn` sends `"stream": false` and blocks until one complete HTTP body has
-arrived. `skein-acp`'s `project_updates` then derives exactly one `AgentMessageChunk` per
+arrived. `heddle-acp`'s `project_updates` then derives exactly one `AgentMessageChunk` per
 `StepKind::LlmResponse` step, and the `PromptRequest` handler sends every one of them *after* the
-whole run finishes. An editor driving `skein acp-agent` therefore sees nothing at all for the entire
+whole run finishes. An editor driving `heddle acp-agent` therefore sees nothing at all for the entire
 duration of a model turn — many seconds for a long answer — and then the whole answer at once. ACP
 is the one product surface designed for live human interaction, so this is a real usability defect
 on the surface least able to absorb it.
@@ -133,13 +133,13 @@ preserve a path nothing asks for. Rejected for VII.
 *Cost, stated honestly:* every stub provider in the suite currently serves a non-SSE JSON body and
 must be re-framed. That is **four files**, but each funnels its bodies through one `reply(...)`
 helper and one HTTP-writing `format!`, so the change is small and mechanical:
-`crates/skein-gateway/tests/governed_run.rs`, `crates/skein-gateway/tests/openai_compat.rs`,
-`crates/skein-cli/tests/cli_chat.rs`, `crates/skein-cli/tests/cli_acp_agent.rs` (whose
+`crates/heddle-gateway/tests/governed_run.rs`, `crates/heddle-gateway/tests/openai_compat.rs`,
+`crates/heddle-cli/tests/cli_chat.rs`, `crates/heddle-cli/tests/cli_acp_agent.rs` (whose
 `tool_call_reply` helper needs the same treatment).
 
 ### D2 — Live text reaches ACP through a new defaulted port method, `ModelClient::set_text_sink`.
 
-In `skein-core/src/model.rs`:
+In `heddle-core/src/model.rs`:
 
 ```rust
 /// Where a client pushes assistant text as the provider produces it, for a
@@ -150,7 +150,7 @@ pub trait TextSink: Send {
 ```
 
 `Send` for exactly the reason `LedgerStore: Send` carries in `ledger.rs` — it crosses to
-`skein-acp`'s prompt worker thread. And on the port:
+`heddle-acp`'s prompt worker thread. And on the port:
 
 ```rust
 fn set_text_sink(&mut self, _sink: Box<dyn TextSink>) {}
@@ -166,7 +166,7 @@ it always did. Every existing `ModelClient` implementation compiles and behaves 
 records: inheriting the default would drop the sink and silently disable streaming in the one crate
 that needs it.
 
-`SkeinSession::new` installs the sink — it is the one place that holds both the
+`HeddleSession::new` installs the sink — it is the one place that holds both the
 `ConnectionTo<Client>` and the `SessionId`, and it installs before wrapping the client in
 `CancellableModel`, so a session cannot be constructed without one. `AcpPermissionTransport` already
 stores a `ConnectionTo<Client>` inside the session, which is the existing proof that doing so is
@@ -201,7 +201,7 @@ Every `delta.tool_calls[i]` does `entry(tc.index).or_default()` then `push_str` 
 
 *Why concatenate when §0.2(4) proves Ollama sends them whole?* Because concatenating strings that
 arrive whole is a no-op — the code is the same three lines either way — and because
-`skein-cli/src/wiring.rs` documents **a LiteLLM sidecar as a supported deployment** ("a LiteLLM
+`heddle-cli/src/wiring.rs` documents **a LiteLLM sidecar as a supported deployment** ("a LiteLLM
 sidecar is a different `--base-url` and no code change"). LiteLLM proxying a real OpenAI or Anthropic
 model *does* fragment `arguments` across chunks. This is therefore not speculative generality; it is
 the documented deployment's actual behaviour, and the whole-arrival case is the degenerate case of
@@ -289,7 +289,7 @@ struct.
 `Body::as_reader()` is **unlimited by default**, so switching from `read_to_string` would silently
 drop the 10 MiB cap that governs the current parse. Use
 `response.body_mut().with_config().limit(MAX_STREAM_BODY).reader()` with a `MAX_STREAM_BODY` const of
-`10 * 1024 * 1024` in `skein-gateway`, matching ureq's own `MAX_BODY_SIZE`.
+`10 * 1024 * 1024` in `heddle-gateway`, matching ureq's own `MAX_BODY_SIZE`.
 
 Read with `BufRead::read_until(b'\n', &mut Vec<u8>)` and `String::from_utf8_lossy`, **not**
 `read_line`/`lines()`:
@@ -318,7 +318,7 @@ Check (ADR-0004 D1 solo-v0 bar)` bullet list with one entry per principle plus `
 and `## Assumptions and residuals` / `## Out of scope` sections.
 
 **S1 — RED: the accumulator, against Ollama's real shape.** In
-`crates/skein-gateway/tests/openai_compat.rs`, re-frame `StubProvider` to serve
+`crates/heddle-gateway/tests/openai_compat.rs`, re-frame `StubProvider` to serve
 `Content-Type: text/event-stream` and add an `sse(events: Vec<&str>) -> String` helper producing
 `data: {json}\n\n…data: [DONE]\n\n`. Add a test asserting that a stream of several `content` deltas
 plus one `finish_reason:"stop"` chunk plus one `choices:[], usage:{...}` chunk accumulates to a
@@ -331,10 +331,10 @@ one delta carrying two complete `tool_calls` with distinct `index` values and co
 `final_output == false`. (b) *The fragmented shape*: the same two calls split across five deltas,
 with `arguments` arriving in fragments and `name` split across two chunks — asserts the identical
 `TurnResponse`. Plus a third asserting `delta.reasoning` never reaches `message.text()`, and a fourth
-asserting a stream **without** a usage chunk yields `Err(SkeinError::Model(_))` naming the missing
+asserting a stream **without** a usage chunk yields `Err(HeddleError::Model(_))` naming the missing
 metering (the Principle VIII guard).
 
-**S3 — RED: the wire capture.** In `crates/skein-gateway/tests/governed_run.rs`, re-frame its
+**S3 — RED: the wire capture.** In `crates/heddle-gateway/tests/governed_run.rs`, re-frame its
 `StubProvider`/`reply` to SSE and extend `the_chain_records_the_literal_bytes_of_the_exchange` (and
 add a sibling) to assert: the recorded `response` is **string-equal to the exact SSE bytes the stub
 wrote**, `streamed == true`, the recorded `request` contains `"stream":true` and
@@ -344,12 +344,12 @@ wrote**, `streamed == true`, the recorded `request` contains `"stream":true` and
 deserializes, that `verify_chain` passes, and — the control — that the stub still received the real
 secret. Add a non-2xx test asserting the exchange is still recorded with `streamed == false`.
 
-**S4 — GREEN: `skein-core`.** Add `TextSink`, the defaulted `ModelClient::set_text_sink`, and
+**S4 — GREEN: `heddle-core`.** Add `TextSink`, the defaulted `ModelClient::set_text_sink`, and
 `WireExchange.streamed` (`#[serde(default)]`) in `model.rs`; export `TextSink` from `lib.rs`. In
 `native_loop.rs`, carry `streamed: exchange.streamed` through the scrub block — the only change
 there.
 
-**S5 — GREEN: `skein-gateway`.** Add `sink: Option<Box<dyn TextSink>>` to `OpenAiCompatClient` and
+**S5 — GREEN: `heddle-gateway`.** Add `sink: Option<Box<dyn TextSink>>` to `OpenAiCompatClient` and
 implement `set_text_sink`. Add `stream_options` to `ChatRequest` (immediately after `stream`, before
 the skipped `tools`, because field order is wire order and the tests assert bytes). Delete
 `ChatResponse`/`Choice`/`ChoiceMessage`/`ResponseToolCall`; add
@@ -359,18 +359,18 @@ send-and-stream path per D6, building `raw` and `Accumulated` together and pushi
 023's single-buffer property) **before** any error propagates. Keep `metered`, `unrecognised`,
 `truncated` and the `final_output` expression byte-for-byte as they are.
 
-**S6 — RED: the ACP transcript.** In `crates/skein-acp/tests/acp_session.rs`, give `ScriptedModel` a
+**S6 — RED: the ACP transcript.** In `crates/heddle-acp/tests/acp_session.rs`, give `ScriptedModel` a
 `deltas: Vec<String>` and a `sink: Option<Box<dyn TextSink>>` field plus a `set_text_sink` override,
 so `turn` pushes each delta before returning its scripted `TurnResponse`. Add a test asserting
 `Observed::chunks()` (the existing helper) holds **one entry per delta, in order, and no duplicate of
 the whole answer** — i.e. `chunks().len() > 1` and the concatenation equals the final message. Add a
 redaction test proving a secret in a delta reaches the ACP client as `***`.
 
-**S7 — GREEN: `skein-acp`.** New `src/stream.rs` with `AcpTextSink { connection, session_id,
+**S7 — GREEN: `heddle-acp`.** New `src/stream.rs` with `AcpTextSink { connection, session_id,
 redactor, emitted: Arc<AtomicU64> }`; `on_text` returns early on an empty delta (D4), applies
 `Redactor::redact` (plain text, not escaped JSON — so `redact`, not `redact_wire`), increments
 `emitted`, and sends the `SessionNotification`. `CancellableModel` forwards `set_text_sink`.
-`SkeinSession` gains `streamed: Arc<AtomicU64>` beside its existing `cancelled: Arc<AtomicBool>`,
+`HeddleSession` gains `streamed: Arc<AtomicU64>` beside its existing `cancelled: Arc<AtomicBool>`,
 built and installed in `new`; `run` resets it to `0` on the same line that resets `cancelled`; a
 `pub fn streamed(&self) -> bool` reports `> 0`.
 
@@ -391,7 +391,7 @@ chain-derived transcript — so `u1_project_updates_maps_each_ledger_step_kind`,
 green, and a client whose model does not stream sees precisely what it saw before. The filter is four
 lines at the one call site, and it is the *only* place the two paths could collide.
 
-**S9 — GREEN: re-frame the CLI stubs.** `crates/skein-cli/tests/cli_chat.rs` and `cli_acp_agent.rs`:
+**S9 — GREEN: re-frame the CLI stubs.** `crates/heddle-cli/tests/cli_chat.rs` and `cli_acp_agent.rs`:
 `StubProvider` writes `content-type: text/event-stream`, and `reply(...)` / `tool_call_reply(...)`
 emit SSE framing including the trailing usage event and `[DONE]`. Mechanical; no assertion about
 chain shape or exit codes changes.
@@ -404,9 +404,9 @@ client counts `AgentMessageChunk` notifications; the test asserts at least one a
 `StopReason::EndTurn` and the chain's `StepKind` sequence. This is the test that proves "during, not
 after" rather than merely "more than one".
 
-**S11 — the live provider tests.** Two `#[ignore]`d tests gated on `SKEIN_LIVE_MODEL`, following the
+**S11 — the live provider tests.** Two `#[ignore]`d tests gated on `HEDDLE_LIVE_MODEL`, following the
 exact convention of `governed_fs_run.rs`
-(`#[ignore = "needs a real tool-capable local provider; set SKEIN_LIVE_MODEL to run"]`, with an
+(`#[ignore = "needs a real tool-capable local provider; set HEDDLE_LIVE_MODEL to run"]`, with an
 `eprintln!` skip when the variable is unset): one asserting a real streamed turn accumulates a correct
 answer and that the captured `WireExchange.response` begins `data:` and carries the provider's own
 `usage`; one asserting a real streamed **tool call** accumulates correctly.
@@ -439,16 +439,16 @@ New tests, all behaviour-proving:
 | S11 live ×2 | Real Ollama: streamed text and a streamed tool call both accumulate correctly |
 
 **Hand-verification after implementation** (per the acceptance criteria): drive a real
-`skein acp-agent` against a live Ollama model using slice 018's `cli_acp_agent.rs` harness pattern (a
+`heddle acp-agent` against a live Ollama model using slice 018's `cli_acp_agent.rs` harness pattern (a
 real `AcpAgent` spawning the real binary), observe multiple notifications arriving during one turn,
-then confirm the final answer and inspect the chain with `skein ledger log` / `skein ledger show`.
+then confirm the final answer and inspect the chain with `heddle ledger log` / `heddle ledger show`.
 Record the transcript in `tasks.md` under *Live verification*, as slices 019, 020 and 024 each did.
 
 ## 5. Risks and rollback
 
-- **Blast radius.** `skein-core` (two additive items + one field carried through), `skein-gateway`
-  (the response path rewritten), `skein-acp` (one new file, three small edits), and four test files
-  re-framed to SSE. `skein-connectors`, `skein-sandbox`, `skein-silo` and `skein-mcp` are untouched.
+- **Blast radius.** `heddle-core` (two additive items + one field carried through), `heddle-gateway`
+  (the response path rewritten), `heddle-acp` (one new file, three small edits), and four test files
+  re-framed to SSE. `heddle-connectors`, `heddle-sandbox`, `heddle-silo` and `heddle-mcp` are untouched.
   No new dependency, no `Cargo.toml` change, no `#[cfg]`, no CLI flag.
 - **Highest risk — the 10 MiB cap.** `as_reader()` is unlimited; forgetting `.limit()` turns a
   malicious or looping provider into unbounded memory growth. D6 mandates it; a reviewer should check
@@ -476,7 +476,7 @@ Record the transcript in `tasks.md` under *Live verification*, as slices 019, 02
 - **Mid-turn cancellation.** `CancellableModel` checks *before* a turn and its docstring already
   states "a model call already in flight completes". Streaming makes mid-stream abort *possible*; it
   does not make it requested. Separate slice.
-- **Streaming `skein chat`'s stdout.** Decided plainly and deliberately: the client streams, `chat`
+- **Streaming `heddle chat`'s stdout.** Decided plainly and deliberately: the client streams, `chat`
   installs **no sink**, and its output is byte-identical to today. `chat`'s documented contract is
   "stdout carries the assistant's answer and nothing else"; incremental printing would produce the
   same final bytes for no requesting user, so it is a second sink implementation Constitution VII
@@ -489,6 +489,6 @@ Record the transcript in `tasks.md` under *Live verification*, as slices 019, 02
   boundary, unchanged.
 - **`--json` output, a config file, sampling parameters.** Separately named residuals on slice 013's
   list.
-- **`skein-connectors`, `skein-sandbox`, `skein-silo`.** No reason found to touch them.
+- **`heddle-connectors`, `heddle-sandbox`, `heddle-silo`.** No reason found to touch them.
 - **`spikes/`** (ADR-0004 D2) — left byte-identical.
 - **A PR.**

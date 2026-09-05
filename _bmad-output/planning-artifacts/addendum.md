@@ -1,12 +1,12 @@
 ---
-title: Skein Canonical Planning Addendum
+title: Heddle Canonical Planning Addendum
 status: final
 created: 2026-07-16
 updated: 2026-07-16
 build_authorization: NOT_READY
 ---
 
-# Skein Canonical Planning Addendum
+# Heddle Canonical Planning Addendum
 
 ## 1. Purpose
 
@@ -14,7 +14,7 @@ This canonical planning addendum preserves implementation candidates, mechanisms
 
 ## 2. Recommended Composition Hypothesis
 
-The current best hypothesis is one product, one repository, one version, one installer experience, and a modular monolith supervised by a Skein-owned backend. “Single package” does not require one process. Optional language-specific, inference, browser, connector, or media components may run as authenticated supervised processes if they cannot own canonical policy, workflow state, context selection, evidence, or completion.
+The current best hypothesis is one product, one repository, one version, one installer experience, and a modular monolith supervised by a Heddle-owned backend. “Single package” does not require one process. Optional language-specific, inference, browser, connector, or media components may run as authenticated supervised processes if they cannot own canonical policy, workflow state, context selection, evidence, or completion.
 
 Recommended language ownership remains:
 
@@ -43,7 +43,7 @@ This remains a hypothesis until the toolchain, package, IPC, lifecycle, and tri-
 - official MCP SDKs and protocol transports;
 - model provider SDKs and an optional provider-normalization gateway;
 - SQLite for local persistence and PostgreSQL where team requirements justify it;
-- OpenTelemetry formats and exporters under Skein privacy/egress policy;
+- OpenTelemetry formats and exporters under Heddle privacy/egress policy;
 - Playwright and OS-native accessibility/automation APIs;
 - established local inference servers and libraries;
 - established media, document, audio, video, and 3D engines;
@@ -56,8 +56,8 @@ This remains a hypothesis until the toolchain, package, IPC, lifecycle, and tri-
 - **Aider:** repository maps and edit/test-loop inspiration.
 - **OpenClaw:** local gateway and assistant UX inspiration; not a team-security foundation.
 - **LibreChat/Open WebUI:** UX references; embedding depends on architecture and license review.
-- **LangGraph/Temporal:** reference semantics or later optional backends only after Skein's native workflow contract exists.
-- **LiteLLM:** replaceable initial provider adapter candidate, not Skein's capability/policy model or guaranteed exact-I/O boundary.
+- **LangGraph/Temporal:** reference semantics or later optional backends only after Heddle's native workflow contract exists.
+- **LiteLLM:** replaceable initial provider adapter candidate, not Heddle's capability/policy model or guaranteed exact-I/O boundary.
 
 Every dependency decision requires a versioned adopt/adapt/inspire/worker/reject record covering license and trademark, maintenance, security history, platform matrix, transitive footprint, offline behavior, egress, resource use, API stability, provenance, and exit strategy.
 
@@ -88,7 +88,7 @@ Spikes are disposable evidence work, not covert product implementation. Every sp
 
 ### SP-001 — Runtime ownership and worker visibility
 
-Compare a minimal Skein-owned loop with candidate Goose embedded/service surfaces and selected OpenCode/Cline integration paths. Prove actual request/response streaming, tool interception, policy pause, cancellation, correlation, mandatory budgets, and terminal control. Failure means the candidate remains opaque or reduced-assurance; it does not inherit control-plane ownership.
+Compare a minimal Heddle-owned loop with candidate Goose embedded/service surfaces and selected OpenCode/Cline integration paths. Prove actual request/response streaming, tool interception, policy pause, cancellation, correlation, mandatory budgets, and terminal control. Failure means the candidate remains opaque or reduced-assurance; it does not inherit control-plane ownership.
 
 ### SP-002 — Workflow compatibility and durability
 
@@ -138,7 +138,7 @@ The required Team Alpha baseline is no automatic local/remote merge, no offline 
 
 Required design outputs include system and feature data-flow diagrams, STRIDE-style and privacy threat models, abuse cases, data inventory, authorization matrix, relationship model, identity assurance profiles, MCP trust registry, computer capability taxonomy, incident evidence model, and control-to-requirement-to-test mappings.
 
-Candidate policy implementation may be an embedded evaluator or a standard engine behind a Skein-owned schema. Simple roles remain an administrative UX; enforcement must include attributes, relationships, environment, purpose, destination, data class, assurance, and risk.
+Candidate policy implementation may be an embedded evaluator or a standard engine behind a Heddle-owned schema. Simple roles remain an administrative UX; enforcement must include attributes, relationships, environment, purpose, destination, data class, assurance, and risk.
 
 Secrets should be resolved through native provider adapters or tightly governed tool boundaries. The pre-implementation decision gate must select a default local root of trust, a reliable open-source or no-cost baseline, optional commercial providers such as 1Password CLI/service accounts, and recovery behavior; OpenBao and operating-system keychains are candidates, not accepted choices. Values should be injected directly into target transports/processes where possible, never returned to model-visible context. Provider profiles must define bootstrap ceremony, circular dependencies, leases, renewal, revocation, rotation, backup/restore, break-glass recovery, crash behavior, child-process propagation, offline failure, and credentials for MCP, identity, model, and secret-provider adapters.
 

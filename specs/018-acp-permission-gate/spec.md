@@ -8,7 +8,7 @@ unproven end to end."* · Constitution III (**test-first**), V (**traceability**
 (**deny-by-default**, the principle at stake), VII (**no capability without a real need**) · design
 §4.3.
 
-Slice 013 wired `AcpPermissionTransport` so a mutating tool call made through `skein acp-agent` asks
+Slice 013 wired `AcpPermissionTransport` so a mutating tool call made through `heddle acp-agent` asks
 the connected ACP client before executing. Slices 016 (`fs_write`) and 017 (git, read-only only)
 left the gate **reachable** but incompletely proven, and both named the same residual without
 closing it. This slice closes it.
@@ -27,7 +27,7 @@ the real protocol, against the real binary — rather than being wired and taken
 ## Five things a reader must know up front
 
 1. **A real ACP client answering a real permission request was already tested — at unit level.**
-   `crates/skein-acp/tests/acp_session.rs`'s `ask_permission` helper builds a real `Client` with
+   `crates/heddle-acp/tests/acp_session.rs`'s `ask_permission` helper builds a real `Client` with
    `.on_receive_request(async move |request: RequestPermissionRequest, responder, _cx| …)`, connects
    it to a real `Agent` over a real `ByteStreams`, and drives `AcpPermissionTransport::call`
    directly. `p1`/`p2`/`p3` cover Allow, Reject and Cancelled. **The residual was never "no client
@@ -39,8 +39,8 @@ the real protocol, against the real binary — rather than being wired and taken
    `ToolGateway::call_captured` entirely, so no `ToolCall`, `Approval` or `ToolResult` step exists on
    any of those paths and `verify_chain` is never called — Constitution V is unproven here. (c) *No
    real process*: `p1`–`p3` run in-process over a `tokio::io::duplex`. (d) **No test anywhere makes a
-   tool call through `skein acp-agent` at all** — every one of the eight tests in
-   `crates/skein-cli/tests/cli_acp_agent.rs` either drives a text-only turn, or asserts the
+   tool call through `heddle acp-agent` at all** — every one of the eight tests in
+   `crates/heddle-cli/tests/cli_acp_agent.rs` either drives a text-only turn, or asserts the
    *advertised* tool list off the wire and stops there, or refuses before the handshake.
 3. **(d) is also why the residual could sit open through two slices without anyone hitting a
    failure.** Because no ACP test ever provoked a tool call, that file's client having no permission
@@ -63,7 +63,7 @@ the real protocol, against the real binary — rather than being wired and taken
    an ACP denial lands in exactly the same shape at a different refusing layer. The client's answer
    is on the chain twice over anyway: as the **absence** of `ToolResult`, and verbatim inside the
    next `LlmRequest` payload, because `NativeLoop::mediate` feeds
-   `[tool_result tool=fs_write status=denied]\nacp client declined permission (skein.reject-once)`
+   `[tool_result tool=fs_write status=denied]\nacp client declined permission (heddle.reject-once)`
    back into the conversation the following request records.
 
 ## Functional requirements
@@ -71,7 +71,7 @@ the real protocol, against the real binary — rather than being wired and taken
 - **FR-001** No file under `crates/*/src/` changes. No manifest changes, no new dependency, no new
   flag. If green requires a `src/` edit, the slice's premise is wrong and that is a **stop
   condition**, not a thing to patch.
-- **FR-002** Two acceptance tests are appended to `crates/skein-cli/tests/cli_acp_agent.rs` under a
+- **FR-002** Two acceptance tests are appended to `crates/heddle-cli/tests/cli_acp_agent.rs` under a
   `// ---- the ACP permission gate (spec 018) ----` section. That file is the only one that changes
   in `crates/`, and its diff against `dev` is **append-only apart from the `use` block**.
 - **FR-003** The tests share one parameterised harness — `run_answering(…, answer:
@@ -87,23 +87,23 @@ the real protocol, against the real binary — rather than being wired and taken
   blocked on. The file's existing `run_with_timeout` bounds a regression at 60s rather than hanging
   CI on three operating systems.
 - **FR-006** `tool_call_reply` and `last_message` are **copied verbatim** from `cli_chat.rs`, for the
-  reason `cli_acp_agent.rs`'s own header already records: `skein-cli` has no `lib` target,
+  reason `cli_acp_agent.rs`'s own header already records: `heddle-cli` has no `lib` target,
   integration-test binaries share nothing, and copying keeps the other file's tests as this slice's
   controls.
 - **FR-007** No pre-existing assertion anywhere in the workspace is changed or removed.
 
 ## Success criteria
 
-- **SC-001** An ACP client answering `AllowOnce` over the real protocol to the real `skein acp-agent`
+- **SC-001** An ACP client answering `AllowOnce` over the real protocol to the real `heddle acp-agent`
   binary lets `fs_write` execute; the file exists on disk with the model's exact content.
 - **SC-002** An ACP client answering `RejectOnce` under the identical fixture leaves **no file on
   disk**.
-- **SC-003** Both runs' chains verify through `skein ledger verify` in a second process, at 12 and 11
+- **SC-003** Both runs' chains verify through `heddle ledger verify` in a second process, at 12 and 11
   steps respectively; the deny chain differs from the allow chain by the absence of `tool_result`
   and nothing else.
 - **SC-004** The permission request observed **by the client** carries the session id, the tool name
   as its `tool_call_id` and title, and exactly the two documented option ids and kinds
-  (`skein.allow-once`/`AllowOnce`, `skein.reject-once`/`RejectOnce`) in that order. These two string
+  (`heddle.allow-once`/`AllowOnce`, `heddle.reject-once`/`RejectOnce`) in that order. These two string
   constants are what `AcpPermissionTransport::call` matches on and they are asserted nowhere on
   `dev` — a typo in either would silently turn every Allow into a denial.
 - **SC-005** The model is told `status=ok` with the byte count on Allow and `status=denied` with the
@@ -117,12 +117,12 @@ the real protocol, against the real binary — rather than being wired and taken
 - **`fs_write` is still the only `Mutating` tool**, and `ToolArgs::agent_policy` is still the only
   place it is `approved`. Re-verified this slice; if a second mutating tool ever lands, this slice's
   two tests do not automatically cover it.
-- **`skein-1` is the session id** because each test spawns its own `skein` child process and the
+- **`heddle-1` is the session id** because each test spawns its own `heddle` child process and the
   facade mints session ids from an `AtomicU64` starting at 1 per process — the reasoning the
   file's existing headline test already records and relies on.
 - **A permission request cannot be correlated to its tool call by a client.**
   `AcpPermissionTransport::ask` uses `ToolCallId::new(tool)` — the tool *name* — while
-  `skein_acp::project_updates` uses `step.id`, the chain hash, as the `ToolCallId` for the
+  `heddle_acp::project_updates` uses `step.id`, the chain hash, as the `ToolCallId` for the
   `SessionUpdate::ToolCall`. The two ids never match, so an editor cannot join the prompt it showed
   to the tool call it later sees. Discovered while verifying; fixing it needs the chain step id
   inside the transport, which the transport does not have. That is a design change, not this slice's.
@@ -166,5 +166,5 @@ Deliberately not done, so nobody helpfully does it:
   `canonicalize`-to-open TOCTOU fix, `role: "tool"` / `tool_call_id` conversation replay, raw
   wire-byte capture, streaming (SSE), provider authentication, a config file, `--json` output, and
   the slices-008-vs-014 `serde_json/preserve_order` reconciliation.
-- **`crates/skein-silo/`, `spikes/`** (ADR-0004 D2), **`.github/`, `rust-toolchain.toml`,
+- **`crates/heddle-silo/`, `spikes/`** (ADR-0004 D2), **`.github/`, `rust-toolchain.toml`,
   `Cargo.toml`, `Cargo.lock`** — all asserted empty in the control diff.

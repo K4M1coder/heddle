@@ -1,6 +1,6 @@
-# Skein Methodology — BMAD × Spec-Kit Bridge (dogfooding)
+# Heddle Methodology — BMAD × Spec-Kit Bridge (dogfooding)
 
-Skein is **built with the very methods it integrates** (dogfooding). We apply the **bridge** BMAD × Spec-Kit: **BMAD plans**, **Spec-Kit executes**. Both frameworks are actually installed in this repository.
+Heddle is **built with the very methods it integrates** (dogfooding). We apply the **bridge** BMAD × Spec-Kit: **BMAD plans**, **Spec-Kit executes**. Both frameworks are actually installed in this repository.
 
 ## The flow (bridge)
 
@@ -42,7 +42,7 @@ Available commands (within an agent): Spec-Kit `/speckit-constitution|specify|pl
 
 ## Loop discipline in our development process
 
-We apply **loop engineering** (Constitution VIII; research in `docs/research/loop-engineering.md`) not only inside Skein but to how we build it. Every agentic build loop (a Spec-Kit `/implement`, a BMAD `dev-story`, a review pass) MUST:
+We apply **loop engineering** (Constitution VIII; research in `docs/research/loop-engineering.md`) not only inside Heddle but to how we build it. Every agentic build loop (a Spec-Kit `/implement`, a BMAD `dev-story`, a review pass) MUST:
 
 1. **Have an explicit exit / budget** — a bounded number of iterations; stop on no-progress; never let the loop decide its own end.
 2. **Verify against ground truth each iteration** — `cargo test` / `clippy` / type-checks / real tool output, not the agent's self-assessment (intrinsic self-correction is unreliable).

@@ -19,7 +19,7 @@ granted.
 
 ## What this slice changes for a user
 
-One new flag, `--run-dir <PATH>`, repeatable, on `skein acp-agent` only and requiring `--allow-run`.
+One new flag, `--run-dir <PATH>`, repeatable, on `heddle acp-agent` only and requiring `--allow-run`.
 Each named directory has this run's AppContainer identity granted an inheritable
 read-and-execute entry on its ACL, is appended to the child's `PATH`, and is appended to the
 directories a bare `command` name is looked for in. The advertised `proc_run` description names
@@ -63,12 +63,12 @@ has its ACL touched.
    `fs_read`, `fs_list` and `fs_write` rest on — or a second traversal rule with its own `..` and
    symlink story. The operator named the directory, so its binaries are reachable **by name**, which
    is how anyone invokes `cargo`, `node` or `rustfmt`.
-6. **Granting a directory needs `WRITE_DAC` on it, and a non-elevated skein does not always have
+6. **Granting a directory needs `WRITE_DAC` on it, and a non-elevated heddle does not always have
    it.** Measured: `C:\Program Files\nodejs` does not inherit `C:\Program Files`' AppContainer ACEs
    — its DACL is protected, names only `Authenticated Users`, `SYSTEM`, `Administrators` and
    `Users`, and its owner is `NT AUTHORITY\SYSTEM`. Naming it from a non-elevated shell fails with
    `ERROR_ACCESS_DENIED`. That is an exit code with a message naming the directory, the Win32 error,
-   and the two ways out — an elevated skein once, or a directory you own — before a model is shown a
+   and the two ways out — an elevated heddle once, or a directory you own — before a model is shown a
    tool. `D:\Users\<user>\.cargo\bin` and a rustup toolchain `bin` are user-owned with `FullControl`
    and grant without elevation.
 7. **`.cmd`, `.bat` and `.ps1` shims do not work, and this is stated rather than discovered.**
@@ -104,8 +104,8 @@ has its ACL touched.
 
 ## Functional requirements
 
-- **FR-001** `skein acp-agent` gains `--run-dir <PATH>`, repeatable. It is flattened where
-  `--allow-run` is flattened and nowhere else, so `skein chat` does not carry it.
+- **FR-001** `heddle acp-agent` gains `--run-dir <PATH>`, repeatable. It is flattened where
+  `--allow-run` is flattened and nowhere else, so `heddle chat` does not carry it.
 - **FR-002** `--run-dir` without `--allow-run` is a usage error naming **both** flags. The clap
   `requires` relation and `RunArgs::resolve`'s own check both express it: a second reader of the
   flag must not be able to lose the gate silently.
@@ -147,35 +147,35 @@ has its ACL touched.
   security descriptor and normalised through `MapGenericMask`, carry `FILE_READ_DATA` and
   `FILE_EXECUTE` and carry none of `FILE_WRITE_DATA`, `FILE_APPEND_DATA`, `WRITE_DAC`. The
   fs-root's carry `FILE_WRITE_DATA`.
-  (`skein-sandbox/tests/profile.rs`)
+  (`heddle-sandbox/tests/profile.rs`)
 - **SC-002** A binary copied into a `TempDir` named as a run directory launches inside the
   AppContainer and its real stdout comes back, **and** the child can read a file beside it — where
   ungranted, the same read is refused. The two halves are separate on purpose: only the read is
   attributable to the grant, for the reason point 8 gives, and the ungranted control is in the same
-  test so it cannot quietly stop proving anything. (`skein-sandbox/tests/launch.rs`)
+  test so it cannot quietly stop proving anything. (`heddle-sandbox/tests/launch.rs`)
 - **SC-003** A sandboxed `copy` into a run directory leaves **no file** there and exits nonzero,
-  where the same copy into the fs-root lands. (`skein-sandbox/tests/escape.rs`)
+  where the same copy into the fs-root lands. (`heddle-sandbox/tests/escape.rs`)
 - **SC-004** A bare name resolves inside a named run directory and `proc_run` reports its real
-  output. (`skein-connectors/tests/run_server.rs`)
+  output. (`heddle-connectors/tests/run_server.rs`)
 - **SC-005** The same bare name, with that directory **not** named, is refused with a message
   naming System32, `%SystemRoot%`, every directory that *was* named, and `%PATH%`.
-  (`skein-connectors/tests/run_server.rs`)
+  (`heddle-connectors/tests/run_server.rs`)
 - **SC-006** System32 wins a shadowing tie: a non-executable `cmd.exe` in a run directory does not
-  stop `cmd.exe /c type seed.txt` succeeding. (`skein-connectors/tests/run_server.rs`)
+  stop `cmd.exe /c type seed.txt` succeeding. (`heddle-connectors/tests/run_server.rs`)
 - **SC-007** With a run directory configured, `proc_run`'s advertised description contains that
   directory's path; with none, it still contains the caps and the `PATH is not searched` sentence
-  and gains nothing. (`skein-connectors/tests/connector.rs`)
-- **SC-008** `skein acp-agent --help` documents `--run-dir`, `skein chat --help` does not,
+  and gains nothing. (`heddle-connectors/tests/connector.rs`)
+- **SC-008** `heddle acp-agent --help` documents `--run-dir`, `heddle chat --help` does not,
   `--run-dir` without `--allow-run` exits nonzero naming both flags, and a `--run-dir` that is not a
-  directory exits nonzero naming the path. (`skein-cli/tests/cli_acp_agent.rs`,
-  `skein-connectors/tests/fs_root.rs`)
+  directory exits nonzero naming the path. (`heddle-cli/tests/cli_acp_agent.rs`,
+  `heddle-connectors/tests/fs_root.rs`)
 
 ## Assumptions and residuals
 
 - **The read+execute ACEs survive a `git revert`, exactly as slice 019's full-access one does.**
   Rolling this slice back removes the code, not the permission it wrote. Both are removed by hand
   (`icacls <dir> /remove:g *S-1-15-2-…`). Slice 019 carries the fs-root version of this residual;
-  this slice widens it from one directory to N. Profile and ACE cleanup (`skein sandbox prune`,
+  this slice widens it from one directory to N. Profile and ACE cleanup (`heddle sandbox prune`,
   `DeleteAppContainerProfile`) remains the separately named residual it was.
 - **An operator can name a directory so broad the allowlist becomes a `%PATH%`** — `C:\Windows`, a
   whole drive. That is not preventable in code and is not guessed at: the flag is opt-in,
@@ -201,7 +201,7 @@ has its ACL touched.
   slice inherits slice 019's Windows-only scope.
 - **A second tool of any kind** — no `proc_which`, no `proc_kill`, no run-dir listing tool.
   Principle VII. The advertisement and the refusal already tell a model what it can reach.
-- **`--allow-run` or `--run-dir` on `skein chat`.**
+- **`--allow-run` or `--run-dir` on `heddle chat`.**
 - **Touching the governed chain.** No new `StepKind`, no change to `ToolGateway`, `Approval`,
   `Redactor` or `AcpPermissionTransport`. This slice changes only which executables `resolve_exe`
   accepts.

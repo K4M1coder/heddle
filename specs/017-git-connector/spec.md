@@ -28,7 +28,7 @@ put there on `dev`.
 **With `--fs-root <DIR>` where `DIR` *is* the root of a git repository:** the run gains two more
 tools, named to the model with the schema the server derived from its real parameter types:
 
-| tool | args | `ToolAccess` | `skein chat` | `skein acp-agent` |
+| tool | args | `ToolAccess` | `heddle chat` | `heddle acp-agent` |
 |---|---|---|---|---|
 | `fs_read` | `path` | `ReadOnly` | allowlisted | allowlisted |
 | `fs_list` | `path` | `ReadOnly` | allowlisted | allowlisted |
@@ -43,9 +43,9 @@ because neither tool mutates anything and so there is nothing to confirm.
 
 1. **The library is `git2`, and no subprocess is spawned anywhere.** `git2 = { version = "0.21",
    default-features = false, features = ["vendored-libgit2"] }`. `default = []` means **no HTTPS and
-   no SSH transport is compiled in at all** — the same *build-property* guarantee `skein-gateway`
+   no SSH transport is compiled in at all** — the same *build-property* guarantee `heddle-gateway`
    makes by compiling in no TLS backend, now applied to git. Measured: four new normal packages in
-   `skein-cli`'s shipped graph (`git2`, `libgit2-sys`, `libz-sys`, `libc`), against `gix`'s 112 for
+   `heddle-cli`'s shipped graph (`git2`, `libgit2-sys`, `libz-sys`, `libc`), against `gix`'s 112 for
    `status` + `revision`. A C toolchain is **already** a hard prerequisite of this workspace —
    `rusqlite`'s `bundled` SQLite compiles C on all three OSes — so slice 016's recorded *"libgit2 C
    bindings, a tri-OS build burden"* judgment is **materially wrong today** and this spec corrects it
@@ -81,21 +81,21 @@ because neither tool mutates anything and so there is nothing to confirm.
 6. **The capability gate is two layers, and the second is not decoration.** When the root is not a
    repository the server calls `ToolRouter::disable_route` for both names *and* `wiring::ToolArgs`
    omits them from the CLI allowlist. Both are required:
-   `RmcpToolTransport` maps rmcp's `invalid_params("tool not found")` onto `SkeinError::Tool`, and
-   `NativeLoop::mediate` survives **only** `SkeinError::ToolDenied` — so an allowlisted name whose
+   `RmcpToolTransport` maps rmcp's `invalid_params("tool not found")` onto `HeddleError::Tool`, and
+   `NativeLoop::mediate` survives **only** `HeddleError::ToolDenied` — so an allowlisted name whose
    route is disabled would turn a model's invented `git_status` into a **dead run** instead of a
    refusal it is told about. `wiring::ToolArgs::policy`'s existing docstring already states exactly
    this rule; this slice obeys it.
 
 ## Functional requirements
 
-- **FR-001** `crates/skein-connectors` gains `git2` (`default-features = false`, feature
+- **FR-001** `crates/heddle-connectors` gains `git2` (`default-features = false`, feature
   `vendored-libgit2`) and `chrono` (`default-features = false`, feature `std`) as product
   dependencies, both declared in the root `[workspace.dependencies]`. `git2` is additionally a
-  **dev**-dependency of `skein-connectors` and of `skein-cli`, because an integration test in
+  **dev**-dependency of `heddle-connectors` and of `heddle-cli`, because an integration test in
   `tests/` does not inherit the crate's own product dependencies and the fixtures build their
   repositories with `git2`.
-- **FR-002** `crates/skein-connectors/src/git.rs` is the **only** module in the workspace that names
+- **FR-002** `crates/heddle-connectors/src/git.rs` is the **only** module in the workspace that names
   `git2`. That boundary is deliberate: if `gix`'s footprint ever stops mattering, the swap touches
   one file.
 - **FR-003** `open_contained(&FsRoot) -> Result<Repository, String>` is `pub(crate)` and every git
@@ -104,7 +104,7 @@ because neither tool mutates anything and so there is nothing to confirm.
   `root.path()`. Every refusal is an `Err(String)`, which rmcp turns into `isError: true` — a tool
   error the model is told about, never a transport failure that ends the run.
 - **FR-004** `is_git_repository(&FsRoot) -> bool` is public and is exactly "`open_contained`
-  succeeded". `EmbeddedServer::new` and `skein-cli`'s `wiring::ToolArgs` both need it and **neither
+  succeeded". `EmbeddedServer::new` and `heddle-cli`'s `wiring::ToolArgs` both need it and **neither
   may see `git2`**.
 - **FR-005** The repository is opened **per call**, never held in the server. `git2::Repository` is
   not `Sync` and rmcp's handler must be `Clone + Send + Sync + 'static`; opening per call sidesteps
@@ -166,9 +166,9 @@ because neither tool mutates anything and so there is nothing to confirm.
 - **SC-009** The only model-supplied value in the slice is a `u32`; a non-numeric `count` is refused
   at the typed boundary, reaches the model as `isError: true`, and the run survives. **No subprocess
   is spawned and no argument vector is constructed anywhere in the slice.**
-- **SC-010** `skein chat --fs-root <a real repository>` (the **real binary**) advertises the five
+- **SC-010** `heddle chat --fs-root <a real repository>` (the **real binary**) advertises the five
   tools and reports the repository's real status; `ledger verify` passes.
-- **SC-011** `skein acp-agent --fs-root <a real repository>` advertises the five tools.
+- **SC-011** `heddle acp-agent --fs-root <a real repository>` advertises the five tools.
 - **SC-012** Every pre-existing test passes with **no assertion changed or removed**. The only edits
   to pre-existing test files are import lines touched by FR-006's rename. In particular
   `connector.rs`'s three-tool catalogue test, `cli_chat.rs`'s `["fs_read","fs_list"]` assertion,
@@ -176,7 +176,7 @@ because neither tool mutates anything and so there is nothing to confirm.
   `["fs_read","fs_list","fs_write"]` assertion all keep their bodies, because each uses a
   non-repository root. **If one of them needs an assertion changed, the gate is wrong; stop and fix
   the gate.**
-- **SC-013** `git diff dev -- crates/skein-silo/ spikes/ .github/ rust-toolchain.toml` is **empty**.
+- **SC-013** `git diff dev -- crates/heddle-silo/ spikes/ .github/ rust-toolchain.toml` is **empty**.
 
 ## Assumptions and residuals
 
@@ -237,4 +237,4 @@ Deliberately not done, so nobody helpfully does it:
   `tool_call_id` replay, raw wire-byte capture, streaming (SSE), provider authentication, a config
   file, `--json` output, and the slices-008-vs-014 `serde_json/preserve_order` reconciliation — all
   carried unchanged from slice 016's `## Next slice`.
-- **`crates/skein-silo/`, `spikes/`** (ADR-0004 D2), **`.github/`, `rust-toolchain.toml`.**
+- **`crates/heddle-silo/`, `spikes/`** (ADR-0004 D2), **`.github/`, `rust-toolchain.toml`.**

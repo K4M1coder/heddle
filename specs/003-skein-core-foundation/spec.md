@@ -1,6 +1,6 @@
-# Feature Specification: skein-core foundation (v0 strict-local)
+# Feature Specification: heddle-core foundation (v0 strict-local)
 
-**Feature Branch:** `003-skein-core-foundation` · **Created:** 2026-07-16 · **Status:** Implemented (v0 slice)
+**Feature Branch:** `003-heddle-core-foundation` · **Created:** 2026-07-16 · **Status:** Implemented (v0 slice)
 **Input:** ADR-0003 (Accepted), ADR-0004 D3 (v0 = strict-local core), design §4.2/§4.11/§4.14. Promotes the proven spike patterns (Spike 1 loop, ledger shape) into product code under `crates/`.
 
 ## User Scenarios & Testing
@@ -23,14 +23,14 @@ As a user, the loop stops on an external budget, never on the model's say-so, an
 As a developer, messages carry typed `Content` parts that round-trip losslessly (v0: text; multimodal added later without pipeline change).
 
 ## Requirements
-- **FR-001**: `skein-core` MUST expose `Content`/`Message`/`Role` (serde round-trip).
+- **FR-001**: `heddle-core` MUST expose `Content`/`Message`/`Role` (serde round-trip).
 - **FR-002**: `Ledger` MUST be append-only, hash-chained, per-run isolated, with `append/log/show/verify_chain`.
 - **FR-003**: `LedgerIntegrity` MUST be raised when the chain is inconsistent.
 - **FR-004**: `LoopController` MUST enforce iteration/token/no-progress budgets externally; `record_iteration(tokens, made_progress)` takes ground truth from outside the model.
 - **FR-005**: No network, no product runtime beyond these library types (strict-local v0).
 
 ## Success Criteria
-- **SC-001**: `cargo test -p skein-core` green; `clippy -D warnings` clean; `fmt --check` clean. (6/6 tests, 2026-07-16.)
+- **SC-001**: `cargo test -p heddle-core` green; `clippy -D warnings` clean; `fmt --check` clean. (6/6 tests, 2026-07-16.)
 - **SC-002**: tamper test proves integrity detection (not just "no known leak").
 
 ## Assumptions

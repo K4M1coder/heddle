@@ -1,4 +1,4 @@
-# PRD Quality Review — Skein
+# PRD Quality Review — Heddle
 
 ## Overall verdict
 
@@ -6,7 +6,7 @@ The PRD has a distinctive thesis, an unusually serious governance model, and str
 
 ## Decision-readiness — broken
 
-The PRD does state meaningful decisions in §§1, 5, and 6: Skein owns the control plane, remains local-first, exposes one backend selectively, isolates modes into silos, and treats the CLI/API as authoritative. It also names four open questions in §8. However, the most consequential runtime decision is presented as both a baseline decision and an unresolved experiment: FR-18 says Skein owns the loop, while Open Question 1 and ADR-0003 leave the worker/runtime route behind five uncompleted spikes. The supporting architecture is still `draft`, ADR-0003 is `Proposed`, and the epic breakdown makes Phase 0 depend on that evidence.
+The PRD does state meaningful decisions in §§1, 5, and 6: Heddle owns the control plane, remains local-first, exposes one backend selectively, isolates modes into silos, and treats the CLI/API as authoritative. It also names four open questions in §8. However, the most consequential runtime decision is presented as both a baseline decision and an unresolved experiment: FR-18 says Heddle owns the loop, while Open Question 1 and ADR-0003 leave the worker/runtime route behind five uncompleted spikes. The supporting architecture is still `draft`, ADR-0003 is `Proposed`, and the epic breakdown makes Phase 0 depend on that evidence.
 
 The PRD does not expose the sacrifice attached to the broad v1 bundle. It selects agent runtime, workflows, Ledger, local/team modes, UI, identity/RBAC, observability, secrets, enterprise connectors, and framework integration together, but does not state what will be removed if schedule, packaging, or security evidence fails. For a chain-top PRD that is intended to authorize autonomous downstream execution (§0), this is a blocking decision gap.
 
@@ -33,13 +33,13 @@ The weak area is breadth language. “All AI providers,” “enterprise complia
 
 ## Strategic coherence — thin
 
-The thesis is coherent: a Skein-owned, local-first control plane can unify chat, code, and cowork while retaining policy, context, evidence, and workflow ownership. FR-6, FR-10, FR-13, FR-16, FR-17, and FR-18 reinforce that thesis, and the roadmap correctly stages perception, action, generation, omni composition, real-time voice, and translation.
+The thesis is coherent: a Heddle-owned, local-first control plane can unify chat, code, and cowork while retaining policy, context, evidence, and workflow ownership. FR-6, FR-10, FR-13, FR-16, FR-17, and FR-18 reinforce that thesis, and the roadmap correctly stages perception, action, generation, omni composition, real-time voice, and translation.
 
 The prioritization and success metrics do not fully validate it. SM-1 is a feature integration demonstration, not evidence that the harness is more reliable, governable, or context-efficient than optional workers or existing tools. SM-2 and SM-3 cover isolation and inspectability, but no metric measures governed-loop success, recovery, policy enforcement, smallest-sufficient context quality, user control, or time-to-value. The broad platform MVP therefore resembles a capability backlog under a strong thesis rather than a thesis-driven first release.
 
 ### Findings
 
-- **critical** Success metrics do not validate Skein’s core differentiation (§7) — there is no measure for workflow reliability, bounded-loop completion, recovery, policy correctness, context selection quality, or evidence completeness. *Fix:* add outcome metrics and counter-metrics tied to the control-plane thesis, with baselines against at least one native and one external-worker path.
+- **critical** Success metrics do not validate Heddle’s core differentiation (§7) — there is no measure for workflow reliability, bounded-loop completion, recovery, policy correctness, context selection quality, or evidence completeness. *Fix:* add outcome metrics and counter-metrics tied to the control-plane thesis, with baselines against at least one native and one external-worker path.
 - **high** SM-1 over-couples MVP success to three surfaces and two enterprise suites (§7 SM-1) — a CLI/API/UI + Confluence + Bitbucket + Jira scenario can fail for integration breadth even if the core thesis is proven, or pass while governance quality is poor. *Fix:* split core-platform proof from connector/surface expansion and assign separate release gates.
 - **high** Feature priority does not follow an explicit minimum-value argument (§6.1) — UI, M365/Atlassian, workflow, task tracking, modes, RBAC, secrets, observability, and framework support are all in scope with no dependency/value ranking. *Fix:* define an ordered release hypothesis and a dependency-aware cut line for Phase 0, local alpha, team alpha, and v1.
 - **medium** Only one counter-metric is defined (§7 SM-C1) — cost, latency, false approvals, context bloat, replay safety, and operator intervention could be optimized harmfully. *Fix:* add counter-metrics for policy bypass, secret/PII leakage, irreversible-effect duplication, context utilization, cost, and human escalation burden.

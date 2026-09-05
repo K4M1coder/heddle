@@ -3,7 +3,7 @@
 **Date:** 2026-07-16 · **Status:** COMPLETE · **Method:** pre-registered criteria (spike-protocol.md §Spike 2); ground truth = 3 passing tests.
 
 ## Question
-Can one Archon-style YAML workflow map **losslessly** onto Skein's canonical graph (nodes agent/tool/subagent/approval/cond/parallel/loop), execute as a stub graph, and round-trip back to YAML?
+Can one Archon-style YAML workflow map **losslessly** onto Heddle's canonical graph (nodes agent/tool/subagent/approval/cond/parallel/loop), execute as a stub graph, and round-trip back to YAML?
 
 ## Result — PASS
 
@@ -27,4 +27,4 @@ Can one Archon-style YAML workflow map **losslessly** onto Skein's canonical gra
 - `serde_yaml` 0.9 is used (unmaintained but functional); the product would pick a maintained YAML crate.
 
 ## Consequence for ADR-0003
-Spike 2 of 5 complete: workflow-reuse route is viable — Skein owns a canonical graph, Archon-style YAML is a projection onto it. Remaining: Spike 3 (context quality), Spike 5 (tri-OS install). Spikes 1 & 4 already done.
+Spike 2 of 5 complete: workflow-reuse route is viable — Heddle owns a canonical graph, Archon-style YAML is a projection onto it. Remaining: Spike 3 (context quality), Spike 5 (tri-OS install). Spikes 1 & 4 already done.

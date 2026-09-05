@@ -1,7 +1,7 @@
 # Tasks: wire the Tool Gateway into the native loop (v0 strict-local)
 
 **Spec:** `specs/006-loop-tool-wiring/spec.md` · TDD (red→green), product code in
-`crates/skein-core`, branch `006-loop-tool-wiring` cut from `dev`.
+`crates/heddle-core`, branch `006-loop-tool-wiring` cut from `dev`.
 
 ## Constitution Check (ADR-0004 D1 solo-v0 bar)
 - I Headless core ✅ (library API; no UI, no bin — and this is the slice that lets the headless
@@ -34,8 +34,8 @@
 - [x] **T1** `ToolGateway::call_captured` — the governed body moved verbatim, `call` reduced to
       a delegate; no behaviour change, all 26 tests still green (FR-004)
 - [x] **T2** RED — `RecordingTransport`, `no_tools()`, `reply_with_tools()` and all 8 new tests
-      in `crates/skein-core/tests/native_loop.rs`, plus the 9th in
-      `crates/skein-mcp/tests/rmcp_gateway.rs`; compile failure observed and recorded
+      in `crates/heddle-core/tests/native_loop.rs`, plus the 9th in
+      `crates/heddle-mcp/tests/rmcp_gateway.rs`; compile failure observed and recorded
 - [x] **T3** `TurnResponse.tool_calls` — serde-defaulted, and the stale `model.rs` doc comment
       corrected (FR-001)
 - [x] **T4** `NativeLoop<C, P, T>` carries a `pub gateway: ToolGateway<T>` injected at
@@ -62,8 +62,8 @@
   - `error[E0061]: this function takes 2 arguments but 3 arguments were supplied` (×20 —
     every `NativeLoop::new` site)
   - `error[E0609]: no field gateway on type NativeLoop<ScriptedModel, ScriptedProbe>` (×7)
-  - `error: could not compile skein-core (test "native_loop") due to 28 previous errors`
-  - `error: could not compile skein-mcp (test "rmcp_gateway") due to 2 previous errors`
+  - `error: could not compile heddle-core (test "native_loop") due to 28 previous errors`
+  - `error: could not compile heddle-mcp (test "rmcp_gateway") due to 2 previous errors`
 
 ## Next slice (not this feature)
 - [ ] ACP client facade over the native loop + gateway
@@ -76,4 +76,4 @@
 - [ ] cost / wall-clock budgets and `Exit::Error`; the `ts`/`principal`/`silo` fields design
       §4.11 sketches on `Step`
 - [ ] silo-backed durable Ledger (SQLite) + `SecretProvider` (OS keychain)
-- [ ] `skein-cli` reference client
+- [ ] `heddle-cli` reference client

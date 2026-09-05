@@ -1,4 +1,4 @@
-# Skein Adversarial Architecture Review
+# Heddle Adversarial Architecture Review
 
 **Gate:** Pre-implementation BMAD architecture readiness  
 **Date:** 2026-07-16  
@@ -7,7 +7,7 @@
 
 ## Executive assessment
 
-The architectural direction is credible: a Skein-owned Rust control plane, ports and adapters, a governed MCP boundary, an event-sourced execution record, and replaceable workers are appropriate for the stated product. The current artifact set does not yet turn that direction into an implementable architecture.
+The architectural direction is credible: a Heddle-owned Rust control plane, ports and adapters, a governed MCP boundary, an event-sourced execution record, and replaceable workers are appropriate for the stated product. The current artifact set does not yet turn that direction into an implementable architecture.
 
 The gate fails because several acknowledged one-way doors remain contradictory, deferred, or specified only as prose corrections in ADR-0002. The executable Phase 0 plan still contains designs explicitly rejected by later ADRs. Server/Remote behavior is included in the MVP while its consistency, failover, identity, and replication model are deferred. The Ledger is expected to provide exact capture, replay, reversibility, privacy erasure, workflow recovery, and audit evidence, but no canonical event schema, fold, effect protocol, compatibility policy, or executable examples exist.
 
@@ -95,7 +95,7 @@ No autonomous implementation swarm should be launched. Spikes may be run only as
 
 **Why this blocks implementation:** One payload cannot be selectively erased by destroying one subject key unless payload segmentation and key wrapping were designed before the first record. Destroying a shared payload key may erase other subjects’ evidence. Retaining plaintext in indexes, traces, blobs, or worker caches defeats shredding.
 
-**Required fix:** Define data classification, payload segmentation, envelope encryption, subject-to-object indexing, derived-data lineage, deletion propagation, legal-hold exceptions, backup/key replication, and proof-of-erasure. State clearly that external provider retention is controlled by provider contracts and cannot be undone by Skein.
+**Required fix:** Define data classification, payload segmentation, envelope encryption, subject-to-object indexing, derived-data lineage, deletion propagation, legal-hold exceptions, backup/key replication, and proof-of-erasure. State clearly that external provider retention is controlled by provider contracts and cannot be undone by Heddle.
 
 **Gate evidence:** privacy data-flow map and erasure test covering Ledger payload, blob, context manifest, index, summary, trace, backup, branch, and remote cache.
 
@@ -119,7 +119,7 @@ No autonomous implementation swarm should be launched. Spikes may be run only as
 
 ### H-03 — MCP governance is a policy aspiration, not an architecture
 
-**Evidence:** Connectors are described as embedded MCP servers from a trust registry, with hierarchical enablement and a Skein MCP proxy. Missing are server identity, transport trust, schema pinning, capability grants, tool-level authorization, OAuth token audience, delegated-user identity, output classification, quotas, timeouts, cancellation, prompt-injection handling, and update/revocation behavior.
+**Evidence:** Connectors are described as embedded MCP servers from a trust registry, with hierarchical enablement and a Heddle MCP proxy. Missing are server identity, transport trust, schema pinning, capability grants, tool-level authorization, OAuth token audience, delegated-user identity, output classification, quotas, timeouts, cancellation, prompt-injection handling, and update/revocation behavior.
 
 **Risk:** Enabling one connector grants excessive authority; remote servers can change schemas or exfiltrate data; tool outputs contaminate model context; secrets enter model-visible arguments.
 
@@ -139,7 +139,7 @@ No autonomous implementation swarm should be launched. Spikes may be run only as
 
 **Risk:** The Ledger may show reconstructed rather than actual requests, omit provider retries or tool schemas, duplicate streams, or persist secrets and credentials.
 
-**Fix:** Require all governed model traffic through a Skein-owned model mediation boundary or mark the worker non-conformant. Define canonical request, transformed provider request, streamed raw response, usage, retries, routing decision, redaction stage, and hashes as distinct evidence events. Explicitly exclude authorization headers and secret values from “exact I/O.”
+**Fix:** Require all governed model traffic through a Heddle-owned model mediation boundary or mark the worker non-conformant. Define canonical request, transformed provider request, streamed raw response, usage, retries, routing decision, redaction stage, and hashes as distinct evidence events. Explicitly exclude authorization headers and secret values from “exact I/O.”
 
 ### H-06 — Context management lacks lifecycle, ACL, and reproducibility semantics
 
@@ -189,7 +189,7 @@ The architecture front matter binds only through FR-16 although FR-17 and FR-18 
 
 ### M-02 — Security uses “RBAC” for a model that is actually RBAC + ABAC + ReBAC + risk policy
 
-Tool scopes, data classification, hierarchy, effect class, destination, and relationship to a team/project cannot be represented safely by roles alone. Define a policy input/output schema and decide whether the implementation is an embedded policy engine or a Skein evaluator. Preserve simple role administration as UX, not as the full authorization model.
+Tool scopes, data classification, hierarchy, effect class, destination, and relationship to a team/project cannot be represented safely by roles alone. Define a policy input/output schema and decide whether the implementation is an embedded policy engine or a Heddle evaluator. Preserve simple role administration as UX, not as the full authorization model.
 
 ### M-03 — Audit and Ledger separation is not operationally defined
 
@@ -322,6 +322,6 @@ Constitution and canonical terminology
 
 ## Final verdict
 
-**FAIL.** Skein has a strong vision and several sound principles, but it is not architecture-ready. The highest-risk contracts are still distributed across contradictory artifacts, and the current executable plan encodes rejected decisions. Implementation now would create irreversible persistence, isolation, and governance debt.
+**FAIL.** Heddle has a strong vision and several sound principles, but it is not architecture-ready. The highest-risk contracts are still distributed across contradictory artifacts, and the current executable plan encodes rejected decisions. Implementation now would create irreversible persistence, isolation, and governance debt.
 
 The correct next action is to close the twelve decisions above, run the bounded evidence spikes, regenerate the BMAD and Spec-Kit artifacts, and rerun this gate. Product source implementation and autonomous implementation swarms remain prohibited until that rerun passes.

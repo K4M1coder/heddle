@@ -5,15 +5,15 @@ TDD (red→green), branch `feat/workflow-engine` cut from `dev` at `d364405`.
 
 ## Constitution Check (ADR-0004 D1 solo-v0 bar)
 
-- **I Headless core** ✅ `skein-workflow` is a library crate with no CLI of its own, and this slice
+- **I Headless core** ✅ `heddle-workflow` is a library crate with no CLI of its own, and this slice
   adds no CLI subcommand — deliberately, and recorded in `plan.md`'s Out-of-scope rather than left
   implicit. The engine's whole public surface is `WorkflowEngine::run` and `WorkflowEngine::decide`,
-  which is exactly the API a `skein workflow run` / `skein workflow decide` pair would drive, in the
-  same shape `skein-cli` already drives `NativeLoop`. Nothing here is reachable only from a UI.
+  which is exactly the API a `heddle workflow run` / `heddle workflow decide` pair would drive, in the
+  same shape `heddle-cli` already drives `NativeLoop`. Nothing here is reachable only from a UI.
 - **II Local-first** ✅ NON-NEGOTIABLE and untouched. The new crate opens no socket, names no
   provider, and reaches the outside world only through the `ModelClient` and `ToolTransport` ports it
-  is generic over — both injected by the caller. Its `[dependencies]` are `skein-core`, `serde`,
-  `serde_json`, and nothing else; `cargo tree -p skein-workflow` adds no package to the workspace.
+  is generic over — both injected by the caller. Its `[dependencies]` are `heddle-core`, `serde`,
+  `serde_json`, and nothing else; `cargo tree -p heddle-workflow` adds no package to the workspace.
   Silo boundaries are not crossed because the crate never opens a silo: it borrows a `Ledger` the
   caller already opened.
 - **III Test-First** ⚠️ **Partially met, and the shortfall is this run's, not the plan's.** T1
@@ -26,8 +26,8 @@ TDD (red→green), branch `feat/workflow-engine` cut from `dev` at `d364405`.
   resulting failure is recorded. No red was re-staged after the fact.
 - **IV Inverted coupling** ✅ The engine is `WorkflowEngine<C: ModelClient, T: ToolTransport>`,
   mirroring `NativeLoop<C, P, T>` — a generic over ports, never a `Box<dyn Agent>` or a node-executor
-  registry, neither of which exists anywhere in this tree. `skein-workflow` names no connector crate,
-  no protocol and no provider. `skein-core` gains two **additive** enum variants and nothing else: no
+  registry, neither of which exists anywhere in this tree. `heddle-workflow` names no connector crate,
+  no protocol and no provider. `heddle-core` gains two **additive** enum variants and nothing else: no
   existing variant's meaning changes, no existing signature changes, and no existing call site
   changes. The core is extended, not rewritten.
 - **V Traceability** ✅ An agent node's exact model I/O lands on the chain as `LlmRequest` /
@@ -70,9 +70,9 @@ TDD (red→green), branch `feat/workflow-engine` cut from `dev` at `d364405`.
       `Draft` → `Planned`
 - [x] **T1** control baseline: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --
       -D warnings`, `cargo test --workspace`, each re-measured rather than quoted
-- [x] **T2** types and signatures, no behaviour: the `skein-workflow` crate skeleton (`Workflow`,
+- [x] **T2** types and signatures, no behaviour: the `heddle-workflow` crate skeleton (`Workflow`,
       `Node`, `WorkflowEngine`, `WorkflowRun`, `WorkflowExit`, `NodeRecord`, `WorkflowApproval`) with
-      `todo!()` bodies; `StepKind::WorkflowNode` and `SkeinError::Unsupported` added to `skein-core`
+      `todo!()` bodies; `StepKind::WorkflowNode` and `HeddleError::Unsupported` added to `heddle-core`
 - [x] **T3** RED→GREEN — a 3-node sequential workflow, one `WorkflowNode` step per node, in order
       (`tests/sequential.rs`)
 - [x] **T4** RED→GREEN — interrupt after node 2, resume at node 3, nodes 1 and 2 not re-executed
@@ -94,7 +94,7 @@ On `feat/workflow-engine` @ `d364405`, working tree clean, Windows 11 Pro 10.0.2
   16, `cli_chat` 12, `cli_ledger` 8, `cli_secret` 2, `connector` 9, `fs_root` 11, `fs_server` 7,
   `git_root` 5, `git_server` 13, `governed_fs_run` 4 (+1 ignored), `governed_git_run` 4 (+1 ignored),
   `governed_proc_run` 0 (+2 ignored), `run_server` 10, `core` 19, `native_loop` 25, `tool_gateway`
-  14, `governed_run` 2, `openai_compat` 15 (+1 ignored), `rmcp_gateway` 9, `skein-sandbox`
+  14, `governed_run` 2, `openai_compat` 15 (+1 ignored), `rmcp_gateway` 9, `heddle-sandbox`
   `src/lib.rs` unit target 4, `escape` 4, `launch` 4, `profile` 3, `silo_ledger` 7, `silo_secret` 5.
   Every other `src/lib.rs` and `src/main.rs` unit target reports 0.
 
@@ -103,11 +103,11 @@ commit having touched a test since — and it is re-measured rather than quoted,
 
 ## Observed red
 
-**T3** — `cargo test -p skein-workflow --test sequential`, all six new tests, against T2's `todo!()`:
+**T3** — `cargo test -p heddle-workflow --test sequential`, all six new tests, against T2's `todo!()`:
 
 ```
 thread 'a_three_node_workflow_runs_every_node_in_order_and_reaches_its_final_result' panicked at
-crates\skein-workflow\src\engine.rs:64:9:
+crates\heddle-workflow\src\engine.rs:64:9:
 not yet implemented: T3: execute the unlogged remainder of the graph
 test result: FAILED. 0 passed; 6 failed
 ```
@@ -144,7 +144,7 @@ test the_already_logged_nodes_executors_are_never_entered ... FAILED
 test a_run_with_nothing_left_to_do_is_idempotent ... FAILED
 test the_chain_a_second_process_appends_to_still_verifies ... FAILED
 
-thread '...' panicked at crates\skein-workflow\tests\common\mod.rs:138:17:
+thread '...' panicked at crates\heddle-workflow\tests\common\mod.rs:138:17:
 this node's executor must never be entered, yet it reached a transport
 test result: FAILED. 1 passed; 5 failed
 ```
@@ -175,7 +175,7 @@ treated as a completed gate instead of returning `Rejected`):
 ```
 test a_rejected_run_stays_rejected_and_stops_growing_the_chain ... FAILED
 test a_rejection_ends_the_run_without_executing_the_next_node ... FAILED
-thread '...' panicked at crates\skein-workflow\tests\common\mod.rs:74:32:
+thread '...' panicked at crates\heddle-workflow\tests\common\mod.rs:74:32:
 test result: FAILED. 6 passed; 2 failed
 ```
 
@@ -246,12 +246,12 @@ multi-turn node, is the ReAct/Reflexion slice's question and is deliberately not
 
 Two planned edits turned out to be unnecessary, and neither was made:
 
-- **`crates/skein-core/src/lib.rs`** — untouched. `StepKind` and `SkeinError` are already re-exported
-  by name (`lib.rs:16-17`), so both new variants reach `skein-workflow` with no new `pub use`.
-  `git diff --stat crates/skein-core/src/lib.rs` is empty.
+- **`crates/heddle-core/src/lib.rs`** — untouched. `StepKind` and `HeddleError` are already re-exported
+  by name (`lib.rs:16-17`), so both new variants reach `heddle-workflow` with no new `pub use`.
+  `git diff --stat crates/heddle-core/src/lib.rs` is empty.
 - **Root `Cargo.lock`** — **not tracked by git in this repository** (`.gitignore:13`), so the planned
-  "`Cargo.lock` UPDATE" is a non-event. The file does gain a `skein-workflow` entry locally, listing
-  `serde`, `serde_json`, `skein-core` and nothing else, but it is not part of the diff and cannot be.
+  "`Cargo.lock` UPDATE" is a non-event. The file does gain a `heddle-workflow` entry locally, listing
+  `serde`, `serde_json`, `heddle-core` and nothing else, but it is not part of the diff and cannot be.
 
 ## Close-out (T7)
 
@@ -263,12 +263,12 @@ On `feat/workflow-engine`, working tree clean apart from this slice's own change
   **+25 tests and no change to the ignored count**, which is exactly this slice's four new test
   binaries and nothing else: `sequential` 6, `resume` 6, `approval` 8, `node_kinds` 5.
 - **No pre-existing assertion's text changed**, and no pre-existing file's behaviour changed. The two
-  `skein-core` edits are additive enum variants with doc comments; nothing else in that crate moved.
-- **Control diff empty** outside `crates/skein-workflow/`, `crates/skein-core/src/{ledger.rs,error.rs}`
+  `heddle-core` edits are additive enum variants with doc comments; nothing else in that crate moved.
+- **Control diff empty** outside `crates/heddle-workflow/`, `crates/heddle-core/src/{ledger.rs,error.rs}`
   and `specs/002-workflow-engine/` — verified with `git status --porcelain`, whose entire output is
-  those three areas. Note that `crates/skein-core/src/lib.rs`, named in the plan's allowlist, is
+  those three areas. Note that `crates/heddle-core/src/lib.rs`, named in the plan's allowlist, is
   **not** in the diff at all.
-- **No dependency drift.** `skein-workflow`'s `[dependencies]` are `skein-core`, `serde`,
+- **No dependency drift.** `heddle-workflow`'s `[dependencies]` are `heddle-core`, `serde`,
   `serde_json`; all three were already in the tree, so no package is added to the workspace. No
   existing manifest changed, and the root `Cargo.toml` needed no edit — `members = ["crates/*"]`
   picked the crate up as soon as its directory existed, exactly as fact 10 predicted.
@@ -292,7 +292,7 @@ not from a partial one.
 - **`Node::Subagent`, `Node::Condition`, `Node::Parallel`.** `Parallel` is the one that will force a
   decision this slice avoided: node completion is currently keyed by id and walked in `Vec` order, and
   "position" stops being meaningful once branches interleave.
-- **A CLI surface** — `skein workflow run` / `skein workflow decide` over the two public methods, so
+- **A CLI surface** — `heddle workflow run` / `heddle workflow decide` over the two public methods, so
   the engine has the authoritative client Constitution I asks for. Until then this crate is exercised
   only by its own tests.
 - **Where workflow definitions live.** The tests build a `Workflow` in process; nothing yet persists

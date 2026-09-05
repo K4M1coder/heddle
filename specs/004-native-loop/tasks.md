@@ -1,7 +1,7 @@
 # Tasks: native turn loop + ModelClient port (v0 strict-local)
 
 **Spec:** `specs/004-native-loop/spec.md` · TDD (red→green), product code in
-`crates/skein-core`, branch `004-native-loop` cut from `dev`.
+`crates/heddle-core`, branch `004-native-loop` cut from `dev`.
 
 ## Constitution Check (ADR-0004 D1 solo-v0 bar)
 - I Headless core ✅ (library API; no UI, no bin) · II Local-first ✅ (no network, no new deps)
@@ -20,8 +20,8 @@
 
 ## Done
 - [x] **T0** `specs/004-native-loop/{spec.md,plan.md,tasks.md}` + branch from `dev`
-- [x] **T1** `SkeinError::Model(String)` (FR-006)
-- [x] **T2** RED — `crates/skein-core/tests/native_loop.rs` with `ScriptedModel`/`ScriptedProbe`
+- [x] **T1** `HeddleError::Model(String)` (FR-006)
+- [x] **T2** RED — `crates/heddle-core/tests/native_loop.rs` with `ScriptedModel`/`ScriptedProbe`
       and all 9 tests; compile failure observed and recorded
 - [x] **T3** `model` — `ModelClient`/`TurnRequest`/`TurnResponse` (FR-001)
 - [x] **T4** `native_loop` — `ProgressProbe`/`LoopRun`/`NativeLoop::run` turn algorithm
@@ -29,7 +29,7 @@
 - [x] **T5** pre-flight budget guard: exhausted budget ⇒ zero model calls (FR-003)
 - [x] **T6** all four `Exit` variants reached through `NativeLoop::run` (SC-002)
 - [x] **T7** provider error ⇒ `Err` with a still-verifiable chain (FR-006)
-- [x] **T8** `fmt --check`, `clippy -D warnings`, `cargo test -p skein-core` (15/15,
+- [x] **T8** `fmt --check`, `clippy -D warnings`, `cargo test -p heddle-core` (15/15,
       2026-09-03); no dependency drift (SC-003)
 - [x] **T9** `.github/workflows/core.yml` — tri-OS fmt/clippy/test for the workspace
       (ADR-0004 D1(d), SC-004)
@@ -39,4 +39,4 @@
 - [x] `rmcp` Tool Gateway (promote Spike 4) — `specs/005-tool-gateway/`
 - [ ] ACP client facade over the native loop + gateway
 - [ ] silo-backed durable Ledger (SQLite) + `SecretProvider` (OS keychain)
-- [ ] `skein-cli` reference client
+- [ ] `heddle-cli` reference client

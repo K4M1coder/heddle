@@ -31,7 +31,7 @@ other v0 item used.
 
 Surveyed the Rust ecosystem in September 2026 for a proven, actively-maintained crate that
 sandboxes a child process's filesystem/network/execution capabilities across Windows, Linux, and
-macOS — the three OSes Skein's own CI already targets (ADR-0004 D1(d), tri-OS CI green):
+macOS — the three OSes Heddle's own CI already targets (ADR-0004 D1(d), tri-OS CI green):
 
 - **`birdcage`** (Phylum) — cross-platform embeddable sandbox, but explicitly Linux (Landlock) and
   macOS (Seatbelt) only; no Windows support.
@@ -70,7 +70,7 @@ to settle inside a single implementation slice's TDD loop.
 - **`shell` is deferred out of v0**, not built as a fourth connector slice. This narrows ADR-0004
   D3's connector item to `fs` and `git`, both delivered (slices 016, 017), each hand-verified live
   against a real local model with real Ledger entries.
-- **v0, as ADR-0004 D3 defined it, is otherwise complete**: Skein-owned native loop with an
+- **v0, as ADR-0004 D3 defined it, is otherwise complete**: Heddle-owned native loop with an
   ACP-shaped core boundary (ADR-0003, slices 003/004/008/013), MCP tools for `fs` and `git`
   (slices 005/015/016/017), one local model path via the Ollama-compatible gateway (slices
   006/012), silo `Local` + Ledger + `SecretProvider` foundation (slices 003/009/010/014), and the
@@ -93,7 +93,7 @@ to settle inside a single implementation slice's TDD loop.
 
 - `specs/017-git-connector/tasks.md`'s "Next slice" section, which named this same deferral and
   reasoning, is the working note this ADR now makes durable at the architecture-decision level.
-- No code changes accompany this ADR. `crates/skein-connectors` gains no `shell.rs`; no subprocess
+- No code changes accompany this ADR. `crates/heddle-connectors` gains no `shell.rs`; no subprocess
   execution tool exists anywhere in `crates/`.
 - A future sandbox-foundation ADR, when it exists, supersedes the deferral recorded here for the
   specific question of *how* to build `shell` — not *whether* v0 needed it, which this ADR settles

@@ -39,8 +39,8 @@ behaves exactly as before.
 
 1. **The signal is the flag the session already has** — the one `Arc<AtomicBool>` slice 027 moved
    into `SessionParts`. `AcpPermissionTransport` gains a fourth field holding a clone of it, handed
-   over by `SkeinSession::new`, which is the one frame that already holds both. No new port, no new
-   channel, no widening of `ToolTransport`, and nothing new for `skein-cli` to wire.
+   over by `HeddleSession::new`, which is the one frame that already holds both. No new port, no new
+   channel, no widening of `ToolTransport`, and nothing new for `heddle-cli` to wire.
 2. **The blocking `recv()` becomes a polled `recv_timeout` loop with no overall deadline.** The only
    three ways out are an answer — including the error ACP delivers *as* an answer when the transport
    dies — a set flag, and a disconnected channel. `RecvTimeoutError` is matched **exhaustively**:
@@ -64,7 +64,7 @@ behaves exactly as before.
 - **FR-003** `ask` MUST observe the flag becoming set while a permission request is outstanding, and
   MUST refuse then, without the client having answered.
 - **FR-004** FR-003 MUST happen within 50 ms of the flag being set, plus the loop's own overhead.
-- **FR-005** FR-002 and FR-003 MUST produce a `SkeinError::ToolDenied` for the tool under call, whose
+- **FR-005** FR-002 and FR-003 MUST produce a `HeddleError::ToolDenied` for the tool under call, whose
   reason is **distinct** from the `RequestPermissionOutcome::Cancelled` reason.
 - **FR-006** The inner transport MUST NOT be reached in either case.
 - **FR-007** There MUST be no overall deadline on a permission request. A client that answers after
@@ -81,7 +81,7 @@ behaves exactly as before.
 - **FR-009** The three existing answer paths — allow, reject, and the client's own `Cancelled`
   outcome — MUST be unchanged in behaviour and in message.
 - **FR-010** The three existing cancellation readers MUST be unchanged: `CancellableModel`'s pre-turn
-  refusal, `AcpTextSink::wants_more`'s per-line check, and `skein-sandbox`'s launcher poll.
+  refusal, `AcpTextSink::wants_more`'s per-line check, and `heddle-sandbox`'s launcher poll.
 - **FR-011** No test in the suite may hang when a permission request is never answered. The test
   harness MUST turn that into a recorded failure.
 
@@ -103,11 +103,11 @@ behaves exactly as before.
 ## Out of scope
 
 - **Any timeout on a human's decision** (rejected alternative 1).
-- **`skein chat`.** It has no permission gate at all: `AcpPermissionTransport` exists only inside the
-  ACP facade, and `skein chat` has no cancel channel either (slices 026 and 027 recorded the same
+- **`heddle chat`.** It has no permission gate at all: `AcpPermissionTransport` exists only inside the
+  ACP facade, and `heddle chat` has no cancel channel either (slices 026 and 027 recorded the same
   boundary).
 - **Withdrawing the request on the wire.** ACP has no agent-initiated cancel for an outstanding
-  `session/request_permission`; the client is left to notice the session it cancelled. Skein stops
+  `session/request_permission`; the client is left to notice the session it cancelled. Heddle stops
   waiting for the answer, and an answer that arrives later is dropped with the channel.
 - **Cancelling a non-process tool already executing.** Unchanged from slice 027: the five remaining
   tools are bounded by their own caps and complete in milliseconds.

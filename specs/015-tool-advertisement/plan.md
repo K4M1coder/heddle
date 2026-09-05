@@ -17,7 +17,7 @@ and green. Two independent gaps produce that, and this slice closes exactly one:
    so no model ever learns a tool exists. The response path is built; the request path is not.
 2. **No server.** Both loop-running commands wire `NoTools` behind an empty allowlist. Slice 016.
 
-The consequence today is that `skein chat` and `skein acp-agent` are chatbots, and every governance
+The consequence today is that `heddle chat` and `heddle acp-agent` are chatbots, and every governance
 property the project has built is unexercised against anything real.
 
 ## Approach
@@ -45,10 +45,10 @@ route.
 with a reason the model is told. Denying at advertisement would make `AcpPermissionTransport`
 permanently unreachable: `call_captured` consults the policy **before** the transport, so a
 `Mutating` tool absent from `approved` never reaches the ACP permission prompt at all.
-`crates/skein-acp/src/permission.rs` states the design directly — *"the client can only further
+`crates/heddle-acp/src/permission.rs` states the design directly — *"the client can only further
 restrict, never widen."*
 
-**Tool annotations are deliberately not consulted.** `crates/skein-core/src/tool.rs` already commits
+**Tool annotations are deliberately not consulted.** `crates/heddle-core/src/tool.rs` already commits
 to this: *"Access is configuration, not discovery: deriving it from a server's tool annotations is a
 later slice."* A server that self-declares `readOnlyHint: true` would otherwise be trusted to
 classify its own risk.
@@ -59,9 +59,9 @@ classify its own risk.
 fn list(&mut self) -> Result<Vec<ToolSpec>> { Ok(Vec::new()) }
 ```
 
-Nine `impl ToolTransport` sites exist — `skein-acp/src/permission.rs`, `skein-cli/src/wiring.rs`,
-`skein-mcp/src/lib.rs`, and six test doubles across `skein-core`, `skein-acp`, `skein-gateway`,
-`skein-silo`. A defaulted method leaves all nine compiling untouched, keeping the 120-test baseline a
+Nine `impl ToolTransport` sites exist — `heddle-acp/src/permission.rs`, `heddle-cli/src/wiring.rs`,
+`heddle-mcp/src/lib.rs`, and six test doubles across `heddle-core`, `heddle-acp`, `heddle-gateway`,
+`heddle-silo`. A defaulted method leaves all nine compiling untouched, keeping the 120-test baseline a
 live control.
 
 The project distrusts silent defaults — `NativeLoop::new`'s required `Redactor` exists for exactly
@@ -74,7 +74,7 @@ thing MCP models, and two traits would have to be injected and kept in sync at e
 no gained precision.
 
 **`AcpPermissionTransport` must override `list` and forward to its inner transport.** If it inherits
-the default, `skein acp-agent` silently advertises nothing while `skein chat` works — a bug no
+the default, `heddle acp-agent` silently advertises nothing while `heddle chat` works — a bug no
 compiler catches and only an ACP-level test finds. **This is the single highest-risk line in the
 slice**, and T7 is a test dedicated to it alone.
 
@@ -146,7 +146,7 @@ there.
 
 D1 build-the-`fs`-server-in-tree with its supply-chain reasoning; D7 `git`/`shell` deferral; D8 root
 containment (`FsRoot`, the `Path::join`-absolute footgun, the TOCTOU residual); D9
-`crates/skein-connectors` as a new workspace member and the amended `skein-mcp` MCP invariant; D10
+`crates/heddle-connectors` as a new workspace member and the amended `heddle-mcp` MCP invariant; D10
 `--fs-root` and the per-command allowlist asymmetry.
 
 ## Steps
@@ -154,20 +154,20 @@ containment (`FsRoot`, the `Path::join`-absolute footgun, the TOCTOU residual); 
 - **T0** `spec.md`, `plan.md`, `tasks.md`, including the Constitution Check table.
 - **T1** Control baseline: `cargo test --workspace`, recorded verbatim. Expect **120 passed, 1
   ignored**.
-- **T2 · RED→GREEN** `ToolSpec` in `crates/skein-core/src/tool.rs`, re-exported from `lib.rs`, tested
-  in `crates/skein-core/tests/core.rs`.
+- **T2 · RED→GREEN** `ToolSpec` in `crates/heddle-core/src/tool.rs`, re-exported from `lib.rs`, tested
+  in `crates/heddle-core/tests/core.rs`.
 - **T3 · RED→GREEN** `ToolTransport::list` with its defaulted body and its docstring on why *this*
   silent default is the safe one.
 - **T4 · RED→GREEN** `ToolGateway::advertise` — list, filter, order — tested in
-  `crates/skein-core/tests/tool_gateway.rs` against a double whose catalogue is wider than the
+  `crates/heddle-core/tests/tool_gateway.rs` against a double whose catalogue is wider than the
   policy.
 - **T5 · RED→GREEN** `TurnRequest.tools` with D5's attributes, and the three literal construction
-  sites: `native_loop.rs`'s `run`, `crates/skein-acp/tests/acp_session.rs`, and
-  `crates/skein-gateway/tests/openai_compat.rs`'s `ask` helper. Mechanical, one atomic commit.
+  sites: `native_loop.rs`'s `run`, `crates/heddle-acp/tests/acp_session.rs`, and
+  `crates/heddle-gateway/tests/openai_compat.rs`'s `ask` helper. Mechanical, one atomic commit.
 - **T6 · RED→GREEN** `NativeLoop::run` advertises once (D4) and stamps the specs into every
   `TurnRequest` of the run.
 - **T7 · RED→GREEN** `AcpPermissionTransport::list` forwards to its inner transport (D3's hazard).
-- **T8 · RED→GREEN** `ChatRequest.tools` in `crates/skein-gateway/src/lib.rs` producing D6's exact
+- **T8 · RED→GREEN** `ChatRequest.tools` in `crates/heddle-gateway/src/lib.rs` producing D6's exact
   shape, with a byte-exact test.
 - **T9** Gates, control diff, dependency drift, close-out.
 
@@ -201,9 +201,9 @@ close-out recorded ten tests where its plan predicted eight, and said why.
 
 ## Risks and rollback
 
-**Blast radius.** `skein-core` (`tool.rs`, `model.rs`, `native_loop.rs`, `lib.rs`), `skein-gateway`
-(`lib.rs`), `skein-acp` (`permission.rs`). No package added, no manifest changed. `skein-cli`,
-`skein-silo` and `spikes/` untouched.
+**Blast radius.** `heddle-core` (`tool.rs`, `model.rs`, `native_loop.rs`, `lib.rs`), `heddle-gateway`
+(`lib.rs`), `heddle-acp` (`permission.rs`). No package added, no manifest changed. `heddle-cli`,
+`heddle-silo` and `spikes/` untouched.
 
 | Risk | Mitigation |
 |---|---|
@@ -220,7 +220,7 @@ and chains written before it deserialize after the merge.
 
 ## Out of scope
 
-Per the spec's own list, and identically: any connector, `crates/skein-connectors`, `--fs-root`,
-every `skein-cli` change, `git`/`shell`, annotation-derived `ToolAccess`, `role: "tool"` replay,
+Per the spec's own list, and identically: any connector, `crates/heddle-connectors`, `--fs-root`,
+every `heddle-cli` change, `git`/`shell`, annotation-derived `ToolAccess`, `role: "tool"` replay,
 `strict`/`tool_choice`/streaming, a new `StepKind`, per-turn re-listing, a `ToolCatalog` trait,
-`crates/skein-silo/`, `spikes/`, `.github/`, `rust-toolchain.toml`.
+`crates/heddle-silo/`, `spikes/`, `.github/`, `rust-toolchain.toml`.

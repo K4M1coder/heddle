@@ -1,6 +1,6 @@
-# Skein Constitution
+# Heddle Constitution
 
-Immutable principles governing the transformation of specifications into code for Skein. Every spec, plan, task, and implementation must conform to them; any violation must be justified under "Complexity Tracking" or rejected.
+Immutable principles governing the transformation of specifications into code for Heddle. Every spec, plan, task, and implementation must conform to them; any violation must be justified under "Complexity Tracking" or rejected.
 
 ## Core Principles
 
@@ -31,7 +31,7 @@ Every agentic loop — in the product **and** in how we build it — must: (a) h
 ## Additional Constraints (Stack & Compliance)
 
 - **First-class cross-platform**: Windows + macOS + Linux as equals (tri-OS CI matrix, green required before merge). No OS-specific call without `#[cfg]` + an equivalent.
-- **Stack**: Skein-owned Rust control plane; optional agent workers/adapters; Python/TypeScript sidecars only where justified; Tauri/TS UI; replaceable model gateway (LiteLLM initially); SQLite persistence; OpenTelemetry from v1.
+- **Stack**: Heddle-owned Rust control plane; optional agent workers/adapters; Python/TypeScript sidecars only where justified; Tauri/TS UI; replaceable model gateway (LiteLLM initially); SQLite persistence; OpenTelemetry from v1.
 - **Compliance by-design**: GDPR / ISO 27001 / SOC 2 / EU AI Act / NIS2 — the software provides the controls; certification remains an organizational matter.
 - **Per-OS code signing** (Authenticode + Developer ID/macOS notarization) — an agent that drives the PC must be signed.
 

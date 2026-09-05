@@ -13,7 +13,7 @@ quoting the original session.
 
 ## Question and pre-registered exit criteria
 
-**Question:** can Skein proxy MCP servers through policy/approval/redaction/Ledger capture
+**Question:** can Heddle proxy MCP servers through policy/approval/redaction/Ledger capture
 using `rmcp`?
 
 **Exit:** a tool call is (1) blocked by policy, (2) allowed after approval, (3) logged with the
@@ -73,7 +73,7 @@ Exit code 0. Toolchain: `stable` (rustc 1.97.1), as `.github/workflows/spikes.ym
 
 **Promote the design, not the code.** `spikes/mcp-gateway/` stays quarantined and unimported
 per ADR-0004 D2; slice `005-tool-gateway` reimplements the governed path in
-`crates/skein-core/src/tool.rs` (no new dependency) with the `rmcp` adapter isolated in
-`crates/skein-mcp/`. All four criteria are re-proven there against a live embedded rmcp
+`crates/heddle-core/src/tool.rs` (no new dependency) with the `rmcp` adapter isolated in
+`crates/heddle-mcp/`. All four criteria are re-proven there against a live embedded rmcp
 server, plus a fifth property the spike could not express: the governed run's hash chain
 verifies across a denial and an execution.

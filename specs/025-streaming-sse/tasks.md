@@ -5,9 +5,9 @@ TDD (red→green), branch `025-streaming-sse`, fast-forwarded onto `dev` at `900
 
 ## Constitution Check (ADR-0004 D1 solo-v0 bar)
 
-- **I Headless core** ✅ no CLI of its own, no new flag, no new command, no new argument. `skein chat`
+- **I Headless core** ✅ no CLI of its own, no new flag, no new command, no new argument. `heddle chat`
   is byte-identical: the client streams, `chat` installs no sink, and its documented contract —
-  "stdout carries the assistant's answer and nothing else" — is unchanged. `skein ledger log` and
+  "stdout carries the assistant's answer and nothing else" — is unchanged. `heddle ledger log` and
   `show` render the new payload with zero CLI change, verified against a live chain (see *Live
   verification*).
 - **II Local-first** ✅ no new dependency, no `Cargo.toml` change, no second network call. `ureq` stays
@@ -17,10 +17,10 @@ TDD (red→green), branch `025-streaming-sse`, fast-forwarded onto `dev` at `900
   red B a behavioural one across 16 tests; reds C, D1 and D2 each isolate one decision by reverting
   exactly it from the finished implementation. Recorded honestly: `a12` **passed** as first written
   and was strengthened until it could not — see *Deviations* 4.
-- **IV Inverted coupling** ✅ `skein-core` gains `TextSink` — one method taking a `&str` — and a
+- **IV Inverted coupling** ✅ `heddle-core` gains `TextSink` — one method taking a `&str` — and a
   defaulted `set_text_sink`. Neither names SSE, HTTP, a delta or a provider. Every fact about the
-  chat-completions event format stays in `skein-gateway`, which remains the one crate that names it,
-  and every fact about ACP stays in `skein-acp`. The port grows a defaulted method, so no other crate
+  chat-completions event format stays in `heddle-gateway`, which remains the one crate that names it,
+  and every fact about ACP stays in `heddle-acp`. The port grows a defaulted method, so no other crate
   reasons about a client that streams.
 - **V Traceability** ✅ `WireExchange.response` holds the literal event stream — every `data:` line and
   every blank one, in wire order — rather than the object reassembled from it, which preserves slice
@@ -60,13 +60,13 @@ TDD (red→green), branch `025-streaming-sse`, fast-forwarded onto `dev` at `900
 - [x] **S2** RED — tool calls in both shapes, `reasoning` discarded, a stream with no metering refused
 - [x] **S3** RED — the wire capture: literal SSE bytes, `streamed`, the request fields, redaction of a
       quote-bearing secret inside a `data:` payload, and the non-2xx exchange
-- [x] **S4** GREEN — `skein-core`: `TextSink`, the defaulted `set_text_sink`, `WireExchange.streamed`,
+- [x] **S4** GREEN — `heddle-core`: `TextSink`, the defaulted `set_text_sink`, `WireExchange.streamed`,
       the re-export, and the one carried field in `native_loop.rs`
-- [x] **S5** GREEN — `skein-gateway`: `stream_options`, the chunk types, the bounded byte-oriented
+- [x] **S5** GREEN — `heddle-gateway`: `stream_options`, the chunk types, the bounded byte-oriented
       reader, the accumulator, and the sink push
 - [x] **S6** RED — the ACP transcript: one chunk per delta in order, no duplicate, and a redacted
       secret
-- [x] **S7** GREEN — `skein-acp`: `stream.rs`'s `AcpTextSink`, the `CancellableModel` forward, and the
+- [x] **S7** GREEN — `heddle-acp`: `stream.rs`'s `AcpTextSink`, the `CancellableModel` forward, and the
       session's install and counter
 - [x] **S8** GREEN — suppress the duplicate at the one `project_updates` call site
 - [x] **S9** GREEN — re-frame the stub providers to SSE — **six files, not the four the plan named**
@@ -87,9 +87,9 @@ Measured on this worktree immediately after the fast-forward to `9002f73`, befor
 At close, on the same worktree with the slice applied: `cargo fmt --all --check` pass, `cargo clippy
 --workspace --all-targets -- -D warnings` pass, **268 passed, 0 failed, 8 ignored**. The delta is
 **+10 passed** and **+1 ignored**. Eleven tests were added — seven in
-`skein-gateway/tests/openai_compat.rs` (one of them the `#[ignore]`d live tool-call test), one in
-`skein-gateway/tests/governed_run.rs`, two in `skein-acp/tests/acp_session.rs` and one in
-`skein-cli/tests/cli_acp_agent.rs` — so ten of them run. No test was deleted, renamed or disabled; nothing moved from passed to
+`heddle-gateway/tests/openai_compat.rs` (one of them the `#[ignore]`d live tool-call test), one in
+`heddle-gateway/tests/governed_run.rs`, two in `heddle-acp/tests/acp_session.rs` and one in
+`heddle-cli/tests/cli_acp_agent.rs` — so ten of them run. No test was deleted, renamed or disabled; nothing moved from passed to
 ignored.
 
 ## Verified before trusting: the plan's §0.2 measurements, re-driven
@@ -114,23 +114,23 @@ than about a sketch of it.
 
 ### Red A — S3, the capture field does not exist
 
-Tests applied, sources at `9002f73`. `cargo test -p skein-gateway`:
+Tests applied, sources at `9002f73`. `cargo test -p heddle-gateway`:
 
 ```
-error[E0609]: no field `streamed` on type `skein_core::WireExchange`
-   --> crates\skein-gateway\tests\governed_run.rs:368:22
-error[E0609]: no field `streamed` on type `skein_core::WireExchange`
-   --> crates\skein-gateway\tests\governed_run.rs:528:22
-error[E0609]: no field `streamed` on type `skein_core::WireExchange`
-   --> crates\skein-gateway\tests\governed_run.rs:625:19
-error: could not compile `skein-gateway` (test "governed_run") due to 3 previous errors
+error[E0609]: no field `streamed` on type `heddle_core::WireExchange`
+   --> crates\heddle-gateway\tests\governed_run.rs:368:22
+error[E0609]: no field `streamed` on type `heddle_core::WireExchange`
+   --> crates\heddle-gateway\tests\governed_run.rs:528:22
+error[E0609]: no field `streamed` on type `heddle_core::WireExchange`
+   --> crates\heddle-gateway\tests\governed_run.rs:625:19
+error: could not compile `heddle-gateway` (test "governed_run") due to 3 previous errors
 ```
 
 ### Red B — S1/S2, the client cannot read a stream
 
 `openai_compat` compiles without the feature, so this red is behavioural rather than structural,
 which is the more informative of the two: it shows the *semantics* missing, not just an API.
-`cargo test -p skein-gateway --test openai_compat`:
+`cargo test -p heddle-gateway --test openai_compat`:
 
 ```
 test result: FAILED. 6 passed; 16 failed; 2 ignored; 0 measured; 0 filtered out
@@ -147,7 +147,7 @@ the answer.\",\"role\":\"assistant\"},\"index\":0}],…}\n\ndata: [DONE]\n\n")
 
 ### Red C — S6, the transcript is one lump after the turn
 
-`cargo test -p skein-acp --test acp_session`, with the full gateway implementation already green:
+`cargo test -p heddle-acp --test acp_session`, with the full gateway implementation already green:
 
 ```
   left: ["The answer is 42."]
@@ -163,13 +163,13 @@ The left column *is* the behaviour being replaced: the whole answer, once, after
 
 ### Red D1 — S10, without the sink install: no chunk, and therefore no answer
 
-`SkeinSession::new`'s `client.set_text_sink(…)` removed, everything else present. The provider holds
+`HeddleSession::new`'s `client.set_text_sink(…)` removed, everything else present. The provider holds
 its socket until a chunk reaches the client, so no chunk means no release, means no turn, means no
 response:
 
 ```
 thread 'a_chunk_reaches_the_client_while_the_prompt_is_still_outstanding' panicked at
-crates\skein-cli\tests\cli_acp_agent.rs:222:10:
+crates\heddle-cli\tests\cli_acp_agent.rs:222:10:
 the ACP client finished within 60s: Disconnected
 test result: FAILED. 0 passed; 1 failed; 0 ignored; finished in 30.96s
 ```
@@ -196,8 +196,8 @@ editor renders as the answer appearing twice.
 ### The `#[ignore]`d live tests, against the real Ollama on this machine
 
 ```
-$env:SKEIN_LIVE_MODEL = "gemma4:latest"
-cargo test -p skein-gateway --test openai_compat -- --ignored --nocapture
+$env:HEDDLE_LIVE_MODEL = "gemma4:latest"
+cargo test -p heddle-gateway --test openai_compat -- --ignored --nocapture
 ```
 
 ```
@@ -218,7 +218,7 @@ test a_live_local_provider_answers ... ok
 test result: ok. 2 passed; 0 failed
 ```
 
-The live **tool call**, with `SKEIN_LIVE_MODEL = "qwen3.8:27b"`:
+The live **tool call**, with `HEDDLE_LIVE_MODEL = "qwen3.8:27b"`:
 
 ```
 live tool call qwen3.8:27b @ http://localhost:11434/v1
@@ -230,7 +230,7 @@ test result: ok. 1 passed; 0 failed; finished in 103.11s
 
 ### The hand-verification: the real binary, a real editor's transport, a real model
 
-The real `skein acp-agent` binary spawned as a subprocess and driven over its actual stdio with
+The real `heddle acp-agent` binary spawned as a subprocess and driven over its actual stdio with
 newline-delimited JSON-RPC, against `gemma4:latest` on `http://localhost:11434/v1`, every
 notification timestamped relative to the `session/prompt` response:
 
@@ -257,16 +257,16 @@ concatenation is exactly the answer, and there is no forty-eighth chunk repeatin
 The chain that run left, read by a second process:
 
 ```
-> skein ledger log --root … --silo alpha --run "skein-1#1"
-skein-1#1  0  iteration_boundary  1d470fb7…
-skein-1#1  1  llm_request         73302c30…
-skein-1#1  2  wire_exchange       34b150bd…
-skein-1#1  3  llm_response        63ae7ec5…
-skein-1#1  4  budget_spent        9f4237ba…
-skein-1#1  5  exit                9575d692…
+> heddle ledger log --root … --silo alpha --run "heddle-1#1"
+heddle-1#1  0  iteration_boundary  1d470fb7…
+heddle-1#1  1  llm_request         73302c30…
+heddle-1#1  2  wire_exchange       34b150bd…
+heddle-1#1  3  llm_response        63ae7ec5…
+heddle-1#1  4  budget_spent        9f4237ba…
+heddle-1#1  5  exit                9575d692…
 
-> skein ledger verify --root … --silo alpha
-skein-1#1  ok  6 steps
+> heddle ledger verify --root … --silo alpha
+heddle-1#1  ok  6 steps
 ```
 
 The same `StepKind` sequence slice 023 recorded — one `wire_exchange`, not forty-seven. And the
@@ -301,9 +301,9 @@ payload holds the provider's own bytes, framing included, with the new flag:
    protects *every* sink rather than the one that remembered. `AcpTextSink::on_text` therefore has no
    emptiness check.
 3. **Six stub files were re-framed, not four.** `plan.md` D1 named `governed_run.rs`,
-   `openai_compat.rs`, `cli_chat.rs` and `cli_acp_agent.rs`. `skein-connectors/tests/governed_fs_run.rs`
+   `openai_compat.rs`, `cli_chat.rs` and `cli_acp_agent.rs`. `heddle-connectors/tests/governed_fs_run.rs`
    and `governed_git_run.rs` each carry their own provider stub and needed the same treatment, and
-   `skein-silo/tests/silo_ledger.rs` constructs a `WireExchange` literal that now names `streamed`.
+   `heddle-silo/tests/silo_ledger.rs` constructs a `WireExchange` literal that now names `streamed`.
    No assertion about chain shape, exit code or CLI output changed in any of them.
 4. **`a12` was written weak and had to be strengthened.** As first written it asserted that no chunk
    contained the secret and that some chunk contained `***` — and it **passed against the unstreamed
@@ -319,7 +319,7 @@ payload holds the provider's own bytes, framing included, with the new flag:
    assistant message. Both are asserted by
    `an_unrecognised_response_body_is_refused`, which is the pre-existing test whose guarantees they
    preserve.
-6. **`ScriptedModel` gained a `playing(…)` constructor** (`skein-acp/tests/acp_session.rs`) and the
+6. **`ScriptedModel` gained a `playing(…)` constructor** (`heddle-acp/tests/acp_session.rs`) and the
    file gained two type aliases. Five of its seven construction sites spelled every field; adding two
    more fields would have made that seven-field literal the norm. Adjacent to the change and on the
    path it touches, per the house rule about leaving a touched path simpler.
@@ -348,7 +348,7 @@ payload holds the provider's own bytes, framing included, with the new flag:
 ## Close (S12)
 
 The defect slice 013 named and slices 014–024 each carried forward is closed: an editor driving
-`skein acp-agent` now sees the answer being written rather than nothing followed by everything. The
+`heddle acp-agent` now sees the answer being written rather than nothing followed by everything. The
 gates are green, the reds are recorded, and the one measurement that disagreed with the plan is
 corrected in writing with a test pinning what was actually observed.
 

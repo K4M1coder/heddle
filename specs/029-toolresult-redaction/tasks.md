@@ -6,7 +6,7 @@ fast-forwarded onto `dev` at `fe13c73`.
 
 ## Constitution Check (ADR-0004 D1 solo-v0 bar)
 
-- **I Headless core** ✅ no command, flag, argument or output change. `skein ledger show` renders a
+- **I Headless core** ✅ no command, flag, argument or output change. `heddle ledger show` renders a
   run holding a scrubbed tool result with zero CLI change, because the payload's *shape* is
   identical — only which bytes inside it are `***` differs.
 - **II Local-first** ✅ no new dependency, no `Cargo.toml` change, no socket, no process, no thread.
@@ -19,7 +19,7 @@ fast-forwarded onto `dev` at `fe13c73`.
   *Deviations* 1.
 - **IV Inverted coupling** ✅ nothing crosses a boundary it did not already cross. No port gains a
   method, `ToolTransport` is not widened, `Redactor`'s public surface is unchanged, and
-  `skein-mcp`/`skein-connectors`/`skein-acp`/`skein-cli` have no production change at all. The fix is
+  `heddle-mcp`/`heddle-connectors`/`heddle-acp`/`heddle-cli` have no production change at all. The fix is
   inside the one type that already owned both the transport and the redactor.
 - **V Traceability** ✅ no `StepKind`, no payload field, no serialization change. Every chain recorded
   before this slice still deserializes and still verifies, and a run's chain verification is asserted
@@ -43,7 +43,7 @@ fast-forwarded onto `dev` at `fe13c73`.
 
 - [x] **S0** fast-forwarded onto `dev` at `fe13c73` — **the first action of the run, and load-bearing:**
       `HEAD` was `d364405`, which predates slice 023, and
-      `git show d364405:crates/skein-core/src/tool.rs | grep -c redact_wire` returns `0`. Verified
+      `git show d364405:crates/heddle-core/src/tool.rs | grep -c redact_wire` returns `0`. Verified
       after the fast-forward that `redact_wire` is present (`tool.rs:237`) before writing a line.
       Control baseline measured, the leak measured at both levels (`plan.md` §0.3) and reverted,
       `spec.md` and `plan.md` written
@@ -102,7 +102,7 @@ running 15 tests
 test an_awkward_secret_is_redacted_from_a_wire_shaped_result ... FAILED
 
 ---- an_awkward_secret_is_redacted_from_a_wire_shaped_result stdout ----
-panicked at crates\skein-core\tests\tool_gateway.rs:323:5:
+panicked at crates\heddle-core\tests\tool_gateway.rs:323:5:
 assertion `left == right` failed: a secret containing a quote, a backslash or a newline is on an
 already-serialized result in escaped form, so finding it needs the wire premise
   left: "api_key=pa\"ss\\wo\nrd\nendpoint=localhost"
@@ -125,7 +125,7 @@ test an_awkward_secret_is_redacted_from_a_wire_shaped_result ... FAILED
 test a_secret_with_nothing_to_escape_is_captured_byte_for_byte_as_before ... ok
 test an_awkward_secret_in_the_arguments_is_still_scrubbed_by_the_literal_needle ... ok
 
-panicked at crates\skein-core\tests\tool_gateway.rs:330:5:
+panicked at crates\heddle-core\tests\tool_gateway.rs:330:5:
   left: "api_key=pa\"ss\\wo\nrd\nendpoint=localhost"
  right: "api_key=***\nendpoint=localhost"
 
@@ -140,7 +140,7 @@ must *not* change, so a control that went red with the fix would mean the fix wa
 ```
 test a_secret_with_a_quote_in_it_is_scrubbed_from_a_real_tool_result ... FAILED
 
-panicked at crates\skein-connectors\tests\governed_fs_run.rs:759:5:
+panicked at crates\heddle-connectors\tests\governed_fs_run.rs:759:5:
 assertion `left == right` failed: the ToolResult capture must not carry a configured secret in
 escaped form
   left: "api_key=sk-\"awkward\"-SECRET-abc123\nendpoint=http://localhost:11434"

@@ -2,15 +2,15 @@
 
 **Date:** 2026-07-16  
 **Reviewer role:** Feasibility and engineering-strategy reviewer  
-**Scope:** All current Skein planning artifacts, feature specifications, architecture decisions, development guidance, and project research  
+**Scope:** All current Heddle planning artifacts, feature specifications, architecture decisions, development guidance, and project research  
 **Change constraint:** Read-only review; no product implementation was performed  
 **Verdict:** **CONDITIONALLY FEASIBLE — NOT READY FOR IMPLEMENTATION**
 
 ## 1. Executive Assessment
 
-Skein is feasible as a single user-facing product and distribution, but not as one executable, one process, one language, or one model context. The technically coherent target is already stated in ADR-0003: a **modular monolith with supervised optional sidecars and workers**, delivered from one monorepo, one version, one installer, one CLI/API/UI contract, and one default local backend.
+Heddle is feasible as a single user-facing product and distribution, but not as one executable, one process, one language, or one model context. The technically coherent target is already stated in ADR-0003: a **modular monolith with supervised optional sidecars and workers**, delivered from one monorepo, one version, one installer, one CLI/API/UI contract, and one default local backend.
 
-The product vision is substantially larger than a coding-agent clone. A minimal clone can be built quickly because the core tool loop is small and commodity libraries provide most infrastructure. Skein additionally requires durable workflows, exact evidence, reversible effects, policy enforcement outside the model, silo and team isolation, cross-platform desktop control, enterprise identity and connectors, multimodal orchestration, and compliance-supporting controls. Those requirements make a one-pass autonomous implementation unsafe and unrealistic.
+The product vision is substantially larger than a coding-agent clone. A minimal clone can be built quickly because the core tool loop is small and commodity libraries provide most infrastructure. Heddle additionally requires durable workflows, exact evidence, reversible effects, policy enforcement outside the model, silo and team isolation, cross-platform desktop control, enterprise identity and connectors, multimodal orchestration, and compliance-supporting controls. Those requirements make a one-pass autonomous implementation unsafe and unrealistic.
 
 The current strategy is directionally sound, but implementation must remain blocked because:
 
@@ -28,7 +28,7 @@ The current strategy is directionally sound, but implementation must remain bloc
 
 Adopt the following precise promise:
 
-> Skein is one product, repository, release train, installer, application identity, CLI/API contract, and local data root. Internally it is a modular control plane that may supervise separately versioned processes for inference, browser automation, provider normalization, ML retrieval, media generation, and optional agent workers.
+> Heddle is one product, repository, release train, installer, application identity, CLI/API contract, and local data root. Internally it is a modular control plane that may supervise separately versioned processes for inference, browser automation, provider normalization, ML retrieval, media generation, and optional agent workers.
 
 This satisfies the desired simple desktop experience without forcing incompatible ecosystems into one binary.
 
@@ -78,7 +78,7 @@ Use a **Rust core + TypeScript UI + Python capability sidecars**. Avoid implemen
 
 The current adopt/adapt/inspire/worker rubric is strong and should become a mandatory dependency decision record for each major component.
 
-### Skein must build and own
+### Heddle must build and own
 
 - canonical artifact graph and BMAD–Spec-Kit projections;
 - event-sourced workflow and governed loop semantics;
@@ -89,7 +89,7 @@ The current adopt/adapt/inspire/worker rubric is strong and should become a mand
 - ContextManifest, data classification, ACL-aware selection, and retrieval policy;
 - capability registry, routing policy, and stable CLI/API/UI contracts.
 
-### Skein should reuse behind replaceable adapters
+### Heddle should reuse behind replaceable adapters
 
 - official MCP SDKs and transports;
 - provider SDKs and LiteLLM where it passes the spike;
@@ -128,7 +128,7 @@ Observed gaps:
 - Tool downloads are not checksum/signature verified and framework installations use moving `latest` or Git HEAD references.
 - BMAD and Spec-Kit are considered valid when directories merely exist; versions and integrity are not checked.
 - Goose remains a manual installation despite being named by the verification path.
-- MCP setup delegates authentication to `claude mcp`, which cannot be the portable bootstrap contract for an independent Skein project.
+- MCP setup delegates authentication to `claude mcp`, which cannot be the portable bootstrap contract for an independent Heddle project.
 - No clean-machine/container test currently executes the scripts.
 - No offline cache, proxy, air-gapped setup, uninstall, update, or recovery strategy exists.
 - No GPU/driver capability detection or optional-pack compatibility matrix exists.
@@ -162,7 +162,7 @@ Use trunk-based development with short-lived branches/worktrees, protected main,
 
 These are separate quantities:
 
-- **Repository size** is the complete durable corpus: source, tests, documentation, generated schemas, workflows, assets, histories, and connector packages. A mature Skein repository will probably exceed one million tokens, and this is acceptable.
+- **Repository size** is the complete durable corpus: source, tests, documentation, generated schemas, workflows, assets, histories, and connector packages. A mature Heddle repository will probably exceed one million tokens, and this is acceptable.
 - **Active context** is the bounded material supplied to one model call: instructions, task contract, selected code, retrieved evidence, tool outputs, trajectory state, and output headroom. It must normally be much smaller than the repository and smaller than the model's advertised maximum.
 
 One million tokens is approximately 3–5 MB of source text or roughly 50,000–100,000 mixed lines, depending heavily on language and formatting. This estimate is neither a code-quality target nor a platform feasibility limit. Rust types, tests, generated schemas, documentation, and configuration change the ratio substantially.
@@ -192,7 +192,7 @@ Whole-repository loading must be explicit, justified, recorded, and benchmark-ga
 
 The ADR-0003 context spike must compare smallest-sufficient retrieval with full-context loading across representative small, medium, and larger repositories. Measure task success, regression rate, evidence recall, middle-position recall, latency, token/cost use, context stability across retries, and contamination from irrelevant or unauthorized material. Include code navigation, cross-module change, bug repair, architecture question, and security-sensitive tasks. No context architecture is accepted without these results.
 
-## 9. Can a Solo Agent Swarm Build Skein?
+## 9. Can a Solo Agent Swarm Build Heddle?
 
 ### Feasibility
 

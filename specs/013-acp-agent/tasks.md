@@ -1,20 +1,20 @@
-# Tasks: `skein acp-agent` — the ACP facade as a running process (v0 slice)
+# Tasks: `heddle acp-agent` — the ACP facade as a running process (v0 slice)
 
-**Spec:** `specs/013-acp-agent/spec.md` · TDD (red→green), product code in `crates/skein-cli` and
-`crates/skein-acp` plus one additive error variant in `crates/skein-core`, branch `013-acp-agent`
+**Spec:** `specs/013-acp-agent/spec.md` · TDD (red→green), product code in `crates/heddle-cli` and
+`crates/heddle-acp` plus one additive error variant in `crates/heddle-core`, branch `013-acp-agent`
 cut from `dev` after slice 012 merged.
 
 ## Constitution Check (ADR-0004 D1 solo-v0 bar)
-- I Headless core ✅ the ACP facade is a library and `skein acp-agent` is a wiring-only subcommand
+- I Headless core ✅ the ACP facade is a library and `heddle acp-agent` is a wiring-only subcommand
   that holds no capability of its own. The one thing the CLI needed that the API lacked — a name for
-  "the protocol transport failed" — is closed by *adding to `SkeinError`*, not by reaching around it,
+  "the protocol transport failed" — is closed by *adding to `HeddleError`*, not by reaching around it,
   the same move slice 012 made · II Local-first ✅ NON-NEGOTIABLE, and **reused rather than
   reimplemented**: the same `LocalEndpoint::parse` guard and the same no-TLS-by-construction `ureq`
   build, now with exactly one copy of the resolution logic shared by both commands (`wiring.rs`)
 - III Test-First ✅ T2's red observed before its green, T3's before its green, and T6's subprocess
   test is T4's red — recorded as such in `## Observed red` rather than substituted with a weaker
-  in-process one · IV Inverted coupling ✅ ACP names stay inside `skein-acp` (`serve_stdio` is why),
-  the executor choice stays there too (mirroring `skein-mcp`'s `RmcpToolTransport`), `skein-core`
+  in-process one · IV Inverted coupling ✅ ACP names stay inside `heddle-acp` (`serve_stdio` is why),
+  the executor choice stays there too (mirroring `heddle-mcp`'s `RmcpToolTransport`), `heddle-core`
   gains no dependency, and the one public-API change is stated and justified (plan D3)
 - V Traceability ✅ every ACP session's runs land on a real silo chain and verify **from a second
   process**. The known gap is carried forward unchanged: the chain holds the *translated*
@@ -36,21 +36,21 @@ cut from `dev` after slice 012 merged.
 - [x] **T0** `specs/013-acp-agent/{spec.md,plan.md,tasks.md}`; branch `013-acp-agent` cut from `dev`
       with slice 012 merged
 - [x] **T1** control baseline: `cargo test --workspace` before any edit — **105 passed, 1 ignored**
-- [x] **T2** RED→GREEN — `SkeinError::Protocol` with its own test. Ordered first because
+- [x] **T2** RED→GREEN — `HeddleError::Protocol` with its own test. Ordered first because
       `serve_stdio` cannot compile without it
 - [x] **T3** RED→GREEN — the fallible factory (plan D3), with
       `a_factory_that_fails_makes_session_new_fail_and_leaves_the_connection_usable` as its
       justifying test
-- [x] **T4** GREEN — `SkeinAgent::serve_stdio` (plan D1/D2), plus `futures` in
-      `[workspace.dependencies]` and in `skein-acp`'s `[dependencies]`. Its red is T6
-- [x] **T5** refactor — `crates/skein-cli/src/wiring.rs` (plan D4), with the five `cli_chat.rs`
+- [x] **T4** GREEN — `HeddleAgent::serve_stdio` (plan D1/D2), plus `futures` in
+      `[workspace.dependencies]` and in `heddle-acp`'s `[dependencies]`. Its red is T6
+- [x] **T5** refactor — `crates/heddle-cli/src/wiring.rs` (plan D4), with the five `cli_chat.rs`
       tests unchanged as the control
-- [x] **T6** RED — `crates/skein-cli/tests/cli_acp_agent.rs`, a real ACP client spawning the real
+- [x] **T6** RED — `crates/heddle-cli/tests/cli_acp_agent.rs`, a real ACP client spawning the real
       binary, against the not-yet-existing `acp-agent` subcommand
-- [x] **T7** GREEN — `crates/skein-cli/src/acp.rs`, the `AcpAgent` subcommand, and the `main.rs`
+- [x] **T7** GREEN — `crates/heddle-cli/src/acp.rs`, the `AcpAgent` subcommand, and the `main.rs`
       docstring correction
 - [x] **T8** gates: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D
-      warnings`, `cargo test --workspace`, `cargo build --workspace`, + `skein acp-agent --help`
+      warnings`, `cargo test --workspace`, `cargo build --workspace`, + `heddle acp-agent --help`
 - [x] **T9** control diff, dependency drift, close-out
 
 ## Control baseline (T1)
@@ -67,13 +67,13 @@ gate figure exactly.
 
 All on 2026-09-03.
 
-- **T2** `cargo test -p skein-core --test core` before the variant existed:
+- **T2** `cargo test -p heddle-core --test core` before the variant existed:
   - `error[E0599]: no variant, associated function, or constant named Protocol found for enum
-    SkeinError in the current scope`
-  - `error: could not compile skein-core (test "core") due to 1 previous error`
-- **T3** `cargo test -p skein-acp --test acp_session` against the infallible factory bound:
+    HeddleError in the current scope`
+  - `error: could not compile heddle-core (test "core") due to 1 previous error`
+- **T3** `cargo test -p heddle-acp --test acp_session` against the infallible factory bound:
   - `error[E0308]: mismatched types` — *expected `SessionParts<_, _, _>`, found
-    `Result<_, SkeinError>`*, twice: once on the `Err` arm and once on the `Ok` arm, with
+    `Result<_, HeddleError>`*, twice: once on the `Err` arm and once on the `Ok` arm, with
     `note: return type inferred to be SessionParts<_, _, _> here`
   - The green then flipped **14 passed** where 13 had passed, and `git diff` on the thirteen
     slice-008 tests shows only `Ok(…)` at the three construction sites and the one bound on
@@ -86,11 +86,11 @@ All on 2026-09-03.
   exercises the real executor, the real pipes and the real process. Recorded here rather than
   papered over, the way slice 012 recorded its mutation-observed reds.
 - **T5 is a refactor and has no red of its own.** Its control is the five pre-existing `cli_chat.rs`
-  tests, run with **unchanged bodies** — `git diff dev -- crates/skein-cli/tests/cli_chat.rs` is
+  tests, run with **unchanged bodies** — `git diff dev -- crates/heddle-cli/tests/cli_chat.rs` is
   empty — including the two that pin the behaviours being moved,
   `the_base_url_falls_back_to_the_environment_and_the_local_default` and
   `chat_refuses_a_non_loopback_base_url`.
-- **T6** `cargo test -p skein-cli --test cli_acp_agent` before the subcommand existed: **3 failed,
+- **T6** `cargo test -p heddle-cli --test cli_acp_agent` before the subcommand existed: **3 failed,
   0 passed** — a red on output and exit codes rather than on a compile error, because clap rejects
   an unknown subcommand at runtime, the same shape slices 011 and 012 record.
   - `acp_agent_exits_zero_when_its_client_disconnects` — `left: Some(2), right: Some(0)`, with
@@ -113,13 +113,13 @@ remote (SC-001).
   crates.
 - `cargo test --workspace` — **110 passed, 0 failed, 1 ignored**: the 105 baseline plus five, and
   every one of the 105 with an unchanged body. `acp_session` 13→**14** (the fallible-factory test),
-  `core` 14→**15** (`SkeinError::Protocol`'s message), and the new `cli_acp_agent` **3**. Unchanged:
+  `core` 14→**15** (`HeddleError::Protocol`'s message), and the new `cli_acp_agent` **3**. Unchanged:
   `cli_chat` 6, `cli_ledger` 8, `cli_secret` 2, `native_loop` 18, `tool_gateway` 9, `governed_run` 2,
   `openai_compat` 14 (+1 ignored), `rmcp_gateway` 7, `silo_ledger` 7, `silo_secret` 5.
-- `cargo build --workspace` — clean; the built `skein` carries the new subcommand.
-- `skein acp-agent --help` — succeeds, listing `--root --silo --model --base-url --max-iters
+- `cargo build --workspace` — clean; the built `heddle` carries the new subcommand.
+- `heddle acp-agent --help` — succeeds, listing `--root --silo --model --base-url --max-iters
   --max-tokens --no-progress-limit --timeout-secs`.
-- `skein chat --help` — still lists every flag it listed on `dev`, with identical value names,
+- `heddle chat --help` — still lists every flag it listed on `dev`, with identical value names,
   defaults and help strings. One honest difference: `--prompt` and `--run-id` now print **after** the
   four budget flags rather than between `--base-url` and them, because `ChatArgs` flattens
   `ModelArgs` first. SC-007 is "the same flags", and no test in the tree asserts help text.
@@ -133,27 +133,27 @@ alternative is taken: recorded as unobserved, plainly.
 **The real-model leg is observed.** Following slice 012's T1 probe precedent — a probe crate built
 outside the repository, run, and deleted, with `git status` clean before and after — a
 `probe-client` binary using the crate's own `AcpAgent` transport (the same one an editor uses, and
-the same one `cli_acp_agent.rs` uses) spawned the real `skein acp-agent` against the **live local
+the same one `cli_acp_agent.rs` uses) spawned the real `heddle acp-agent` against the **live local
 Ollama**, no stub anywhere:
 
 ```
-$ probe-client <skein.exe> acp-agent --root <tmp> --silo handrun --model lfm2.5:latest --timeout-secs 120
-SESSION skein-1
-UPDATE AgentMessageChunk(ContentChunk { content: Text(TextContent { … text: "hello from skein" … }) })
+$ probe-client <heddle.exe> acp-agent --root <tmp> --silo handrun --model lfm2.5:latest --timeout-secs 120
+SESSION heddle-1
+UPDATE AgentMessageChunk(ContentChunk { content: Text(TextContent { … text: "hello from heddle" … }) })
 STOP EndTurn
 
-$ skein ledger log --root <tmp> --silo handrun
-skein-1#1  0  iteration_boundary  1d470fb743862350bb7e846eeb3d191ceeb4977eeaa5bf70657f0187ed3085e5
-skein-1#1  1  llm_request         11f6763c27cce3076b054a74cd4ec2fb6deefa06ad1509f487b79181333c315c
-skein-1#1  2  llm_response        6d4b29aaeb895c5c4c30e31f1681fb0c05311ce8cb04ec48b88c5627237a1181
-skein-1#1  3  budget_spent        c03b5219046b6266861aec02ee71c5ac139b68f7c9526a07e19a008a6fef107a
-skein-1#1  4  exit                0141ca05ae9cf7d9a55e68ca2f1f7c4f6c6e4429f6114f9b68037b20884d41be
+$ heddle ledger log --root <tmp> --silo handrun
+heddle-1#1  0  iteration_boundary  1d470fb743862350bb7e846eeb3d191ceeb4977eeaa5bf70657f0187ed3085e5
+heddle-1#1  1  llm_request         11f6763c27cce3076b054a74cd4ec2fb6deefa06ad1509f487b79181333c315c
+heddle-1#1  2  llm_response        6d4b29aaeb895c5c4c30e31f1681fb0c05311ce8cb04ec48b88c5627237a1181
+heddle-1#1  3  budget_spent        c03b5219046b6266861aec02ee71c5ac139b68f7c9526a07e19a008a6fef107a
+heddle-1#1  4  exit                0141ca05ae9cf7d9a55e68ca2f1f7c4f6c6e4429f6114f9b68037b20884d41be
 
-$ skein ledger verify --root <tmp> --silo handrun
-skein-1#1  ok  5 steps
+$ heddle ledger verify --root <tmp> --silo handrun
+heddle-1#1  ok  5 steps
 ```
 
-`skein ledger show` of that `budget_spent` step prints `184` — the model's **real** metering, not a
+`heddle ledger show` of that `budget_spent` step prints `184` — the model's **real** metering, not a
 number this repository invented (Constitution VIII).
 
 So everything between the ACP wire and the disk is observed against a real model over a real
@@ -162,28 +162,28 @@ configuration launches the command as expected.
 
 ## Control diff (T9)
 
-`git diff dev --stat -- crates/skein-mcp/ crates/skein-silo/ crates/skein-gateway/ spikes/ .github/
+`git diff dev --stat -- crates/heddle-mcp/ crates/heddle-silo/ crates/heddle-gateway/ spikes/ .github/
 rust-toolchain.toml` is **empty** (SC-005), `spikes/` included per ADR-0004 D2. `core.yml`'s `paths:`
 already covers `crates/**` and `Cargo.toml`, and this slice adds no workspace member — confirmed by
 reading, not edited.
 
-`git diff dev --stat -- crates/skein-core/` is `src/error.rs | 4 +` and `tests/core.rs | 14 +` —
+`git diff dev --stat -- crates/heddle-core/` is `src/error.rs | 4 +` and `tests/core.rs | 14 +` —
 **one added error variant and one added test, 18 insertions and 0 deletions** (SC-006). No existing
 variant, signature or test body changed.
 
 `git diff dev --stat` over the branch is **1209 insertions and 121 deletions** across 15 files. The
 deletions are accounted for in three places and nowhere else:
 
-- `crates/skein-cli/src/chat.rs` — the base-URL resolution, `DEFAULT_BASE_URL`, and the
+- `crates/heddle-cli/src/chat.rs` — the base-URL resolution, `DEFAULT_BASE_URL`, and the
   `NoGroundTruth`/`NoTools` definitions, all **moved** to `wiring.rs` with their comments intact.
-  The only wording change is `NoTools`'s message, which named `skein chat` and now names "this
+  The only wording change is `NoTools`'s message, which named `heddle chat` and now names "this
   command", because two commands share it.
-- `crates/skein-cli/src/main.rs` — `ChatArgs`'s six model flags, replaced by
+- `crates/heddle-cli/src/main.rs` — `ChatArgs`'s six model flags, replaced by
   `#[command(flatten)] model: wiring::ModelArgs`; plus the module docstring, which claimed
-  `skein acp-agent` was *"still absent, and now only for want of a stdio transport and an async
+  `heddle acp-agent` was *"still absent, and now only for want of a stdio transport and an async
   runtime"*. Both halves of that sentence are now false, so it is rewritten rather than left — the
   same courtesy slice 012's T11 did for its predecessor's stale claim.
-- `crates/skein-acp/tests/acp_session.rs` — the three construction sites re-indented inside `Ok(…)`
+- `crates/heddle-acp/tests/acp_session.rs` — the three construction sites re-indented inside `Ok(…)`
   and the one `with_facade` bound. No assertion moved.
 
 `git diff dev -- Cargo.toml` is **exactly one added `[workspace.dependencies]` line**, `futures`.
@@ -211,13 +211,13 @@ above.
 
 This slice therefore adds **edges only**, exactly as SC-006 predicted:
 
-- `skein-acp → futures` — `futures 0.3.34` and `futures-executor 0.3.34` were already resolved,
+- `heddle-acp → futures` — `futures 0.3.34` and `futures-executor 0.3.34` were already resolved,
   because `agent-client-protocol` declares `futures` with default features and `executor` is in that
   default set. The declaration is `default-features = false, features = ["std", "executor"]`, so
   this crate asks for the smallest subset it uses rather than re-enabling the default set.
-- `skein-cli → skein-acp` — its fourth path dependency, bringing its direct list to `skein-acp`,
-  `skein-core`, `skein-gateway`, `skein-silo`, `clap`, `serde_json`.
-- `skein-cli` **dev** → `agent-client-protocol` + `futures`, for the real ACP client in
+- `heddle-cli → heddle-acp` — its fourth path dependency, bringing its direct list to `heddle-acp`,
+  `heddle-core`, `heddle-gateway`, `heddle-silo`, `clap`, `serde_json`.
+- `heddle-cli` **dev** → `agent-client-protocol` + `futures`, for the real ACP client in
   `cli_acp_agent.rs`. Deliberately dev-only: FR-007 keeps the protocol out of product code, and the
   manifest says so in a comment.
 
@@ -226,16 +226,16 @@ have raised the MSRV, and `rust-toolchain.toml`, `workspace.package.rust-version
 `.github/workflows/core.yml` are untouched. `docs/DEVELOPMENT.md`'s "Machine prerequisites" is
 unchanged by this slice.
 
-**Neither `skein-acp` nor `skein-cli` takes `tokio` in product code.** It remains a dev-dependency of
-`skein-acp` alone, exactly as it was on `dev`.
+**Neither `heddle-acp` nor `heddle-cli` takes `tokio` in product code.** It remains a dev-dependency of
+`heddle-acp` alone, exactly as it was on `dev`.
 
 ## Out of scope
 
 Deliberately not done, so no one helpfully does it:
 
 - **Tool advertisement, tool discovery, and any MCP wiring in the CLI.** `TurnRequest` has no
-  `tools` field and `skein-cli` does not depend on `skein-mcp`. Consequence, stated in the spec:
-  `AcpPermissionTransport`'s permission flow is **not reachable** through `skein acp-agent` in this
+  `tools` field and `heddle-cli` does not depend on `heddle-mcp`. Consequence, stated in the spec:
+  `AcpPermissionTransport`'s permission flow is **not reachable** through `heddle acp-agent` in this
   slice; a model-invented tool call is refused by the empty `ToolPolicy`, and that refusal is what
   the ACP client sees.
 - **Streaming (SSE) and incremental `AgentMessageChunk`s.** `project_updates` emits one chunk per
@@ -248,14 +248,14 @@ Deliberately not done, so no one helpfully does it:
   `## Next slice` list.
 - **A silo-per-session or per-client silo mapping**, session persistence across process restarts, or
   ACP `session/load`. One process, one silo; sessions live only as long as the connection.
-- **Changing `skein chat`'s behaviour.** T5 moves code; the five `cli_chat.rs` tests are the proof
+- **Changing `heddle chat`'s behaviour.** T5 moves code; the five `cli_chat.rs` tests are the proof
   nothing else moved.
-- **A tokio runtime in `skein-cli` or `skein-acp` product code.** Slice 012's next-slice note
+- **A tokio runtime in `heddle-cli` or `heddle-acp` product code.** Slice 012's next-slice note
   predicted one; it is not needed, and the spec says why.
 - **`spikes/`** — untouched (ADR-0004 D2).
 
 ## Next slice (not this feature)
-- [ ] **redaction on the `LlmRequest`/`LlmResponse` path**, so `skein ledger show` cannot print a
+- [ ] **redaction on the `LlmRequest`/`LlmResponse` path**, so `heddle ledger show` cannot print a
       conversation secret. Carried from slices 011 and 012, and now reachable from two commands
       rather than one: `ToolCall`/`ToolResult` payloads pass through the `Redactor` in
       `ToolGateway::call_captured`, but `NativeLoop::run` appends model I/O **raw**. The fix belongs

@@ -1,4 +1,4 @@
-# Skein — development environment bootstrap (Windows, PowerShell 7+)
+# Heddle — development environment bootstrap (Windows, PowerShell 7+)
 # Idempotent: safe to re-run. Run from the repo root right after `git clone`.
 #   pwsh -File scripts/bootstrap.ps1 [-WithOllama]
 param([switch]$WithOllama)

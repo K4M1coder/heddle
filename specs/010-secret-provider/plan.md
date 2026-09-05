@@ -3,7 +3,7 @@
 **Branch**: `010-secret-provider` | **Date**: 2026-09-03 | **Spec**: `specs/010-secret-provider/spec.md`
 
 ## Summary
-`skein-core` gains a `secret` module holding design §7.13's seam, trimmed to what has a caller
+`heddle-core` gains a `secret` module holding design §7.13's seam, trimmed to what has a caller
 today (Principle VII):
 
 ```rust
@@ -31,7 +31,7 @@ impl Redactor {
 `Redactor::new`'s signature is untouched, so **all 63 pre-existing tests remain controls**; the
 stored copy becoming zeroizing is a strict improvement even for the literal path.
 
-`skein-silo` gains `src/secret.rs` with `OsKeychain`, the offline zero-config backend:
+`heddle-silo` gains `src/secret.rs` with `OsKeychain`, the offline zero-config backend:
 
 ```rust
 pub struct OsKeychain { store: Arc<CredentialStore> }
@@ -47,9 +47,9 @@ impl OsKeychain {
 **Why `store`/`delete` are inherent and not on the trait**: the trait is what the product
 *consumes*, and the product only ever reads. A `SecretProvider` handed to a `ToolGateway` must
 have no expressible way to write a secret. Their callers today are the round-trip test and, next,
-`skein secret set` in the CLI slice — so they are not a capability without a caller.
+`heddle secret set` in the CLI slice — so they are not a capability without a caller.
 
-**Crate placement**: `skein-silo`, not a new `skein-keyring`. Design §7.2 says "one keychain per
+**Crate placement**: `heddle-silo`, not a new `heddle-keyring`. Design §7.2 says "one keychain per
 silo": the OS credential store and the silo's SQLite file are the same per-silo local-backend
 concern, and §4.8's `EmbeddedBackend` is named for exactly that role. A fifth crate for one
 `impl` would be structure without a caller.
@@ -57,20 +57,20 @@ concern, and §4.8's `EmbeddedBackend` is named for exactly that role. A fifth c
 ## Technical Context
 **Language/Version**: Rust 1.97 (pinned in `rust-toolchain.toml`, unchanged this slice)
 **Primary Dependencies**: `zeroize = { version = "1", default-features = false, features =
-["alloc"] }` in `skein-core` (four direct dependencies become five). In `skein-silo`:
+["alloc"] }` in `heddle-core` (four direct dependencies become five). In `heddle-silo`:
 `keyring-core = "1"` plus one native store crate per OS behind
 `[target.'cfg(target_os = "…")'.dependencies]` — `windows-native-keyring-store`,
 `apple-native-keyring-store` (feature `keychain`), `linux-keyutils-keyring-store`. All confined to
-`crates/skein-silo/src/secret.rs`.
+`crates/heddle-silo/src/secret.rs`.
 **Storage**: the platform credential store — Windows Credential Manager, macOS Keychain Services,
 Linux kernel session keyring
-**Testing**: `cargo test`; three seam tests in `skein-core` against a `FakeProvider` double, five
-tests in `skein-silo` against the **real** platform credential store
+**Testing**: `cargo test`; three seam tests in `heddle-core` against a `FakeProvider` double, five
+tests in `heddle-silo` against the **real** platform credential store
 **Target Platform**: Windows + macOS + Linux
 **Project Type**: library (four workspace members, unchanged)
 **Performance Goals**: N/A
-**Constraints**: `skein-core` may not name a credential store; `crates/skein-mcp/` and
-`crates/skein-acp/` unchanged; no network
+**Constraints**: `heddle-core` may not name a credential store; `crates/heddle-mcp/` and
+`crates/heddle-acp/` unchanged; no network
 **Scale/Scope**: one new module per crate, one trait with two methods, one new error variant, one
 new `Redactor` constructor
 
@@ -113,7 +113,7 @@ keychain per silo" expressible, and keeps two tests in one binary from fighting 
   compiled probe **before** any product code; T3's red is observed and recorded before T4, T5's
   before T6.
 - **IV. Inverted coupling**: ✅ `SecretProvider` is the seam. `keyring-core` and the store crates
-  are named in exactly one module of one crate and never in `skein-core`.
+  are named in exactly one module of one crate and never in `heddle-core`.
 - **V. Traceability**: ✅ one `Redactor`, one `redact`, one `redact_value` — the resolved path and
   the literal path share every line that touches the Ledger. `k4` proves the redaction end to end
   through the governed gateway and re-verifies the chain.
@@ -122,7 +122,7 @@ keychain per silo" expressible, and keeps two tests in one binary from fighting 
   `Debug`-redacted; `SecretProvider` cannot write; an unresolvable reference fails loudly rather
   than yielding a redactor that scrubs nothing; an unimplemented scheme is refused.
 - **VII. Neutrality / YAGNI**: ✅ one backend, one scheme, two trait methods, one new constructor.
-  No `SecretRef` enum, no provider registry, no `sops://`/`op://` stubs, no `skein secret set`
+  No `SecretRef` enum, no provider registry, no `sops://`/`op://` stubs, no `heddle secret set`
   CLI (there is no CLI crate yet).
 - **VIII. Loop discipline (NON-NEGOTIABLE)**: ✅ `LoopController`, `ProgressProbe` and
   `NativeLoop` are untouched.
@@ -143,20 +143,20 @@ specs/010-secret-provider/
 ### Source Code (repository root)
 ```text
 Cargo.toml                        # +zeroize, +keyring-core and the three store crates
-crates/skein-core/
+crates/heddle-core/
   Cargo.toml                      # +zeroize
-  src/error.rs                    # +SkeinError::Secret
+  src/error.rs                    # +HeddleError::Secret
   src/secret.rs                   # NEW — SecretRef, SecretValue, SecretProvider
   src/lib.rs                      # +mod secret, re-exports
   src/tool.rs                     # Redactor's field becomes Vec<SecretValue>; +Redactor::resolve
   tests/core.rs                   # +3 seam tests
-crates/skein-silo/
+crates/heddle-silo/
   Cargo.toml                      # +keyring-core, +per-OS store crates
   src/lib.rs                      # +mod secret, re-export OsKeychain
   src/secret.rs                   # NEW — the only module that names a credential store
   tests/silo_secret.rs            # NEW — k1..k5
 ```
-**Structure Decision**: `crates/skein-mcp/` and `crates/skein-acp/` are byte-identical to `dev`,
+**Structure Decision**: `crates/heddle-mcp/` and `crates/heddle-acp/` are byte-identical to `dev`,
 so specs 005 and 008's suites remain live controls. `Redactor::new` is unchanged, so every
 pre-existing test is a live control on the literal path.
 
@@ -165,6 +165,6 @@ pre-existing test is a live control on the literal path.
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
 | **The `Redactor` holds resolved plaintext in memory**, in tension with Principle VI's "references, never values" | Inherent to redaction: you cannot scrub a string you cannot recognise. The value arrives from a reference, is never persisted, is zeroized on drop and never renders in `Debug`. | Scrubbing by *pattern* rather than by value (regex over `token=…`): reconstructs intent from free text, catches the shapes it was told about and silently misses the rest — the opposite of deny-by-default. Hashing the secret and scrubbing by hash: you cannot find a substring by its hash. |
-| **Four new dependencies in `skein-silo` (one shared, three target-gated)** instead of the single `keyring` facade the advisory plan assumed (Principle VII) | The facade does not compile without `v1` or `cli`; `v1` hard-codes D-Bus on Linux and `cli` enables every store. `keyring`'s own docs direct applications that pick their stores to `keyring-core` + specific stores. Only one store crate is ever compiled for a given target. | `keyring` with `cli`: pulls `db-keystore`, `dbus-secret-service` (with vendored crypto), `zbus`, and the sample store into a build that uses one of them. `keyring` with `v1`: no keyutils, so the Linux CI leg would need D-Bus. |
+| **Four new dependencies in `heddle-silo` (one shared, three target-gated)** instead of the single `keyring` facade the advisory plan assumed (Principle VII) | The facade does not compile without `v1` or `cli`; `v1` hard-codes D-Bus on Linux and `cli` enables every store. `keyring`'s own docs direct applications that pick their stores to `keyring-core` + specific stores. Only one store crate is ever compiled for a given target. | `keyring` with `cli`: pulls `db-keystore`, `dbus-secret-service` (with vendored crypto), `zbus`, and the sample store into a build that uses one of them. `keyring` with `v1`: no keyutils, so the Linux CI leg would need D-Bus. |
 | **`SecretValue` is a newtype over `Zeroizing<String>` rather than a plain `String`** | §7.13 names `zeroize`-on-drop explicitly, and it is the whole reason the type exists. | A hand-rolled `Drop` overwriting a `String`'s bytes: `String` reallocation and the optimizer make it unreliable, and reliability is the point. `zeroize` has no transitive dependencies. |
-| **`OsKeychain::store` / `::delete` exist with only a test caller in this slice** (Principle VII) | A round-trip acceptance against a *real* credential store cannot be written without a way to put a credential there, and a test that leaves a credential behind is worse than no test. The next caller is `skein secret set` in the CLI slice. | Provisioning the credential out-of-band with a platform CLI in a test fixture: three OS-specific shell paths in test code, and no product API for the CLI slice to build on. |
+| **`OsKeychain::store` / `::delete` exist with only a test caller in this slice** (Principle VII) | A round-trip acceptance against a *real* credential store cannot be written without a way to put a credential there, and a test that leaves a credential behind is worse than no test. The next caller is `heddle secret set` in the CLI slice. | Provisioning the credential out-of-band with a platform CLI in a test fixture: three OS-specific shell paths in test code, and no product API for the CLI slice to build on. |

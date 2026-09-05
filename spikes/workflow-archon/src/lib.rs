@@ -1,11 +1,11 @@
 //! SPIKE 2 — workflow reuse (quarantined per ADR-0004 D2, throwaway).
-//! Proves an Archon-style YAML workflow maps losslessly onto Skein's canonical
+//! Proves an Archon-style YAML workflow maps losslessly onto Heddle's canonical
 //! graph (nodes: agent/tool/subagent/approval/cond/parallel/loop) and round-trips.
 //! Ground truth = tests/roundtrip.rs.
 
 use serde::{Deserialize, Serialize};
 
-// ---------- Skein canonical graph (the owned contract) ----------
+// ---------- Heddle canonical graph (the owned contract) ----------
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]

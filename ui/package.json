@@ -1,9 +1,9 @@
 {
-  "name": "skein-ui",
+  "name": "heddle-ui",
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "Skein's Tauri Chat UI (spec 021). The frontend adds no capability of its own.",
+  "description": "Heddle's Tauri Chat UI (spec 021). The frontend adds no capability of its own.",
   "license": "Apache-2.0",
   "scripts": {
     "dev": "vite",

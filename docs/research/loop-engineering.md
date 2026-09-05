@@ -2,7 +2,7 @@
 
 **Date**: 2026-07-15 · **Status**: verified (deep-research, 6 angles, 24 sources fetched, 25 claims adversarially verified 2/3-to-refute, 25 confirmed / 0 refuted)
 
-> Purpose: ground Skein's agent-loop and workflow engine (and our own development process) in verified loop-engineering patterns, separating established concepts from hype.
+> Purpose: ground Heddle's agent-loop and workflow engine (and our own development process) in verified loop-engineering patterns, separating established concepts from hype.
 
 ## 1. What "loop engineering" is (and isn't)
 
@@ -13,11 +13,11 @@ A common practitioner framing places it as the outermost of **four nested engine
 ```
 prompt engineering   → optimize a single instruction
 context engineering  → assemble what the model sees
-harness engineering  → the runtime/tools/memory around the model   (≈ Skein's core)
+harness engineering  → the runtime/tools/memory around the model   (≈ Heddle's core)
 loop engineering     → make the multi-turn, self-iterating loop reliable
 ```
 
-**Caveat (verified):** the umbrella term and Cole Medin's "PIV loop" attribution are single-source/blog-level. What *is* solid and primary-sourced are the constituent patterns below. Skein should introduce "loop engineering" as a *synthesizing frame* and cite the underlying patterns — which is what this document does.
+**Caveat (verified):** the umbrella term and Cole Medin's "PIV loop" attribution are single-source/blog-level. What *is* solid and primary-sourced are the constituent patterns below. Heddle should introduce "loop engineering" as a *synthesizing frame* and cite the underlying patterns — which is what this document does.
 
 ## 2. Established patterns (primary sources)
 
@@ -49,7 +49,7 @@ loop engineering     → make the multi-turn, self-iterating loop reliable
 
 Plan → Implement → Validate: define task/constraints/acceptance criteria, let the agent implement, validate output against criteria before proceeding. Real and directly usable as a dev-loop shape, but **blog/single-source** — adopt as a convention, not an authority. ([workshop repo](https://github.com/coleam00/ai-transformation-workshop))
 
-## 6. How this maps onto Skein
+## 6. How this maps onto Heddle
 
 See design §4.14. Summary: loop control is a **first-class, engine-enforced layer** (not prompt text); reflections and loop state live in the **Ledger** (§4.11); reflect/retry is anchored to **MCP tool / test / compiler ground truth**; node types (ReAct / Reflexion / Self-Refine / evaluator-optimizer) are **Workflow nodes** (§4.12); HITL gates reuse existing confirmations (§7.4).
 

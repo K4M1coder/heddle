@@ -6,8 +6,8 @@ TDD (red→green), branch `023-raw-wire-capture` cut from `dev` at `12c14f5`.
 ## Constitution Check (ADR-0004 D1 solo-v0 bar)
 
 - **I Headless core** ✅ no CLI of its own, no new flag, no new command, no new subcommand argument.
-  `skein ledger log` and `skein ledger show` render the new kind with **zero** CLI change, because
-  `skein-cli/src/ledger.rs`'s `kind_name` derives the column from `serde_json::to_value(kind)`
+  `heddle ledger log` and `heddle ledger show` render the new kind with **zero** CLI change, because
+  `heddle-cli/src/ledger.rs`'s `kind_name` derives the column from `serde_json::to_value(kind)`
   rather than matching the enum. Verified by running both against a live chain (see *Live
   verification*).
 - **II Local-first** ✅ no new dependency, no `Cargo.toml` change, no new network-capable code. The
@@ -16,9 +16,9 @@ TDD (red→green), branch `023-raw-wire-capture` cut from `dev` at `12c14f5`.
 - **III Test-First** ✅ three reds observed and recorded verbatim below, each isolating a different
   failure mode. Red A is the plan's T1–T4 compile red; reds B and C are the two *silent* defects the
   plan singled out as the slice's real risks, reproduced deliberately by reverting one line each.
-- **IV Inverted coupling** ✅ `skein-core` gains a `WireExchange` struct that names **no protocol**:
+- **IV Inverted coupling** ✅ `heddle-core` gains a `WireExchange` struct that names **no protocol**:
   a url, a status, and two opaque strings. It does not know the bodies are JSON, or OpenAI-shaped,
-  or HTTP-framed. Every fact about the chat-completions format stays in `skein-gateway`, which
+  or HTTP-framed. Every fact about the chat-completions format stays in `heddle-gateway`, which
   remains the one crate that names it. The port grows a defaulted method, so no other crate reasons
   about a client that has a wire.
 - **V Traceability** ✅ this slice exists *for* Principle V. It closes the gap design §4.11 named as
@@ -42,7 +42,7 @@ TDD (red→green), branch `023-raw-wire-capture` cut from `dev` at `12c14f5`.
   the exit conditions are neither read nor written by this slice. The one control-flow change in
   `NativeLoop::run` defers an existing `?` past a new append; it changes *when* the error
   propagates within a single iteration, never *whether* it does, and both failure-path tests assert
-  the run still ends in `Err(SkeinError::Model(_))`.
+  the run still ends in `Err(HeddleError::Model(_))`.
 - **Cross-platform** ✅ no `#[cfg]`, no platform API, no filesystem or process work. The stub
   provider is a `std::net::TcpListener` on loopback, as it already was. The one `#[ignore]`d live
   test is gated on an environment variable, as slices 019–022 established.
@@ -57,10 +57,10 @@ TDD (red→green), branch `023-raw-wire-capture` cut from `dev` at `12c14f5`.
 - [x] **T3** RED — backward compatibility from a persisted pre-023 chain, ids unchanged
 - [x] **T4** RED — the two negative properties: (a) an unreachable provider appends nothing,
       (b) a non-2xx and an unparseable body each still record the exchange
-- [x] **T5** GREEN — `skein-core`: the variant (`ledger.rs`), the struct and the defaulted port
+- [x] **T5** GREEN — `heddle-core`: the variant (`ledger.rs`), the struct and the defaulted port
       method (`model.rs`), the re-export (`lib.rs`), `redact_wire` (`tool.rs`), the
       turn/take/append/`?` sequence (`native_loop.rs`)
-- [x] **T6** GREEN — `skein-gateway`: `last_exchange`, the capture in `turn`, the override
+- [x] **T6** GREEN — `heddle-gateway`: `last_exchange`, the capture in `turn`, the override
 - [x] **T7** the existing assertions that genuinely change — four test files (see *Deviations* 2)
 - [x] **T8** live verification against a real local model — **part of this run**
 - [x] **T9** close-out: the residual carried since slice 011 drops off, two new residuals recorded
@@ -78,8 +78,8 @@ Measured on this worktree at `12c14f5` with the slice's changes fully reverted
 
 At close, on the same worktree with the slice applied: fmt pass, clippy pass,
 **246 passed, 0 failed, 7 ignored**. The delta is **+6 passed** (five new tests in
-`skein-gateway/tests/governed_run.rs`, one new `s8` in `skein-silo/tests/silo_ledger.rs`) and
-**+1 ignored** (the live test in `skein-gateway/tests/openai_compat.rs`). No test was deleted,
+`heddle-gateway/tests/governed_run.rs`, one new `s8` in `heddle-silo/tests/silo_ledger.rs`) and
+**+1 ignored** (the live test in `heddle-gateway/tests/openai_compat.rs`). No test was deleted,
 renamed or disabled; nothing moved from passed to ignored.
 
 ## Observed red
@@ -96,11 +96,11 @@ Tests applied, sources at `12c14f5`. `cargo test --workspace`:
 
 ```
 error[E0599]: no variant, associated function, or constant named `WireExchange` found for enum `StepKind` in the current scope   (x6)
-error[E0432]: unresolved import `skein_core::WireExchange`                                                                       (x2)
+error[E0432]: unresolved import `heddle_core::WireExchange`                                                                       (x2)
 error[E0599]: no method named `take_wire_exchange` found for struct `OpenAiCompatClient` in the current scope                     (x2)
-error: could not compile `skein-gateway` (test "governed_run") due to 6 previous errors
-error: could not compile `skein-gateway` (test "openai_compat") due to 2 previous errors
-error: could not compile `skein-silo` (test "silo_ledger") due to 2 previous errors
+error: could not compile `heddle-gateway` (test "governed_run") due to 6 previous errors
+error: could not compile `heddle-gateway` (test "openai_compat") due to 2 previous errors
+error: could not compile `heddle-silo` (test "silo_ledger") due to 2 previous errors
 ```
 
 Exactly the three absences the slice adds: the variant, the payload type, the port method.
@@ -122,7 +122,7 @@ test a_provider_failure_ends_the_run_with_the_request_already_on_the_chain ... o
 test a_quote_bearing_secret_is_scrubbed_from_the_exchange_it_escaped_into ... FAILED
 
 ---- a_quote_bearing_secret_is_scrubbed_from_the_exchange_it_escaped_into stdout ----
-panicked at crates\skein-gateway\tests\governed_run.rs:403:5:
+panicked at crates\heddle-gateway\tests\governed_run.rs:403:5:
 the escaped secret reached the chain: {"model":"llama3.1","messages":[{"role":"user","content":"the password is pa\"ss-w0rd"}],"stream":false}
 
 test result: FAILED. 6 passed; 1 failed
@@ -168,7 +168,7 @@ exact case the slice exists to capture, lost, while every happy-path test passes
 
 Against Ollama at `http://localhost:11434/v1`, model `gemma4:latest`, on Windows 11.
 
-**The `#[ignore]`d test**, run with `$env:SKEIN_LIVE_MODEL = "gemma4:latest"`:
+**The `#[ignore]`d test**, run with `$env:HEDDLE_LIVE_MODEL = "gemma4:latest"`:
 
 ```
 running 2 tests
@@ -189,12 +189,12 @@ test result: ok. 2 passed; 0 failed; 0 ignored; 17 filtered out
 silently discarded, and before this slice no artifact of the product contained them. That is
 precisely the class of divergence the chain previously could not express.
 
-**The hand-verification**, per the plan's acceptance criteria. `skein chat --root <tmp> --silo
+**The hand-verification**, per the plan's acceptance criteria. `heddle chat --root <tmp> --silo
 live023 --base-url http://localhost:11434/v1 --model gemma4:latest --run-id t8-live --prompt "What
 is 6 times 7? Answer with just the number."` answered `42`, then:
 
 ```
-> skein ledger log --run t8-live
+> heddle ledger log --run t8-live
 t8-live 0  iteration_boundary  94a3b30a082aabd21dd63e5b11a319010d95d45ee4c22f682ced091527430c25
 t8-live 1  llm_request         33c1cb540629ad3444f03f52b87e2c6f0b5466d8d20c2f5fa17a6d54c93ff61a
 t8-live 2  wire_exchange       905828cc407ff58ca98e0b13c6d7c3103581ea353b174b6dc6f61bc647a4a2eb
@@ -203,7 +203,7 @@ t8-live 4  budget_spent        770b0b7b26cb202d0f328f2eee4ec4610ec830a1328a4cfd6
 t8-live 5  exit                5e916146c6227359e2e543646dad340a3052bd4cc14d1bce3cf85b4ca763b09e
 ```
 
-`skein ledger show 9058…` printed `parent 33c1…` — the `llm_request` step, confirming the placement
+`heddle ledger show 9058…` printed `parent 33c1…` — the `llm_request` step, confirming the placement
 D1 specifies — and the payload:
 
 ```json
@@ -218,7 +218,7 @@ The three acceptance checks, each cross-read against an **independently produced
 |---|---|
 | (i) captured `request.messages` matches the `LlmRequest` step | both carry exactly `What is 6 times 7? Answer with just the number.`; the `llm_request` payload is `{"run_id":"t8-live","messages":[{"role":"user","parts":[{"type":"text","text":"What is 6 times 7? Answer with just the number."}]}]}` |
 | (ii) captured `response.usage.total_tokens` equals `BudgetSpent` | `33` in the captured bytes; the `budget_spent` payload is exactly `33` |
-| (iii) the chain verifies | `skein ledger verify --run t8-live` → `t8-live	ok	6 steps` |
+| (iii) the chain verifies | `heddle ledger verify --run t8-live` → `t8-live	ok	6 steps` |
 
 A further byte-exactness signal the stubs cannot give: the captured response **ends in `\n`**,
 Ollama's own trailing newline, preserved rather than normalized away. A re-serialization would have
@@ -234,15 +234,15 @@ dropped it.
    the plan intends. The plan's substantive point — that every anchor in it is a `dev` anchor and
    slices 021/022 are present — holds and was relied on.
 2. **T7's counts were stale and the plan said to recount rather than trust them.** Recounted against
-   `dev`: the affected set is **four** files, not three. `skein-cli/tests/cli_chat.rs` (4 kind
-   vectors, 4 step counts: 5→6, 9→11, 12→14, 12→14) and `skein-cli/tests/cli_acp_agent.rs` as named,
-   plus **`skein-connectors/tests/governed_fs_run.rs` and `governed_git_run.rs`**, which the plan
+   `dev`: the affected set is **four** files, not three. `heddle-cli/tests/cli_chat.rs` (4 kind
+   vectors, 4 step counts: 5→6, 9→11, 12→14, 12→14) and `heddle-cli/tests/cli_acp_agent.rs` as named,
+   plus **`heddle-connectors/tests/governed_fs_run.rs` and `governed_git_run.rs`**, which the plan
    asserted were stub-driven and would not change. They are not stubs — both drive the real
    `OpenAiCompatClient` against an in-test HTTP provider, so both genuinely gain two `WireExchange`
    entries. This is a correction to the plan's inventory, not to its design: the rule it stated
    ("only tests that drive the real client are affected") is exactly what the tree shows.
 3. **One source file outside the plan's stated blast radius changed:
-   `skein-acp/src/cancel.rs`.** `CancellableModel` is a **decorator** over an arbitrary
+   `heddle-acp/src/cancel.rs`.** `CancellableModel` is a **decorator** over an arbitrary
    `ModelClient`. Inheriting the defaulted `take_wire_exchange` would have silently dropped the
    exchange of every ACP-driven run — a traceability gap with nothing to notice it, since the
    default returns `None` without erroring. It forwards to the inner client in three lines. The

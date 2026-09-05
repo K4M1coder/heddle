@@ -12,7 +12,7 @@ As a user, a tool the policy classifies as mutating never reaches the downstream
 unless it has been explicitly approved, and the refusal is on the record.
 **Acceptance:**
 1. **Given** `fs_write` classified mutating and not approved, **When** the gateway is asked
-   to call it, **Then** the call returns `SkeinError::ToolDenied`, the transport is never
+   to call it, **Then** the call returns `HeddleError::ToolDenied`, the transport is never
    invoked, and the run's step kinds are exactly `[ToolCall, Approval]`.
 2. **Given** the same tool now approved, **When** the gateway calls it, **Then** the
    transport is invoked exactly once and the step kinds are `[ToolCall, Approval, ToolResult]`.
@@ -44,7 +44,7 @@ As a user, the captured results of a run can be reconstructed from the Ledger al
 As a user, neither a policy denial nor a downstream tool failure can corrupt the Ledger.
 **Acceptance:**
 1. **Given** a transport that errors, **When** the gateway calls it, **Then** the call
-   returns `SkeinError::Tool`, no `ToolResult` step is fabricated, and `verify_chain` passes.
+   returns `HeddleError::Tool`, no `ToolResult` step is fabricated, and `verify_chain` passes.
 2. **Given** a run containing a denial *and* an executed call, **When** it is verified,
    **Then** `verify_chain` passes.
 3. **Given** gateway calls interleaved with direct `Ledger::append` on the same `run_id`,
@@ -52,14 +52,14 @@ As a user, neither a policy denial nor a downstream tool failure can corrupt the
 
 ### User Story 5 — Transports are discovered through a trait (P2)
 As a developer, an MCP server is reached through a `ToolTransport` implementation;
-`skein-core` never names `rmcp`, and a hand-rolled test double is a first-class citizen.
+`heddle-core` never names `rmcp`, and a hand-rolled test double is a first-class citizen.
 
 ## Requirements
-- **FR-001**: `skein-core` MUST expose a `ToolTransport` trait with
+- **FR-001**: `heddle-core` MUST expose a `ToolTransport` trait with
   `fn call(&mut self, &ToolCall) -> Result<ToolOutcome>`. The core MUST NOT name any
   concrete transport (Constitution IV).
 - **FR-002**: `ToolGateway::call` MUST deny a mutating tool that is not approved, MUST NOT
-  touch the transport on denial, and MUST return `SkeinError::ToolDenied` (Constitution VI).
+  touch the transport on denial, and MUST return `HeddleError::ToolDenied` (Constitution VI).
 - **FR-003**: Every payload appended to the Ledger MUST be redacted first — arguments as
   well as results. The raw values MUST still reach the transport and the trusted caller
   (Constitution VI: secrets never by value in the record).
@@ -69,9 +69,9 @@ As a developer, an MCP server is reached through a `ToolTransport` implementatio
 - **FR-005**: `replay_tool_calls(&Ledger, run_id)` MUST reconstruct captured results from
   the Ledger alone. It MUST NOT hold a transport, so re-invocation is unrepresentable.
 - **FR-006**: A policy denial and a transport error MUST both leave `verify_chain` passing.
-- **FR-007**: `crates/skein-core/Cargo.toml` MUST gain no dependency. `rmcp` and `tokio`
-  MUST be confined to the new `skein-mcp` crate; the dependency direction is
-  `skein-mcp → skein-core` and never the reverse (Constitution II, VII).
+- **FR-007**: `crates/heddle-core/Cargo.toml` MUST gain no dependency. `rmcp` and `tokio`
+  MUST be confined to the new `heddle-mcp` crate; the dependency direction is
+  `heddle-mcp → heddle-core` and never the reverse (Constitution II, VII).
 - **FR-008**: The repository toolchain bump MUST be applied to `rust-toolchain.toml`,
   `Cargo.toml`, `.github/workflows/core.yml` and `docs/DEVELOPMENT.md` in lockstep, on its
   own commit, before any new product code.
@@ -81,9 +81,9 @@ As a developer, an MCP server is reached through a `ToolTransport` implementatio
   `cargo test --workspace` all clean; the suite is 15 pre-existing + 11 new = **26** tests.
 - **SC-002**: The four governance properties (denial, single execution, redaction, replay)
   are each proven against a **live embedded rmcp server**, not only against the in-core double.
-- **SC-003**: `git diff` on `crates/skein-core/Cargo.toml` is empty. The only `Cargo.toml`
+- **SC-003**: `git diff` on `crates/heddle-core/Cargo.toml` is empty. The only `Cargo.toml`
   changes are the root `[workspace.dependencies]` additions and the new
-  `crates/skein-mcp/Cargo.toml`.
+  `crates/heddle-mcp/Cargo.toml`.
 - **SC-004**: `git diff` under `spikes/` is empty (ADR-0004 D2), and no `crates/` file names
   `mcp_gateway` or a `spikes/` path.
 - **SC-005**: tri-OS CI (`.github/workflows/core.yml`) green on the bumped toolchain. As in

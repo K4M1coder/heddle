@@ -26,7 +26,7 @@ router takes before anything network-shaped exists.
 **It does:**
 
 ```
-skein chat --silo <ID> --model <NAME> --provider <PROVIDER-NAME>
+heddle chat --silo <ID> --model <NAME> --provider <PROVIDER-NAME>
            [--providers-file <PATH>] [--allow-egress] [--prompt <TEXT>]
 ```
 
@@ -44,7 +44,7 @@ name = "cloud-primary"
 kind = "cloud"
 base_url = "https://api.example.com/v1"
 model = "gpt-4o-mini"
-credential = "keychain://skein/cloud-primary"
+credential = "keychain://heddle/cloud-primary"
 ```
 
 Naming `--provider local-ollama` routes to that address with that model. Naming
@@ -66,7 +66,7 @@ and sends it as `Authorization: Bearer`.
   still does not exist.
 - **Introduce a general configuration system.** No `[team]`/`[project]`/`[conversation]` layering
   (design §5.5, ADR-0002 D3). One flat `[[provider]]` table.
-- **Change `skein acp-agent`.** It keeps `--base-url`/`--model`. What a session may switch
+- **Change `heddle acp-agent`.** It keeps `--base-url`/`--model`. What a session may switch
   mid-conversation is an unanswered question, and answering it by accident is worse than deferring
   it.
 
@@ -108,12 +108,12 @@ and sends it as `Authorization: Bearer`.
 
 ### User Story 1 — An operator names a provider instead of retyping a URL (P1)
 
-A `providers.toml` names `local-ollama`. `skein chat --provider local-ollama` reaches that address
+A `providers.toml` names `local-ollama`. `heddle chat --provider local-ollama` reaches that address
 with that model, and the run lands on the chain exactly as a `--base-url` run does.
 
 **Acceptance**: `chat_routes_through_a_named_local_provider` — a subprocess invocation whose
 `--model` deliberately disagrees with the route's, asserting the wire carries the *route's* model,
-and whose run then passes `skein ledger verify`.
+and whose run then passes `heddle ledger verify`.
 
 ### User Story 2 — A cloud provider is refused when egress is off, before any socket exists (P1)
 
@@ -174,7 +174,7 @@ tests are unchanged live controls.
 - **FR-003**: `ProviderTable::from_toml_str` MUST parse a flat `[[provider]]` table and MUST refuse,
   naming the offending value: an unrecognised `kind`; an unknown key (`deny_unknown_fields`); two
   providers sharing a name. An empty input MUST parse to an empty table rather than fail.
-- **FR-004**: `ProviderTable::from_path` MUST return `SkeinError::Model` naming the path for every
+- **FR-004**: `ProviderTable::from_path` MUST return `HeddleError::Model` naming the path for every
   failure, including io ones. A raw `io::Error` MUST NOT reach the operator, because it names no
   path.
 - **FR-005**: `ProviderTable::find` MUST refuse an unknown name with a message that lists the
@@ -200,10 +200,10 @@ tests are unchanged live controls.
   slice, not a defect of it.
 - **FR-012**: The resolved credential MUST be held as `SecretValue` from resolution to use, MUST
   reach the wire only as an `Authorization: Bearer` header, and MUST NOT appear in any
-  `SkeinError` message or any `Debug` output.
+  `HeddleError` message or any `Debug` output.
 - **FR-013**: The new `toml` dependency MUST be declared `default-features = false` with parse-only
-  features, and MUST NOT introduce a TLS crate into `skein-gateway`'s tree.
-- **FR-014**: `skein chat` MUST gain `--provider`, `--providers-file` (default `providers.toml`) and
+  features, and MUST NOT introduce a TLS crate into `heddle-gateway`'s tree.
+- **FR-014**: `heddle chat` MUST gain `--provider`, `--providers-file` (default `providers.toml`) and
   `--allow-egress`. `--allow-egress` MUST default to `false`.
 - **FR-015**: When `--provider` is absent, the provider file MUST NOT be read and the
   `--base-url`/`--model` path MUST be byte-for-byte the path taken before this slice.
@@ -216,7 +216,7 @@ tests are unchanged live controls.
 - **FR-018**: `--provider` resolution MUST happen before the silo is opened, in the position
   `ModelArgs::endpoint()` occupies today, so a refused route leaves no chain recording an attempt
   that never left the process.
-- **FR-019**: `crates/skein-mcp`, `crates/skein-acp`, `crates/skein-silo` and `crates/skein-core`
+- **FR-019**: `crates/heddle-mcp`, `crates/heddle-acp`, `crates/heddle-silo` and `crates/heddle-core`
   MUST be unchanged.
 - **FR-020**: No automated test may require a running Ollama or any real network egress.
 
@@ -225,17 +225,17 @@ tests are unchanged live controls.
 - **SC-001**: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`
   and `cargo test --workspace` all clean. Measured: **251 passing, 5 ignored** — 228 pre-existing
   plus 23 new (17 in `provider_routing.rs`, 6 in `cli_chat.rs`).
-- **SC-002**: `cargo tree -e normal -p skein-gateway` shows **no** `rustls`, `native-tls`, `webpki`
+- **SC-002**: `cargo tree -e normal -p heddle-gateway` shows **no** `rustls`, `native-tls`, `webpki`
   or `openssl`. Measured after adding `toml`: 0 matches. `toml` contributes five packages
   (`serde_core`, `serde_spanned`, `toml_datetime`, `toml_parser`, `winnow`), all parse-only.
 - **SC-003**: Every wire test asserts **bytes on a real socket** served by `std::net::TcpListener`.
   No HTTP-mocking dependency is added (spec 012 SC-003 held).
-- **SC-004**: Every `skein chat` test is a **process invocation of the real binary** (spec 012
+- **SC-004**: Every `heddle chat` test is a **process invocation of the real binary** (spec 012
   SC-004 held).
 - **SC-005**: The "no connection was opened" claim is asserted by a **counter incremented on
   `accept()`**, at both the router level and the subprocess level, against a live listening stub —
   not by a dead port, and not by the absence of a parsed request.
-- **SC-006**: `git diff -- crates/skein-mcp/ crates/skein-acp/ crates/skein-silo/ crates/skein-core/`
+- **SC-006**: `git diff -- crates/heddle-mcp/ crates/heddle-acp/ crates/heddle-silo/ crates/heddle-core/`
   is empty. Measured: empty.
 - **SC-007**: The egress guard is shown load-bearing by mutation: replacing its condition with
   `false` fails `egress_off_refuses_a_cloud_route_before_any_connection_is_opened` and nothing else.
@@ -257,7 +257,7 @@ tests are unchanged live controls.
   real deployment of exactly this shape, so the test configuration is not a contrivance built only
   for testing.
 - **`--model` is still required by clap even when `--provider` is given, and is then ignored.**
-  `ModelArgs` is flattened into both `skein chat` and `skein acp-agent`; a
+  `ModelArgs` is flattened into both `heddle chat` and `heddle acp-agent`; a
   `required_unless_present = "provider"` on `--model` names an argument that does not exist in
   `acp-agent`, which clap rejects. Making `--model` optional would push its absence from a parse
   error to a runtime one for `acp-agent`, which is worse. The precedence is documented in

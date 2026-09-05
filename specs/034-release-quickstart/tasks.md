@@ -7,7 +7,7 @@ live run, transcribed verbatim, and every transcript below was produced on this 
 
 ## Constitution Check (ADR-0004 D1 solo-v0 bar)
 - I Headless core ✅ the quickstart holds **no capability**: it is a sequence of calls onto
-  `skein chat` and `skein ledger log|verify` plus a rendering, and it invents no flag. The CLI
+  `heddle chat` and `heddle ledger log|verify` plus a rendering, and it invents no flag. The CLI
   remains the authoritative client and this is a client *of* the client. `package.ps1` is the same
   relationship to `cargo` · II Local-first ✅ NON-NEGOTIABLE and untouched: no network egress is
   added, the provider probe is loopback (`/api/tags` on the same host `LocalEndpoint::parse` already
@@ -58,7 +58,7 @@ live run, transcribed verbatim, and every transcript below was produced on this 
   in a colleague's hands with the project's name on it. A `quickstart.sh` with a real run behind it is
   a named residual below. `package.ps1` is Windows-only in substance and refuses elsewhere with a
   reason, because the artifact it names is `windows-x64`
-- Per-OS code signing ⚠️ **the bundle ships an unsigned `skein.exe`, and the Constitution's
+- Per-OS code signing ⚠️ **the bundle ships an unsigned `heddle.exe`, and the Constitution's
   *Additional Constraints* require Authenticode for an agent that drives the PC.** No certificate
   exists, so this is a deviation recorded with its consequence rather than passed over: SmartScreen
   may interpose on first run, and `QUICKSTART.md` says so in those words and tells a reader who finds
@@ -69,16 +69,16 @@ live run, transcribed verbatim, and every transcript below was produced on this 
 ## Tasks
 - [x] **S0** `git fetch origin dev && git reset --hard origin/dev` → `ae3a5a9`, **the first action of
       the run and load-bearing**: this project's worktrees have repeatedly started seventy commits
-      behind at `d364405`, where `crates/skein-cli/src/sandbox.rs` does not exist and `README.md`'s
+      behind at `d364405`, where `crates/heddle-cli/src/sandbox.rs` does not exist and `README.md`'s
       *Current status* is the stale one the new Quickstart section sits beside. Then the three gates
       unmodified as the control baseline
 - [x] **S1** `cargo build --workspace --release` measured: exit, warning count, wall time, binary and
-      `.pdb` sizes, `skein --version`
+      `.pdb` sizes, `heddle --version`
 - [x] **S2** the version bump (D6) — `version = "0.1.0"` on `[workspace.package]`,
       `version.workspace = true` in all eight `crates/*/Cargo.toml`
 - [x] **S3/S4** `scripts/quickstart.ps1` — placement probe, the four prerequisite checks, smallest
       tool-capable model selection, the demo turn, the ledger and its verification
-- [x] **S5** `scripts/package.ps1` and `dist/skein-0.1.0-windows-x64/` plus its zip
+- [x] **S5** `scripts/package.ps1` and `dist/heddle-0.1.0-windows-x64/` plus its zip
 - [x] **S6** the provoked prerequisite failures, transcribed — four produced, one not producible
 - [x] **S7** the green run, the idempotency re-run, and the bundle run from a temp extraction
 - [x] **S8** `LICENSE` — the Apache-2.0 text the manifests have always claimed
@@ -101,19 +101,19 @@ cargo build --workspace --release
 EXIT=0
 SECONDS=81
 WARNINGS=0
--rwxr-xr-x  12943872  target/release/skein.exe
--rw-r--r--   7630848  target/release/skein.pdb
-$ ./target/release/skein.exe --version
-skein 0.1.0
+-rwxr-xr-x  12943872  target/release/heddle.exe
+-rw-r--r--   7630848  target/release/heddle.pdb
+$ ./target/release/heddle.exe --version
+heddle 0.1.0
 ```
 
 No release-profile-only defect: vendored `libgit2`, bundled SQLite and the `windows`/`win32job` FFI
-in `skein-sandbox` all compiled clean. Nothing in `crates/` changed but the nine version fields.
+in `heddle-sandbox` all compiled clean. Nothing in `crates/` changed but the nine version fields.
 
 **Deviation from the plan's step order:** the plan ran S1 before S2 and again after. This run built
 once, after the version bump, because the bump edits manifest fields only and cannot change a
 compilation outcome except the version string — and building after it proves both facts, the gate
-and `skein 0.1.0`, from one measurement instead of asserting the second.
+and `heddle 0.1.0`, from one measurement instead of asserting the second.
 
 ## The recorded runs
 
@@ -129,13 +129,13 @@ $ pwsh -NoProfile -File .\scripts\quickstart.ps1 -BaseUrl http://localhost:19999
     cargo 1.97.1 (c980f4866 2026-06-30)
 
 ==> Release build
-    cargo build --release -p skein-cli
+    cargo build --release -p heddle-cli
     Finished `release` profile [optimized] target(s) in 0.23s
 
 ==> Local model provider
     GET http://localhost:19999/api/tags
 
-quickstart: nothing answered at http://localhost:19999. Skein only ever talks to a provider on this
+quickstart: nothing answered at http://localhost:19999. Heddle only ever talks to a provider on this
 machine over http, so this has to be a local one: start it with 'ollama serve' (install with
 'winget install --id Ollama.Ollama -e'), or point elsewhere with -BaseUrl.
 
@@ -216,7 +216,7 @@ extracted bundle rather than from inside it:
 ```
 $ pwsh -NoProfile -File <bundle>\quickstart.ps1     # cwd = the parent, no README.md
 
-quickstart: the demo prompt reads README.md, and D:\...\Temp\skein-bundle-test-9190979 has none. Run
+quickstart: the demo prompt reads README.md, and D:\...\Temp\heddle-bundle-test-9190979 has none. Run
 this from the folder you want the agent to read, name that folder with -FsRoot, or ask something
 else with -Prompt.
 
@@ -229,7 +229,7 @@ load-bearing.
 ### S7 run 1 — the green path, from a deleted demo silo
 
 ```
-$ Remove-Item -Recurse -Force "$env:LOCALAPPDATA\skein\quickstart-demo"
+$ Remove-Item -Recurse -Force "$env:LOCALAPPDATA\heddle\quickstart-demo"
 $ pwsh -NoProfile -File .\scripts\quickstart.ps1
 
 ==> Placement
@@ -239,7 +239,7 @@ $ pwsh -NoProfile -File .\scripts\quickstart.ps1
     cargo 1.97.1 (c980f4866 2026-06-30)
 
 ==> Release build
-    cargo build --release -p skein-cli
+    cargo build --release -p heddle-cli
     Finished `release` profile [optimized] target(s) in 0.17s
 
 ==> Local model provider
@@ -250,17 +250,17 @@ $ pwsh -NoProfile -File .\scripts\quickstart.ps1
     pass -Model to choose another: lfm2.5:latest, qwen3.8:27b
 
 ==> One real turn
-    silo root : D:\Users\cthedrez\AppData\Local\skein\quickstart-demo
+    silo root : D:\Users\cthedrez\AppData\Local\heddle\quickstart-demo
     fs root   : D:\...\worktrees\034-release-quickstart
     run id    : quickstart-20260904214020
-    prompt    : Read the file README.md in the project root and answer in one short paragraph: what is Skein, and what is its current status?
+    prompt    : Read the file README.md in the project root and answer in one short paragraph: what is Heddle, and what is its current status?
 
 run quickstart-20260904214020
-Skein is an independent, open-source, local-first agentic platform designed to unify numerous
+Heddle is an independent, open-source, local-first agentic platform designed to unify numerous
 capabilities such as chat, coding, multi-agent execution, governed workflows, and team collaboration
 into a single adaptable product. Its current status is **v0**, with a strict-local coding agent
 implemented and functional. This version includes a native loop with an ACP boundary, MCP tools for
-file system and git operations, a Windows-first sandboxed shell connector, and the necessary `skein`
+file system and git operations, a Windows-first sandboxed shell connector, and the necessary `heddle`
 CLI tools for management, ledger access, and secret handling.
 
 ==> The chain that turn wrote
@@ -283,7 +283,7 @@ quickstart-20260904214020	ok	14 steps
 
 ==> Done
     …
-        Remove-Item -Recurse -Force 'D:\Users\cthedrez\AppData\Local\skein\quickstart-demo'
+        Remove-Item -Recurse -Force 'D:\Users\cthedrez\AppData\Local\heddle\quickstart-demo'
 
 EXIT=0  ELAPSED=69s
 ```
@@ -319,7 +319,7 @@ $ pwsh -NoProfile -File .\scripts\package.ps1
 ==> Release build
     Finished `release` profile [optimized] target(s) in 0.19s
 
-==> Assemble skein-0.1.0-windows-x64
+==> Assemble heddle-0.1.0-windows-x64
 
 ==> Compress
 
@@ -328,26 +328,26 @@ $ pwsh -NoProfile -File .\scripts\package.ps1
            5 365  QUICKSTART.md
           10 732  quickstart.ps1
            3 292  README.md
-      12 943 872  skein.exe
+      12 943 872  heddle.exe
 
-       5 192 500  skein-0.1.0-windows-x64.zip
+       5 192 500  heddle-0.1.0-windows-x64.zip
 
 EXIT=0
 ```
 
-Exactly the five files plan D9 names, no `skein.pdb`, 13 MB as a folder and **5.19 MB zipped**. Plan
+Exactly the five files plan D9 names, no `heddle.pdb`, 13 MB as a folder and **5.19 MB zipped**. Plan
 D9 estimated "roughly half"; measured it is 40 %, and the README says the measured pair.
 
 ### S7 run 3 — the bundle, extracted under `%TEMP%`, run exactly as `QUICKSTART.md` says
 
 ```
-$ Expand-Archive .\skein-0.1.0-windows-x64.zip -DestinationPath .
-$ Get-ChildItem -Recurse .\skein-0.1.0-windows-x64 | Unblock-File
-$ cd .\skein-0.1.0-windows-x64
+$ Expand-Archive .\heddle-0.1.0-windows-x64.zip -DestinationPath .
+$ Get-ChildItem -Recurse .\heddle-0.1.0-windows-x64 | Unblock-File
+$ cd .\heddle-0.1.0-windows-x64
 $ pwsh -NoProfile -ExecutionPolicy Bypass -File .\quickstart.ps1
 
 ==> Placement
-    bundle at D:\Users\cthedrez\AppData\Local\Temp\skein-bundle-test-9190979\skein-0.1.0-windows-x64
+    bundle at D:\Users\cthedrez\AppData\Local\Temp\heddle-bundle-test-9190979\heddle-0.1.0-windows-x64
 
 ==> Local model provider
     GET http://localhost:11434/api/tags
@@ -356,8 +356,8 @@ $ pwsh -NoProfile -ExecutionPolicy Bypass -File .\quickstart.ps1
     using model gemma4:latest (8.0B, tool-capable) — the smallest tool-capable model installed
 
 ==> One real turn
-    silo root : D:\Users\cthedrez\AppData\Local\skein\quickstart-demo
-    fs root   : D:\Users\cthedrez\AppData\Local\Temp\skein-bundle-test-9190979\skein-0.1.0-windows-x64
+    silo root : D:\Users\cthedrez\AppData\Local\heddle\quickstart-demo
+    fs root   : D:\Users\cthedrez\AppData\Local\Temp\heddle-bundle-test-9190979\heddle-0.1.0-windows-x64
     run id    : quickstart-20260904214252
     …
     quickstart-20260904214252	5	tool_call	20b89218eb2999a9fed35bddaa7ebe795805ecbddcb46abfe8ab139d078f6bf8
@@ -378,7 +378,7 @@ silo and all three still verify.
 **And the bug plan D9a exists for, measured as a counterfactual on the same extraction:**
 
 ```
-  parent-of-script-dir : D:\Users\cthedrez\AppData\Local\Temp\skein-bundle-test-9190979
+  parent-of-script-dir : D:\Users\cthedrez\AppData\Local\Temp\heddle-bundle-test-9190979
   (extracted straight into %TEMP%, that is exactly D:\Users\cthedrez\AppData\Local\Temp)
   what the script uses  : the current working directory
 ```
@@ -417,13 +417,13 @@ because that is where the operator was standing.
 - **`scripts/quickstart.sh`, with a real recorded run behind it.** Plan D2. Until then the onboarding
   path is Windows-only and both `QUICKSTART.md` and the Constitution Check say so. The product itself
   stays tri-OS green through `core.yml`.
-- **Code signing.** `skein.exe` is unsigned; no certificate exists. Named in the Constitution Check
+- **Code signing.** `heddle.exe` is unsigned; no certificate exists. Named in the Constitution Check
   with its consequence, and the reason an MSI is not an improvement today.
 - **`CHANGELOG.md` at `0.2.0`**, not before — the first release with a predecessor a reader might be
   upgrading from. Plan D7 fixes the criterion and the stub line so nobody back-fills one silently.
 - **The end-to-end path with a tool-incapable model named through the CLI.** S6(c); both predicate
   branches are covered, the full path is not.
-- **`cargo install --path crates/skein-cli`** is documented in `QUICKSTART.md` and **not exercised**:
+- **`cargo install --path crates/heddle-cli`** is documented in `QUICKSTART.md` and **not exercised**:
   running it installs into `~/.cargo/bin`, persistent machine state outside a build. Marked as such
   where it is documented.
 - **`specs/030`–`033`** still have no spec directories. Out of scope by `spec.md`; noted so the gap

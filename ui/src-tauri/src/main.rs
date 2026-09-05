@@ -2,11 +2,11 @@
 // a debug build must, because that is where the child's stderr goes.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-//! `skein-ui` — the Tauri Chat window, as a running process.
+//! `heddle-ui` — the Tauri Chat window, as a running process.
 //!
-//! Wiring only, like every `skein` subcommand: the ACP client is
+//! Wiring only, like every `heddle` subcommand: the ACP client is
 //! `session::SessionHandle`'s, the launch flags are `config`'s, and the loop,
-//! the tools and the chain are the child `skein acp-agent`'s. This file owns
+//! the tools and the chain are the child `heddle acp-agent`'s. This file owns
 //! exactly three commands and one event, and each of the three commands is one
 //! ACP call the CLI already serves — `docs/UI.md` holds the table.
 //!
@@ -14,8 +14,8 @@
 //! model, name a directory, spawn a process, or reach a provider. It can send
 //! text, cancel, and render what came back (Constitution I).
 
-use skein_ui::config::launch_from_env;
-use skein_ui::session::{AgentLaunch, SessionHandle};
+use heddle_ui::config::launch_from_env;
+use heddle_ui::session::{AgentLaunch, SessionHandle};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -23,7 +23,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use agent_client_protocol::schema::v1::StopReason;
 
 /// The one session this window drives. Multi-session is a later slice; a
-/// `SkeinAgent` already supports it, this window does not expose it.
+/// `HeddleAgent` already supports it, this window does not expose it.
 #[derive(Default)]
 struct AppState {
     session: Mutex<Option<SessionHandle>>,
@@ -41,7 +41,7 @@ impl AppState {
     }
 }
 
-/// Where `skein` is expected to be: beside this executable.
+/// Where `heddle` is expected to be: beside this executable.
 fn exe_dir() -> PathBuf {
     std::env::current_exe()
         .ok()
@@ -53,7 +53,7 @@ fn launch() -> Result<AgentLaunch, String> {
     launch_from_env(|name| std::env::var(name).ok(), &exe_dir())
 }
 
-/// Spawns `skein acp-agent` and opens one session: ACP `initialize`, then
+/// Spawns `heddle acp-agent` and opens one session: ACP `initialize`, then
 /// `session/new`. Returns the session id the chain will record runs under.
 #[tauri::command]
 async fn start_session(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
@@ -67,7 +67,7 @@ async fn start_session(app: AppHandle, state: State<'_, AppState>) -> Result<Str
         launch()?,
         move |notification| {
             // Relayed 1:1 and untransformed: the projection that produced this
-            // update is `skein-acp`'s `project_updates`, reading the chain. The
+            // update is `heddle-acp`'s `project_updates`, reading the chain. The
             // window is a view of that view, and adds nothing to it
             // (Constitution V).
             let _ = updates.emit("session-update", notification.update);
@@ -85,7 +85,7 @@ async fn start_session(app: AppHandle, state: State<'_, AppState>) -> Result<Str
 /// Sends one ACP `session/prompt` and resolves with its `StopReason`.
 ///
 /// Every `session-update` event for the turn has already been emitted by the
-/// time this returns: `skein-acp` sends the run's whole batch before it answers
+/// time this returns: `heddle-acp` sends the run's whole batch before it answers
 /// the prompt, so there is no token-level stream to subscribe to.
 #[tauri::command]
 async fn send_prompt(text: String, state: State<'_, AppState>) -> Result<StopReason, String> {
@@ -95,7 +95,7 @@ async fn send_prompt(text: String, state: State<'_, AppState>) -> Result<StopRea
 /// Sends one ACP `session/cancel`.
 ///
 /// Takes effect at the next turn boundary: a model call already in flight
-/// completes (`crates/skein-acp/src/cancel.rs`).
+/// completes (`crates/heddle-acp/src/cancel.rs`).
 #[tauri::command]
 async fn cancel_run(state: State<'_, AppState>) -> Result<(), String> {
     state.session()?.cancel()
@@ -110,8 +110,8 @@ fn main() {
             cancel_run
         ])
         // One boundary turns the session into a closed one, exactly like
-        // `crates/skein-cli/src/main.rs` turns an error into a message: the
-        // child's stdin closes, `skein acp-agent` exits zero, nothing leaks.
+        // `crates/heddle-cli/src/main.rs` turns an error into a message: the
+        // child's stdin closes, `heddle acp-agent` exits zero, nothing leaks.
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 if let Some(state) = window.try_state::<AppState>() {
@@ -122,5 +122,5 @@ fn main() {
             }
         })
         .run(tauri::generate_context!())
-        .expect("the Skein window starts");
+        .expect("the Heddle window starts");
 }

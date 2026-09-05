@@ -29,9 +29,9 @@ one operator-named directory `--fs-root` already bounds.
 
 Load-bearing facts, each measured this session rather than assumed. The probes live under this run's
 artifact directory (`probe-git2/`, `probe-gix/`, `gitprobe/`, `wtprobe/`) and touched nothing in the
-repository; `git status --short` in `D:\claudecode\skein` is empty.
+repository; `git status --short` in `D:\claudecode\heddle` is empty.
 
-1. **`crates/skein-connectors` structure.** `src/{lib.rs,connector.rs,fs.rs,server.rs}` and
+1. **`crates/heddle-connectors` structure.** `src/{lib.rs,connector.rs,fs.rs,server.rs}` and
    `tests/{connector.rs,fs_root.rs,fs_server.rs,governed_fs_run.rs}`. `fs.rs` holds `FsRoot`
    (containment only); `server.rs` holds `FsServer` — one `#[tool_router]` impl with `fs_read`,
    `fs_list`, `fs_write`, each returning `Result<String, String>`; `connector.rs` holds
@@ -48,9 +48,9 @@ repository; `git status --short` in `D:\claudecode\skein` is empty.
    `rmcp-2.2.0/src/handler/server/router/tool.rs`: `list_all` filters disabled names,
    `get` returns `None` for them, and `call` returns `invalid_params("tool not found")` for them.
    This is how the git tools stay invisible when the configured root is not a repository.
-4. **`RmcpToolTransport` maps any rmcp protocol error to `SkeinError::Tool`**
-   (`crates/skein-mcp/src/lib.rs`, `call`), and `NativeLoop::mediate`
-   (`crates/skein-core/src/native_loop.rs`) survives **only** `SkeinError::ToolDenied` — everything
+4. **`RmcpToolTransport` maps any rmcp protocol error to `HeddleError::Tool`**
+   (`crates/heddle-mcp/src/lib.rs`, `call`), and `NativeLoop::mediate`
+   (`crates/heddle-core/src/native_loop.rs`) survives **only** `HeddleError::ToolDenied` — everything
    else ends the run. So "disabled route" alone is not enough: the CLI allowlist must also omit the
    git names when the root is not a repository, or a model inventing `git_status` would kill the run
    instead of being told "not in the allowlist". `wiring::ToolArgs::policy`'s existing docstring
@@ -89,7 +89,7 @@ repository; `git status --short` in `D:\claudecode\skein` is empty.
     - `git2 0.21.0`, `default-features = false` → **7 packages total** (`git2`, `libgit2-sys`,
       `libz-sys`, `libc`, `bitflags`, `log`). git2 0.21's `default = []`: `https` and `ssh` are
       **opt-in**, and with them off the tree contains no `openssl-sys` and no `libssh2-sys`.
-    - Against `skein-cli`'s current graph (136 normal packages), git2 adds exactly **four** new
+    - Against `heddle-cli`'s current graph (136 normal packages), git2 adds exactly **four** new
       normal packages: `git2`, `libgit2-sys`, `libz-sys`, `libc`. `bitflags`, `log`, `chrono` and
       `num-traits` are already there.
     - Maintenance, from the crates.io API: `git2` 0.21.0, 111.5M total / 15.6M recent downloads,
@@ -98,7 +98,7 @@ repository; `git status --short` in `D:\claudecode\skein` is empty.
       the `mcp-server-filesystem` situation slice 016 rejected, and the decision below turns on
       footprint and containment semantics, not on maintenance.
 11. **A C toolchain is already a hard build prerequisite of this workspace.**
-    `libsqlite3-sys 0.38.2` is in `skein-cli`'s shipped normal graph, and the root `Cargo.toml`
+    `libsqlite3-sys 0.38.2` is in `heddle-cli`'s shipped normal graph, and the root `Cargo.toml`
     pins `rusqlite = { version = "0.40", default-features = false, features = ["bundled"] }` — the
     bundled SQLite amalgamation is compiled with `cc` on all three OSes. **Slice 016's
     "libgit2 C bindings, a tri-OS build burden" judgment is therefore materially wrong today**, and
@@ -151,7 +151,7 @@ Why, against the two real alternatives:
   2. **A "read-only" call can execute code the operator never named.** Fact (8): `core.fsmonitor`
      in the target repository's own `.git/config` is executed by `git status`. The argv is fixed and
      the shell is absent, and the program still runs. libgit2 does not implement fsmonitor and did
-     not run it. Constitution II makes local-only a property of the *build* in `skein-gateway`
+     not run it. Constitution II makes local-only a property of the *build* in `heddle-gateway`
      (no TLS backend compiled in); handing an arbitrary repository-config-selected executable a seat
      on that path gives the guarantee back at runtime, which is the same objection slice 016 made to
      an out-of-process Node MCP server.
@@ -167,10 +167,10 @@ Why, against the two real alternatives:
   already compiles C on every OS in this workspace. Recorded honestly: `gix` is the ecosystem's
   direction and is memory-safe where libgit2 is 200k lines of C. If the footprint stops mattering —
   or if `gix`'s `status` stabilizes into a thinner feature set — revisiting is cheap, because
-  nothing outside `crates/skein-connectors/src/git.rs` will name either library.
+  nothing outside `crates/heddle-connectors/src/git.rs` will name either library.
 - **`git2`, chosen.** Four new shipped packages (fact 10). No network transport compiled in
   (`default = []`; `https`/`ssh` off ⇒ no `openssl-sys`, no `libssh2-sys` in the tree) — the same
-  *build-property* argument `skein-gateway` already makes, now applied to git. `Repository::open`
+  *build-property* argument `heddle-gateway` already makes, now applied to git. `Repository::open`
   is the containment primitive (fact 6). API stability: `statuses`/`revwalk` are libgit2's oldest
   and most-used surfaces, from `rust-lang/git2-rs`, at 15.6M recent downloads. Verified to build and
   run on the pinned toolchain (fact 12).
@@ -189,13 +189,13 @@ typed-boundary test.
 
 The git tools take **no path arguments whatsoever**, so containment is not "resolve this path
 safely" — it is "open exactly one repository and refuse anything else". New in
-`crates/skein-connectors/src/git.rs`:
+`crates/heddle-connectors/src/git.rs`:
 
 ```rust
 // pub(crate); every git tool starts here.
 fn open_contained(root: &FsRoot) -> std::result::Result<Repository, String>;
 /// True when `open_contained` succeeds. Public: `EmbeddedServer::new` and
-/// `skein-cli`'s `wiring::ToolArgs` both need it, and neither may see `git2`.
+/// `heddle-cli`'s `wiring::ToolArgs` both need it, and neither may see `git2`.
 pub fn is_git_repository(root: &FsRoot) -> bool;
 ```
 
@@ -236,8 +236,8 @@ they are renamed:
 | `FsRoot`, `READ_BYTE_CAP`, `*Params` | unchanged |
 
 Roughly twelve mechanical lines across `src/lib.rs`, `src/server.rs`, `src/connector.rs`,
-`tests/{connector.rs,fs_server.rs,governed_fs_run.rs}` and `crates/skein-cli/src/wiring.rs`. This
-is slice 016's own idiom applied to itself — it amended `skein-mcp`'s docstring invariant rather
+`tests/{connector.rs,fs_server.rs,governed_fs_run.rs}` and `crates/heddle-cli/src/wiring.rs`. This
+is slice 016's own idiom applied to itself — it amended `heddle-mcp`'s docstring invariant rather
 than leaving it stale, on the grounds that a stale invariant is worse than a restated one. The two
 docstrings that assert "the embedded `fs` MCP server: three tools over one `FsRoot`" and
 `get_info`'s `with_instructions` text are rewritten in the same step.
@@ -264,7 +264,7 @@ if !git::is_git_repository(&root) {
   pre-existing advertisement assertions green untouched (fact 15).
 - **CLI layer.** `wiring::ToolArgs`'s allowlist gains `git_status`/`git_log` as
   `ToolAccess::ReadOnly` **only when the root is a repository**. This is not decoration: fact (4)
-  shows that an allowlisted name whose route is disabled produces a `SkeinError::Tool` from the
+  shows that an allowlisted name whose route is disabled produces a `HeddleError::Tool` from the
   transport, and `NativeLoop::mediate` ends the run on anything but `ToolDenied`. Omitting the names
   from the allowlist turns a model's invented `git_status` into a survivable `denied` with a reason —
   which is exactly what `wiring::ToolArgs::policy`'s existing docstring demands.
@@ -339,7 +339,7 @@ personal data on an append-only chain.
 
 No new `StepKind` and none needed. A git tool call lands as `ToolCall`/`Approval`/`ToolResult`
 through the gateway slice 005 built, and slice 014's `Redactor` scrubs `ToolResult` content on its
-way into the chain (`ToolGateway::call_captured`, `crates/skein-core/src/tool.rs`). The request asks
+way into the chain (`ToolGateway::call_captured`, `crates/heddle-core/src/tool.rs`). The request asks
 this be verified rather than assumed for git output, because a commit message can itself carry a
 secret — SC-008 does exactly that with a configured secret committed into a real commit message,
 mirroring slice 016's T7. The unconfigured case remains the same stated gap slice 016 recorded.
@@ -361,40 +361,40 @@ under `## Observed red` before its green. Steps are ordered so each is independe
 - **T2 · manifests.** Add to root `[workspace.dependencies]`:
   `git2 = { version = "0.21", default-features = false, features = ["vendored-libgit2"] }` and
   `chrono = { version = "0.4", default-features = false, features = ["std"] }`. Add
-  `git2.workspace = true` and `chrono.workspace = true` to `crates/skein-connectors/Cargo.toml`
+  `git2.workspace = true` and `chrono.workspace = true` to `crates/heddle-connectors/Cargo.toml`
   `[dependencies]`, **and `git2.workspace = true` to its `[dev-dependencies]` as well** — an
   integration test in `tests/` does not inherit the crate's own product dependencies, and the
   fixtures build their repositories with `git2`. Same dev-dependency line in
-  `crates/skein-cli/Cargo.toml`. Verify `cargo build --workspace` still succeeds (this is the step
+  `crates/heddle-cli/Cargo.toml`. Verify `cargo build --workspace` still succeeds (this is the step
   that proves libgit2 compiles in CI's toolchain, not a later one).
-- **T3 · RED→GREEN — containment.** New `crates/skein-connectors/tests/git_root.rs` against a
+- **T3 · RED→GREEN — containment.** New `crates/heddle-connectors/tests/git_root.rs` against a
   `git.rs` that does not exist yet. Fixtures build **real repositories with real commits** using
   `git2` (`Repository::init`, index add, `commit`) rather than shelling out to a `git` binary: no
   `PATH` assumption, deterministic on three OSes, and still a real on-disk repository — libgit2
   writes real objects. Then `src/git.rs` with `open_contained` and `is_git_repository`, exported
   from `lib.rs`.
-- **T4 · RED→GREEN — the two tools.** New `crates/skein-connectors/tests/git_server.rs` calling the
+- **T4 · RED→GREEN — the two tools.** New `crates/heddle-connectors/tests/git_server.rs` calling the
   `#[tool]` methods directly, which is the level that sees an `Err(String)` before rmcp wraps it
   (`tests/fs_server.rs`'s precedent). Then `git_status`, `git_log`, `LogParams`, `LOG_COUNT_CAP`,
   `STATUS_ENTRY_CAP`, and the porcelain/log formatting in `git.rs`.
 - **T5 · RED→GREEN — the rename and the capability gate.** `FsServer` → `EmbeddedServer`,
   `fs_connector` → `local_connector` (D3), the two `disable_route` calls in `EmbeddedServer::new`,
   and the rewritten docstrings and `get_info` instructions. Driven by two new tests appended to the
-  pre-existing `crates/skein-connectors/tests/connector.rs`. **The pre-existing
+  pre-existing `crates/heddle-connectors/tests/connector.rs`. **The pre-existing
   `the_connector_lists_the_three_tools_with_their_derived_schemas` must keep its assertions
   unchanged** — only its import line moves — because its fixture root is a plain `TempDir`
   (fact 15). If that test needs an assertion changed, the gate is wrong; stop and fix the gate.
 - **T6 · RED→GREEN — the headline governed run.** New
-  `crates/skein-connectors/tests/governed_git_run.rs`, structured on `governed_fs_run.rs` and
+  `crates/heddle-connectors/tests/governed_git_run.rs`, structured on `governed_fs_run.rs` and
   reusing its shapes (`Stub::serving`, `request_body`, `tool_call_reply`, `final_reply`,
   `NoGroundTruth`, `captured_requests`, `escaped`) — copied rather than shared, exactly as
-  `governed_fs_run.rs` restates `chat_policy` rather than importing it, because `skein-cli` has no
+  `governed_fs_run.rs` restates `chat_policy` rather than importing it, because `heddle-cli` has no
   `lib` target and Rust integration-test binaries do not share helpers. Nothing between the model
   and the repository is a double.
 - **T7 · RED→GREEN — redaction over a commit message** (SC-008), in the same file.
 - **T8 · RED→GREEN — the injection boundary** (SC-009), in `git_server.rs` and
   `governed_git_run.rs`.
-- **T9 · RED→GREEN — `skein-cli` wiring.** `read_only()` splits into the fs pair plus a
+- **T9 · RED→GREEN — `heddle-cli` wiring.** `read_only()` splits into the fs pair plus a
   `git_tools(&self)` helper on `ToolArgs` returning the two git names when
   `self.fs_root.as_ref().and_then(|p| FsRoot::new(p).ok()).is_some_and(is_git_repository)`;
   `chat_policy` and `agent_policy` both append it. `unwrap_or(false)` on a bad root is safe here and
@@ -403,10 +403,10 @@ under `## Observed red` before its green. Steps are ordered so each is independe
   that hides an operator's typo. Reword `--fs-root`'s doc comment and `main.rs`'s module docstring
   (D4).
 - **T10 · RED→GREEN — CLI acceptance against the real binary.** One test appended to
-  `crates/skein-cli/tests/cli_chat.rs` and one to `crates/skein-cli/tests/cli_acp_agent.rs`
+  `crates/heddle-cli/tests/cli_chat.rs` and one to `crates/heddle-cli/tests/cli_acp_agent.rs`
   (SC-010, SC-011). No pre-existing assertion in either file changes (fact 15).
 - **T11** The `#[ignore]`d live-model test `a_live_model_calls_a_real_git_tool` in
-  `governed_git_run.rs`, gated on `SKEIN_LIVE_MODEL` and skipping with a printed note when it is
+  `governed_git_run.rs`, gated on `HEDDLE_LIVE_MODEL` and skipping with a printed note when it is
   unset — `a_live_model_calls_a_real_fs_tool`'s pattern exactly, so the hand-verification is
   repeatable rather than a one-off.
 - **T12** Gates, control diff, dependency drift, close-out. The drift section must state the
@@ -414,7 +414,7 @@ under `## Observed red` before its green. Steps are ordered so each is independe
   already-present package; `cc`/`jobserver` build-only) and must re-measure rather than quote this
   plan. It must also correct slice 016's recorded "libgit2 is a tri-OS build burden" claim with fact
   (11), because that claim is now load-bearing in the wrong direction.
-  `git diff dev --stat -- crates/skein-silo/ spikes/ .github/ rust-toolchain.toml` must be empty.
+  `git diff dev --stat -- crates/heddle-silo/ spikes/ .github/ rust-toolchain.toml` must be empty.
 - **T13** Hand-verification against live Ollama. **Not part of the implementation run**; performed
   separately and recorded under `## Live verification` in `tasks.md`.
 
@@ -432,7 +432,7 @@ between two canonicalized paths, which is exactly why both sides are canonicaliz
 
 ### New tests
 
-`crates/skein-connectors/tests/git_root.rs` — containment (SC-001…SC-004):
+`crates/heddle-connectors/tests/git_root.rs` — containment (SC-001…SC-004):
 
 - `a_repository_at_the_root_opens_and_reports_that_root_as_its_worktree`
 - `a_directory_that_is_not_a_repository_is_refused_and_says_so`
@@ -449,7 +449,7 @@ between two canonicalized paths, which is exactly why both sides are canonicaliz
 - `is_git_repository_agrees_with_open_on_every_one_of_those_cases` — the wiring gate and the server
   gate must not be able to disagree.
 
-`crates/skein-connectors/tests/git_server.rs` — the tools as server methods (SC-005, SC-006, SC-009):
+`crates/heddle-connectors/tests/git_server.rs` — the tools as server methods (SC-005, SC-006, SC-009):
 
 - `git_status_reports_the_branch_and_the_staged_and_worktree_changes_in_porcelain_form` — one
   committed-then-modified file, one staged addition, one untracked file; exact expected string.
@@ -470,16 +470,16 @@ between two canonicalized paths, which is exactly why both sides are canonicaliz
   positive half of the injection claim: the only model-supplied value in the slice is a `u32`, and
   there is no command line for it to reach.
 
-`crates/skein-connectors/tests/connector.rs` — appended (SC-007):
+`crates/heddle-connectors/tests/connector.rs` — appended (SC-007):
 
 - `the_connector_lists_the_git_tools_only_when_the_root_is_a_repository` — plain root → the three fs
   names; repository root → five names, with `git_status`'s advertised schema having an **empty**
   `properties` object (there is nothing to inject) and `git_log`'s carrying `count`.
 - `a_git_tool_whose_route_is_disabled_is_not_callable_by_name` — asserts `Err` from
   `LocalConnector::call` on a non-repository root, and its comment records *why the CLI allowlist
-  gate exists*: this error is a `SkeinError::Tool`, which `NativeLoop::mediate` treats as fatal.
+  gate exists*: this error is a `HeddleError::Tool`, which `NativeLoop::mediate` treats as fatal.
 
-`crates/skein-connectors/tests/governed_git_run.rs` — the headline (SC-008, SC-009, and the
+`crates/heddle-connectors/tests/governed_git_run.rs` — the headline (SC-008, SC-009, and the
 acceptance criterion that nothing between the model and git is a double):
 
 - `a_model_asks_for_git_status_and_gets_the_real_repositorys_state_through_the_governed_gateway` —
@@ -498,18 +498,18 @@ acceptance criterion that nothing between the model and git is a double):
 - `a_crafted_count_is_refused_as_a_tool_error_and_the_run_survives` — the model asks for `git_log`
   with `{"count": "5 --upload-pack=touch pwned"}`; the result arrives `status=ok` with
   `"isError":true` (fact 5), the run reaches `Exit`, and the chain verifies.
-- `a_live_model_calls_a_real_git_tool` — `#[ignore]`d, `SKEIN_LIVE_MODEL`-gated.
+- `a_live_model_calls_a_real_git_tool` — `#[ignore]`d, `HEDDLE_LIVE_MODEL`-gated.
 
-`crates/skein-cli/tests/cli_chat.rs` — appended (SC-010):
+`crates/heddle-cli/tests/cli_chat.rs` — appended (SC-010):
 
 - `chat_with_an_fs_root_that_is_a_git_repository_advertises_the_git_tools_and_reports_real_status` —
   the shipped binary; asserts the five advertised names, the porcelain line reaching the model, the
   twelve-kind `ledger log`, and `ledger verify` reporting `ok`.
 
-`crates/skein-cli/tests/cli_acp_agent.rs` — appended (SC-011):
+`crates/heddle-cli/tests/cli_acp_agent.rs` — appended (SC-011):
 
 - `acp_agent_over_a_git_repository_advertises_the_git_tools_too` — proves `agent_policy` gained them,
-  which nothing else can: `skein-cli` has no `lib` target, so its policies are only observable
+  which nothing else can: `heddle-cli` has no `lib` target, so its policies are only observable
   through the binary.
 
 ### Success criteria for `spec.md`
@@ -534,40 +534,40 @@ acceptance criterion that nothing between the model and git is a double):
 - **SC-009** The only model-supplied value in the slice is a `u32`; a non-numeric `count` is refused
   at the typed boundary, reaches the model as `isError: true`, and the run survives. No subprocess
   is spawned and no argument vector is constructed anywhere in the slice.
-- **SC-010** `skein chat --fs-root <a real repository>` (the **real binary**) advertises the five
+- **SC-010** `heddle chat --fs-root <a real repository>` (the **real binary**) advertises the five
   tools and reports the repository's real status; `ledger verify` passes.
-- **SC-011** `skein acp-agent --fs-root <a real repository>` advertises the five tools.
+- **SC-011** `heddle acp-agent --fs-root <a real repository>` advertises the five tools.
 - **SC-012** Every pre-existing test passes with **no assertion changed or removed**. The only edits
   to pre-existing test files are import lines touched by D3's rename. In particular
   `connector.rs`'s three-tool catalogue test, `cli_chat.rs`'s `["fs_read","fs_list"]` assertion,
   `cli_chat.rs`'s no-`tools`-key control and `cli_acp_agent.rs`'s
   `["fs_read","fs_list","fs_write"]` assertion all keep their bodies, because each uses a
   non-repository root (fact 15).
-- **SC-013** `git diff dev -- crates/skein-silo/ spikes/ .github/ rust-toolchain.toml` is empty.
+- **SC-013** `git diff dev -- crates/heddle-silo/ spikes/ .github/ rust-toolchain.toml` is empty.
 
 ### Hand-verification (T13, after implementation)
 
-Against a live local Ollama, the way `skein chat`, `skein acp-agent` and `skein chat --fs-root` were
+Against a live local Ollama, the way `heddle chat`, `heddle acp-agent` and `heddle chat --fs-root` were
 verified in the prior slices, with the transcript recorded under `## Live verification`:
 
-1. `skein chat --fs-root <a real git repository> --model <a tool-capable model> --prompt "what has
+1. `heddle chat --fs-root <a real git repository> --model <a tool-capable model> --prompt "what has
    changed in this repository, and what were the last three commits?"` — a prompt that needs both
    tools.
-2. `skein ledger log --run <id>` to see the `tool_call`/`approval`/`tool_result` triples, then
-   `skein ledger show <step_id>` on each `tool_result` to read the porcelain and the log lines as
-   they landed on the chain, then `skein ledger verify --run <id>`.
+2. `heddle ledger log --run <id>` to see the `tool_call`/`approval`/`tool_result` triples, then
+   `heddle ledger show <step_id>` on each `tool_result` to read the porcelain and the log lines as
+   they landed on the chain, then `heddle ledger verify --run <id>`.
 3. A second run with `--redact keychain://…` for a value planted in a commit message, confirming
    `***` in the `tool_result` payload.
-4. The repeatable form: `$env:SKEIN_LIVE_MODEL = "<model>"; cargo test -p skein-connectors --test
+4. The repeatable form: `$env:HEDDLE_LIVE_MODEL = "<model>"; cargo test -p heddle-connectors --test
    governed_git_run -- --ignored --nocapture`.
 
 ---
 
 ## Risks and rollback
 
-**Blast radius.** One new module (`crates/skein-connectors/src/git.rs`), four new `#[tool]`-adjacent
+**Blast radius.** One new module (`crates/heddle-connectors/src/git.rs`), four new `#[tool]`-adjacent
 lines in `src/server.rs`, a rename across six files, and one helper plus two reworded doc comments in
-`crates/skein-cli`. `skein-core`, `skein-silo`, `skein-gateway`, `skein-acp`, `skein-mcp`, `spikes/`,
+`crates/heddle-cli`. `heddle-core`, `heddle-silo`, `heddle-gateway`, `heddle-acp`, `heddle-mcp`, `spikes/`,
 `.github/` and `rust-toolchain.toml` are untouched. Absent `--fs-root`, and absent a repository at
 that root, behaviour is byte-identical to `dev`.
 
@@ -609,7 +609,7 @@ Deliberately not done, so nobody helpfully does it:
 - **Any operation that could reach a remote** — `fetch`, `pull`, `push`, `clone`, `ls-remote`,
   `submodule update`. Constitution II is NON-NEGOTIABLE. Beyond not calling them, `git2` is compiled
   with `default = []`, so no HTTPS or SSH transport is linked in at all (fact 10) — the same
-  build-property guarantee `skein-gateway` makes. This repository has no remote, so its own tests
+  build-property guarantee `heddle-gateway` makes. This repository has no remote, so its own tests
   could not have caught a remote call by accident; the guarantee is therefore made at the code and
   build level rather than left to the fixture.
 - **An arbitrary `git` subcommand passthrough tool.** Shell execution in git clothing. Not built,
@@ -630,4 +630,4 @@ Deliberately not done, so nobody helpfully does it:
   `tool_call_id` replay, raw wire-byte capture, streaming (SSE), provider authentication, a config
   file, `--json` output, and the slices-008-vs-014 `serde_json/preserve_order` reconciliation — all
   carried unchanged from slice 016's `## Next slice`.
-- **`crates/skein-silo/`, `spikes/`** (ADR-0004 D2), **`.github/`, `rust-toolchain.toml`.**
+- **`crates/heddle-silo/`, `spikes/`** (ADR-0004 D2), **`.github/`, `rust-toolchain.toml`.**

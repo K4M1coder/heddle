@@ -6,8 +6,8 @@ fast-forwarded onto `dev` at `a8a9d5e`.
 
 ## Constitution Check (ADR-0004 D1 solo-v0 bar)
 
-- **I Headless core** ✅ no new command, no new flag, no new argument, no output change. `skein chat`
-  is untouched — it has no permission gate at all. `skein ledger log`/`show`/`verify` render a run
+- **I Headless core** ✅ no new command, no new flag, no new argument, no output change. `heddle chat`
+  is untouched — it has no permission gate at all. `heddle ledger log`/`show`/`verify` render a run
   cancelled under an open question with zero CLI change, read back from a live one below.
 - **II Local-first** ✅ no new dependency, no `Cargo.toml` change, no socket, no second process, no
   new thread. The slice replaces one blocking `recv` with a `recv_timeout` loop: one atomic load and
@@ -18,8 +18,8 @@ fast-forwarded onto `dev` at `a8a9d5e`.
   Reds B and C are the two-directional revert proving neither cancellation check is redundant, and
   red B **caught a hollow assertion in red A's own test** — see *Deviations* 2. Red D reverts D2's
   exhaustive match and shows that `p1`/`p2`/`p3` do not notice.
-- **IV Inverted coupling** ✅ `skein-core` is **untouched**. `ToolTransport` is not widened; no port
-  gains a method. `skein-cli` is untouched too, which is the dividend of slice 027 having moved the
+- **IV Inverted coupling** ✅ `heddle-core` is **untouched**. `ToolTransport` is not widened; no port
+  gains a method. `heddle-cli` is untouched too, which is the dividend of slice 027 having moved the
   flag into `SessionParts` first: the composition root learns nothing new, and there is no second
   `Arc` to wire wrongly.
 - **V Traceability** ✅ no `StepKind`, no payload shape and no `WireExchange` field is added. The
@@ -51,7 +51,7 @@ fast-forwarded onto `dev` at `a8a9d5e`.
       call (red A)
 - [x] **S3** GREEN — `permission.rs`: the fourth field, `POLL_SLICE`, the `Answer` enum, the polling
       loop with the exhaustive `RecvTimeoutError` match, the two checks, the new refusal; and the
-      fourth clone in `SkeinSession::new`
+      fourth clone in `HeddleSession::new`
 - [x] **S4** controls — an answer given after twelve poll slices is still honoured; a connection that
       dies under the open question ends the wait and is reported as neither cancellation. The second
       **corrected FR-008 as drafted** — see *Deviations* 1
@@ -90,11 +90,11 @@ test p5_a_session_cancelled_while_the_request_is_outstanding_denies_the_call ...
 test p6_a_session_cancelled_before_the_call_never_asks_the_client ... FAILED
 
 ---- p5_… stdout ----
-panicked at crates\skein-acp\tests\acp_session.rs:1160:16:
+panicked at crates\heddle-acp\tests\acp_session.rs:1160:16:
 `AcpPermissionTransport::call` returned: Timeout
 
 ---- p6_… stdout ----
-panicked at crates\skein-acp\tests\acp_session.rs:1160:16:
+panicked at crates\heddle-acp\tests\acp_session.rs:1160:16:
 `AcpPermissionTransport::call` returned: Timeout
 
 test result: FAILED. 3 passed; 2 failed; … finished in 10.01s
@@ -114,7 +114,7 @@ assertion repaired:
 test p6_a_session_cancelled_before_the_call_never_asks_the_client ... FAILED
 test p5_a_session_cancelled_while_the_request_is_outstanding_denies_the_call ... ok
 
-panicked at crates\skein-acp\tests\acp_session.rs:1333:5:
+panicked at crates\heddle-acp\tests\acp_session.rs:1333:5:
 assertion `left == right` failed: a cancelled session raised a permission request anyway
   left: 1
  right: 0
@@ -130,7 +130,7 @@ The pre-request check restored, the `if self.cancelled.load(…)` at the top of 
 test p6_a_session_cancelled_before_the_call_never_asks_the_client ... ok
 test p5_a_session_cancelled_while_the_request_is_outstanding_denies_the_call ... FAILED
 
-panicked at crates\skein-acp\tests\acp_session.rs:1205:16:
+panicked at crates\heddle-acp\tests\acp_session.rs:1205:16:
 `AcpPermissionTransport::call` returned: Timeout
 
 test result: FAILED. 1 passed; 1 failed; … finished in 10.01s
@@ -142,7 +142,7 @@ than by the refusal, which is deliberately one sentence for both (D5).
 
 ### Red D (S6) — D2's exhaustive match collapsed to a wildcard, in both directions
 
-**Toward `Disconnected`** (`Err(_) => return Err(SkeinError::Tool("acp connection closed"))`, which
+**Toward `Disconnected`** (`Err(_) => return Err(HeddleError::Tool("acp connection closed"))`, which
 is what a mechanical conversion of the old untimed line produces):
 
 ```
@@ -155,7 +155,7 @@ test p7_an_answer_given_after_many_poll_slices_is_still_honoured ... FAILED
 test p5_a_session_cancelled_while_the_request_is_outstanding_denies_the_call ... FAILED
 
 ---- p7_… stdout ----
-panicked at crates\skein-acp\tests\acp_session.rs:1287:38:
+panicked at crates\heddle-acp\tests\acp_session.rs:1287:38:
 the late answer was honoured: Tool("acp connection closed")
 ```
 
@@ -178,7 +178,7 @@ only here.
 
 ## Live verification (S7)
 
-`2026-09-04T07:53:09Z` — `2026-09-04T07:53:33Z`. The real `target/debug/skein.exe acp-agent` spawned
+`2026-09-04T07:53:09Z` — `2026-09-04T07:53:33Z`. The real `target/debug/heddle.exe acp-agent` spawned
 as a subprocess and driven over its actual stdio with newline-delimited JSON-RPC, against the real
 `gemma4:latest` on `http://localhost:11434/v1`. The model — not a stub — chose the tool call. The
 permission request it raised was **never answered by the client**; a `session/cancel` was sent
@@ -188,7 +188,7 @@ instead:
 start 2026-09-04T07:53:09.429194+00:00
 [  0.03s]   stderr: serving acp on stdio: silo live028 at http://localhost:11434/v1
 [  0.05s] initialized
-[  0.05s] session = skein-1
+[  0.05s] session = heddle-1
 [  0.05s] ==> session/prompt sent
 [ 24.25s] <== session/request_permission for fs_read (id a9d399f3-…) — LEFT UNANSWERED
 [ 24.25s] ==> session/cancel sent
@@ -212,19 +212,19 @@ turn boundary, `CancellableModel`'s pre-turn refusal, and the response crossing 
 The chain that run left, read back by a second process:
 
 ```
-> skein ledger log --root … --silo live028 --run "skein-1#1"
-skein-1#1  0  iteration_boundary  1d470fb7…
-skein-1#1  1  llm_request         88615743…
-skein-1#1  2  wire_exchange       ba105527…
-skein-1#1  3  llm_response        e8336832…
-skein-1#1  4  budget_spent        a14a622c…
-skein-1#1  5  tool_call           fc6ed669…
-skein-1#1  6  approval            0cb26630…
-skein-1#1  7  iteration_boundary  bc1d90b7…
-skein-1#1  8  llm_request         94510472…
+> heddle ledger log --root … --silo live028 --run "heddle-1#1"
+heddle-1#1  0  iteration_boundary  1d470fb7…
+heddle-1#1  1  llm_request         88615743…
+heddle-1#1  2  wire_exchange       ba105527…
+heddle-1#1  3  llm_response        e8336832…
+heddle-1#1  4  budget_spent        a14a622c…
+heddle-1#1  5  tool_call           fc6ed669…
+heddle-1#1  6  approval            0cb26630…
+heddle-1#1  7  iteration_boundary  bc1d90b7…
+heddle-1#1  8  llm_request         94510472…
 
-> skein ledger verify --root … --silo live028
-skein-1#1  ok  9 steps
+> heddle ledger verify --root … --silo live028
+heddle-1#1  ok  9 steps
 ```
 
 Nine steps, verifying, and the **absence** is the story: there is a `tool_call` and an `approval` but
@@ -252,7 +252,7 @@ payload.
    it, so a dead transport arrives down the answer channel *as an answer*:
 
    ```
-   panicked at crates\skein-acp\tests\acp_session.rs:1287:5:
+   panicked at crates\heddle-acp\tests\acp_session.rs:1287:5:
    expected the closed-connection refusal, got Tool("acp permission request failed: \
    Incoming transport closed: {\n  \"reason\": \"incoming_transport_closed\",\n  \
    \"method\": \"session/request_permission\"\n}")
@@ -301,12 +301,12 @@ payload.
 - **`list` still ends in an untimed `rx.recv()`** in its own test harness
   (`list_through_permission`). It asks no permission, so it has no unanswered question to wait on;
   bounding it would be churn outside this slice.
-- **ACP has no agent-initiated withdrawal** of an outstanding `session/request_permission`. Skein
+- **ACP has no agent-initiated withdrawal** of an outstanding `session/request_permission`. Heddle
   stops waiting; the client is left to notice the session it cancelled, and an answer that arrives
   later is dropped with the channel. An editor that leaves the dialog on screen after its own cancel
   is displaying a question nobody will read — a client-side concern, and out of scope.
 - **No timeout on a human's decision**, deliberately (spec rejected alternative 1).
-- **`skein chat`** has no permission gate and no cancel channel; slices 026 and 027 recorded the same
+- **`heddle chat`** has no permission gate and no cancel channel; slices 026 and 027 recorded the same
   boundary.
 
 ## Validation

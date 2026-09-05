@@ -17,8 +17,8 @@ Status: done
 
 ## Story
 
-As the Skein maintainer,
-I want objective, side-by-side evidence of which execution tier lets Skein own the agent loop (native Rust loop vs embedded goose-sdk vs ACP worker),
+As the Heddle maintainer,
+I want objective, side-by-side evidence of which execution tier lets Heddle own the agent loop (native Rust loop vs embedded goose-sdk vs ACP worker),
 so that ADR-0003 can be Accepted/Revised on facts and the Ledger/LoopController one-way-door contracts can be frozen safely.
 
 ## Acceptance Criteria
@@ -80,7 +80,7 @@ docs/superpowers/spikes/runtime-loop-evidence.md   # output (the real deliverabl
 - [Source: docs/superpowers/adr/0004-solo-v0-calibration.md#D2] — spike authorization & quarantine rules
 - [Source: docs/research/agent-platform-landscape.md#Rust-core-building-blocks-and-protocol-convergence] — rmcp/ACP/goose-sdk facts + option table
 - [Source: docs/superpowers/adr/0002-design-hardening.md#D1,#D11] — loop-ownership decision and native-loop fallback
-- [Source: docs/superpowers/specs/2026-07-15-skein-design.md#4.11,#4.14] — Ledger & LoopController contracts the winner must serve
+- [Source: docs/superpowers/specs/2026-07-15-heddle-design.md#4.11,#4.14] — Ledger & LoopController contracts the winner must serve
 - [Source: _bmad-output/planning-artifacts/validation/validation-report.md#Critical-1] — why this spike gates everything
 
 ## Dev Agent Record
@@ -96,7 +96,7 @@ claude-fable-5 (Claude Code, loop mode iteration 1)
 
 ### Completion Notes List
 
-- Option A (native Skein-owned loop) PASSES criteria 1–4 with observable proofs:
+- Option A (native Heddle-owned loop) PASSES criteria 1–4 with observable proofs:
   C1 raw response byte-exact; request = exact pre-serialization payload (structural assert, not wire/headers);
   C2 `ToolIntercepted` strictly precedes `ToolExecuted`; Deny path blocks execution entirely;
   C3 PARTIAL: send-phase external cancel via CancellationToken, process alive, <5s (body/tool cancel = follow-up);

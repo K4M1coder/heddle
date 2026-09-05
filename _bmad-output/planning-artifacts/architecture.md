@@ -1,5 +1,5 @@
 ---
-name: 'Skein'
+name: 'Heddle'
 type: architecture-spine
 purpose: build-substrate
 altitude: initiative
@@ -9,16 +9,16 @@ status: draft
 created: '2026-07-15'
 updated: '2026-07-15'
 binds: [FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16]
-sources: ['docs/superpowers/specs/2026-07-15-skein-design.md', '_bmad-output/planning-artifacts/PRD.md']
+sources: ['docs/superpowers/specs/2026-07-15-heddle-design.md', '_bmad-output/planning-artifacts/PRD.md']
 companions: ['.specify/memory/constitution.md']
 ---
 
-# Architecture Spine — Skein
+# Architecture Spine — Heddle
 
 ## Design Paradigm
 **Hexagonal (ports & adapters)** + **event sourcing**. The core (agentic domain) depends only on **ports** (traits); external building blocks are interchangeable **adapters**. State is derived from an **immutable event log** (Ledger).
 
-Layers → directories: `crates/skein-core/` (domain + ports), `crates/skein-*-adapter*` & `connectors/` (adapters), `crates/skein-cli/` + `ui/` (surfaces), `sidecar/` (Python), `gateway/` (LiteLLM).
+Layers → directories: `crates/heddle-core/` (domain + ports), `crates/heddle-*-adapter*` & `connectors/` (adapters), `crates/heddle-cli/` + `ui/` (surfaces), `sidecar/` (Python), `gateway/` (LiteLLM).
 
 ## Invariants & Rules
 
@@ -67,7 +67,7 @@ Layers → directories: `crates/skein-core/` (domain + ports), `crates/skein-*-a
 - **Prevents:** config divergence between levels; bypassing a higher-level lock.
 - **Rule:** config is resolved along Silo▸Team▸Project▸Conversation. Without a lock, the most specific value wins. An explicit higher-scope lock caps lower scopes. Security constraints are monotonic floors: lower scopes may tighten but not weaken them. A single resolver governs harness/tracker/egress/providers/secrets and remains bounded to the silo (AD-2).
 
-### AD-10 — Skein owns control; workers are replaceable
+### AD-10 — Heddle owns control; workers are replaceable
 - **Binds:** FR-1, FR-13, FR-16, FR-18
 - **Prevents:** an external runtime hiding model/tool events or becoming the source of truth for policy, workflow state, evidence or completion.
 - **Rule:** the Rust control plane owns the loop and canonical state. Workers are invoked through a versioned contract and are accepted only when the required turn-level events, correlation, approvals and termination controls are observable and enforceable. See ADR-0003.
@@ -82,7 +82,7 @@ Layers → directories: `crates/skein-core/` (domain + ports), `crates/skein-*-a
 ```mermaid
 graph TD
   UI[UI Tauri] --> CLI[CLI / API]
-  CLI --> CORE[skein-core: domain + ports]
+  CLI --> CORE[heddle-core: domain + ports]
   CORE --> RT[AgentRuntime port]
   CORE --> GW[ModelGateway port]
   CORE --> BK[Backend/Silos port]
@@ -101,8 +101,8 @@ graph TD
 
 | Concern | Convention |
 | --- | --- |
-| Naming | crates `skein-*`; traits in `PascalCase` (`AgentRuntime`); modules `snake_case` |
-| Data & formats | session ids `s%06d`; epoch timestamps (i64); errors via `SkeinError` (thiserror); JSON for persisted payloads |
+| Naming | crates `heddle-*`; traits in `PascalCase` (`AgentRuntime`); modules `snake_case` |
+| Data & formats | session ids `s%06d`; epoch timestamps (i64); errors via `HeddleError` (thiserror); JSON for persisted payloads |
 | State & cross-cutting | mutation via event append (Ledger); logging with `tracing`/OpenTelemetry; versioned config-as-code; deny-by-default auth; secrets by reference |
 
 ## Stack
@@ -110,7 +110,7 @@ graph TD
 | Name | Version |
 | --- | --- |
 | Rust | 1.79 (MSRV) |
-| Skein control plane | Rust, version pinned by workspace toolchain |
+| Heddle control plane | Rust, version pinned by workspace toolchain |
 | Agent workers | Optional adapters (Goose, OpenCode, Cline, Hermes, Claude Code, others) |
 | LiteLLM | proxy (100+ providers) |
 | SQLite (rusqlite) | 0.31 (bundled) |
@@ -121,10 +121,10 @@ graph TD
 ## Structural Seed
 
 ```text
-skein/
+heddle/
   crates/
-    skein-core/   # domain + ports (traits) + local implementations
-    skein-cli/    # reference surface (bin `skein`)
+    heddle-core/   # domain + ports (traits) + local implementations
+    heddle-cli/    # reference surface (bin `heddle`)
   connectors/     # MCP servers (Atlassian, M365, fs, git, shell)
   gateway/        # LiteLLM config
   sidecar/        # Python (embeddings/RAG, v2+)
@@ -138,7 +138,7 @@ skein/
 
 | Capability / FR | Lives in | Governed by |
 | --- | --- | --- |
-| FR-1 agentic loop | skein-core + optional worker adapters | AD-1, AD-3, ADR-0003 |
+| FR-1 agentic loop | heddle-core + optional worker adapters | AD-1, AD-3, ADR-0003 |
 | FR-3 multi-provider | ModelGateway port + LiteLLM | AD-3, AD-4 |
 | FR-6 modes/silos | Backend port + ModeSupervisor | AD-2 |
 | FR-8 identity/RBAC | IdentityProvider port + RBAC | AD-6 |

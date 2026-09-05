@@ -6,9 +6,9 @@ cut from `dev` at `8e61c64`.
 
 ## Constitution Check (ADR-0004 D1 solo-v0 bar)
 
-- **I Headless core** ✅ no CLI of its own and no new flag. `skein chat` and `skein acp-agent` are
-  unchanged and stay the authoritative clients; the containment rule stays in `skein-connectors`.
-  `skein-cli/src/wiring.rs`'s three `FsRoot::new` call sites keep their signatures and now open and
+- **I Headless core** ✅ no CLI of its own and no new flag. `heddle chat` and `heddle acp-agent` are
+  unchanged and stay the authoritative clients; the containment rule stays in `heddle-connectors`.
+  `heddle-cli/src/wiring.rs`'s three `FsRoot::new` call sites keep their signatures and now open and
   hold (or drop) a handle, which is the intended behaviour.
 - **II Local-first** ✅ NON-NEGOTIABLE, and this slice is *about* it. Containment stops being a
   decision about a string that a caller then re-walks and becomes a single handle-relative walk in
@@ -20,11 +20,11 @@ cut from `dev` at `8e61c64`.
   red. Step 4's red is not observable on this machine and the entry says exactly why. Step 5 has no
   red by design and carries an **unsandboxed positive control** instead, which is a stronger
   guarantee than a red because it keeps working after the fact.
-- **IV Inverted coupling** ✅ `skein-core` gains nothing and depends on nothing new. No `cap_std`
-  type appears in `skein-core`, in any `ToolTransport` signature, or in any public signature outside
+- **IV Inverted coupling** ✅ `heddle-core` gains nothing and depends on nothing new. No `cap_std`
+  type appears in `heddle-core`, in any `ToolTransport` signature, or in any public signature outside
   `FsRoot`; `cap_std::fs::File` and `ReadDir` are returned to `server.rs` and nowhere else.
-  `crates/skein-connectors/Cargo.toml` records `src/fs.rs` as the only module that may name the
-  dependency, the same boundary `git2` and `skein-sandbox` already get there.
+  `crates/heddle-connectors/Cargo.toml` records `src/fs.rs` as the only module that may name the
+  dependency, the same boundary `git2` and `heddle-sandbox` already get there.
 - **V Traceability** ✅ unchanged machinery, unchanged shape: an `fs` call still lands `ToolCall` →
   `Approval` → `ToolResult` on the chain, and a refusal still verifies. No new `StepKind`, no change
   to `ToolGateway`, `Approval`, `Redactor` or `AcpPermissionTransport`.
@@ -75,7 +75,7 @@ before any edit:
   `git_root` 5, `git_server` 13, `governed_fs_run` 4 (+1 ignored), `governed_git_run` 4 (+1
   ignored), `governed_proc_run` 0 (+2 ignored), `run_server` 10, `core` 19, `native_loop` 25,
   `tool_gateway` 14, `governed_run` 2, `openai_compat` 15 (+1 ignored), `rmcp_gateway` 9,
-  `skein-sandbox` `src/lib.rs` unit target 4, `escape` 4, `launch` 4, `profile` 3, `silo_ledger` 7,
+  `heddle-sandbox` `src/lib.rs` unit target 4, `escape` 4, `launch` 4, `profile` 3, `silo_ledger` 7,
   `silo_secret` 5. Every other unit and doc target reports 0.
 
 ## Close (T9)
@@ -104,12 +104,12 @@ Record this set so the next slice can diff it: the three `windows-sys` majors co
 
 ## Observed red
 
-**T3 — the impostor root.** `cargo test -p skein-connectors --test fs_root`, the one new test, run
+**T3 — the impostor root.** `cargo test -p heddle-connectors --test fs_root`, the one new test, run
 against the pre-`cap-std` mechanism:
 
 ```
 thread 'an_impostor_at_the_roots_name_is_not_the_root' panicked at
-crates\skein-connectors\tests\fs_root.rs:336:18:
+crates\heddle-connectors\tests\fs_root.rs:336:18:
 a file planted at the root's vacated name must not be reachable: "planted"
 test result: FAILED. 13 passed; 1 failed
 ```
@@ -217,13 +217,13 @@ the old mechanism left open.
 
 ## Live verification (T11)
 
-Run on 2026-09-04 against the **shipped binary** (`target/debug/skein.exe`), on this machine, with a
+Run on 2026-09-04 against the **shipped binary** (`target/debug/heddle.exe`), on this machine, with a
 scripted stub provider standing in for a local model and a real junction planted in a real
 `--fs-root`. Nothing below the client is a double: the binary, the connector, the root handle and
 the filesystem are the real article. The driver scripts were scratch files under this run's
 artifacts and were removed afterwards; nothing was added to the repository.
 
-**Read half — `skein chat`.** Root holding `notes.txt`, a sibling `outside/` holding `secret.txt`,
+**Read half — `heddle chat`.** Root holding `notes.txt`, a sibling `outside/` holding `secret.txt`,
 and `root/sub` a junction to `outside`. The stub answers the first turn with a `fs_read` tool call
 for `sub/secret.txt`.
 
@@ -234,7 +234,7 @@ exit code = 0
 --- what the model was told about fs_read ---
 [tool_result tool=fs_read status=ok]
 {"content":[{"type":"text","text":"sub/secret.txt resolves outside the root
-\\\\?\\D:\\Users\\cthedrez\\AppData\\Local\\Temp\\skein-021-t6qqgc6x\\root and is refused"}],
+\\\\?\\D:\\Users\\cthedrez\\AppData\\Local\\Temp\\heddle-021-t6qqgc6x\\root and is refused"}],
 "isError":true}
 
 --- did anything appear outside the root? ---
@@ -246,7 +246,7 @@ junction really does read the outside file, so the refusal is containment and no
 `status=ok` is right and load-bearing too — the *transport* succeeded and the refusal is inside the
 result, where the model can read it and the run can continue.
 
-**Write half — `skein acp-agent`.** `skein chat` never offers `fs_write` (it has nobody to ask for a
+**Write half — `heddle acp-agent`.** `heddle chat` never offers `fs_write` (it has nobody to ask for a
 confirmation), so the write path was driven over ACP with a client that **granted** the permission
 request by selecting an offered `allow` option, the way a real editor does.
 
@@ -259,7 +259,7 @@ permission asked for: "fs_write"
 --- what the model was told about fs_write ---
 [tool_result tool=fs_write status=ok]
 {"content":[{"type":"text","text":"sub/planted.txt resolves outside the root
-\\\\?\\D:\\Users\\cthedrez\\AppData\\Local\\Temp\\skein-021w-e_mzvcyu\\root and is refused"}],
+\\\\?\\D:\\Users\\cthedrez\\AppData\\Local\\Temp\\heddle-021w-e_mzvcyu\\root and is refused"}],
 "isError":true}
 
 --- did anything appear outside the root? ---

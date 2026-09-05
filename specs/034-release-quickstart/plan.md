@@ -15,11 +15,11 @@ in it. D12 states what "tested" means instead, and `tasks.md` makes it a set of 
 
 ```
 git fetch origin dev && git reset --hard origin/dev
-git log -1 --oneline      → ae3a5a9  refactor(skein-core): share one secret buffer across a run's redactors
+git log -1 --oneline      → ae3a5a9  refactor(heddle-core): share one secret buffer across a run's redactors
 ```
 
 This step is load-bearing and not ceremony: this project's worktrees have repeatedly started from
-`d364405`, seventy commits behind, where `crates/skein-cli/src/sandbox.rs` does not exist, `specs/`
+`d364405`, seventy commits behind, where `crates/heddle-cli/src/sandbox.rs` does not exist, `specs/`
 stops at 020, and `README.md`'s *Current status* is the stale one the new Quickstart section would
 have had to sit beside. Slice 029's `plan.md` §0.1 opens with the identical finding.
 
@@ -31,7 +31,7 @@ have had to sit beside. Slice 029's `plan.md` §0.1 opens with the identical fin
 2. *"AGENTS.md"* — no such file at any commit reachable here. The engineering discipline meant lives
    in `.specify/memory/constitution.md`, which this plan cites.
 3. The `sandbox` subcommand is present, as the work order says — `mod sandbox;`, `Command::Sandbox`,
-   `SandboxCommand::{List, Prune}` in `crates/skein-cli/src/main.rs`.
+   `SandboxCommand::{List, Prune}` in `crates/heddle-cli/src/main.rs`.
 
 ### 0.2 The three gates, run unmodified as the control baseline
 
@@ -48,14 +48,14 @@ have had to sit beside. Slice 029's `plan.md` §0.1 opens with the identical fin
 | exit | 0 |
 | compiler warnings | **0** |
 | wall time (warm cargo cache, cold release profile) | 1 m 20 s |
-| `target/release/skein.exe` | **12,943,872 bytes** |
-| `target/release/skein.pdb` | 7,630,848 bytes — MSVC keeps symbols *out* of the exe |
-| no-op rebuild (`-p skein-cli`, already current) | 0.17–0.23 s |
-| `skein --version` after D6 | `skein 0.1.0` |
+| `target/release/heddle.exe` | **12,943,872 bytes** |
+| `target/release/heddle.pdb` | 7,630,848 bytes — MSVC keeps symbols *out* of the exe |
+| no-op rebuild (`-p heddle-cli`, already current) | 0.17–0.23 s |
+| `heddle --version` after D6 | `heddle 0.1.0` |
 | toolchain | `cargo 1.97.1` / `rustc 1.97.1`, from `rust-toolchain.toml` (`channel = "1.97"`) |
 
 **There is no release-profile-only defect.** The three candidates — vendored `libgit2`, bundled
-SQLite, and the `windows` / `win32job` FFI in `skein-sandbox` — all compiled clean with zero
+SQLite, and the `windows` / `win32job` FFI in `heddle-sandbox` — all compiled clean with zero
 warnings. `crates/` therefore needs no change on this account, and the 0.2 s no-op number is what
 makes D3 correct.
 
@@ -70,7 +70,7 @@ gemma4:latest    8.0B    completion,tools,thinking
 lfm2.5:latest    8.5B    completion,tools,thinking
 ```
 
-`GET /v1/models` — the OpenAI-compatible route Skein itself uses — returns only
+`GET /v1/models` — the OpenAI-compatible route Heddle itself uses — returns only
 `{id, object, created, owned_by}`. So the probe must use the **native** route at the server root,
 which the script derives from the configured base URL by stripping a trailing `/v1`.
 
@@ -79,19 +79,19 @@ which the script derives from the configured base URL by stripping a trailing `/
 Provoked this run against the release binary built from this branch, verbatim:
 
 ```
-$ skein chat … --base-url http://localhost:19999/v1
+$ heddle chat … --base-url http://localhost:19999/v1
 error: model provider: POST http://localhost:19999/v1/chat/completions failed: io: Connection
 refused; is a local provider listening at http://localhost:19999/v1?
 
-$ skein chat … --model no-such-model:latest
+$ heddle chat … --model no-such-model:latest
 error: model provider: http://localhost:11434/v1 returned 404: {"error":{"message":"model
 'no-such-model:latest' not found","type":"not_found_error","param":null,"code":null}}
 
-$ skein chat … --base-url https://api.openai.com/v1
+$ heddle chat … --base-url https://api.openai.com/v1
 error: model provider: base URL "https://api.openai.com/v1" is not a local provider: scheme "https"
-is refused; Skein v0 talks to local providers over http only, and no TLS backend is compiled in
+is refused; Heddle v0 talks to local providers over http only, and no TLS backend is compiled in
 
-$ skein chat … --fs-root .
+$ heddle chat … --fs-root .
 ope
 error: tool transport: fs root .
 ope: Le fichier spécifié est introuvable. (os error 2)
@@ -105,7 +105,7 @@ message and not this slice's to change.
 
 ### 0.6 Two more measured facts that shape decisions
 
-- **`skein sandbox list` prints 1,640 profiles on this machine**, all `unrecorded` — historical
+- **`heddle sandbox list` prints 1,640 profiles on this machine**, all `unrecorded` — historical
   AppContainer leaks from pre-024 test runs. This is the concrete reason D8 keeps `--allow-run` out
   of the demo: it is the flag that mints them.
 - **`Invoke-RestMethod`'s own exception text must never be surfaced for this probe — and the
@@ -129,21 +129,21 @@ message and not this slice's to change.
 
 | anchor | file | fact relied on |
 |---|---|---|
-| `ChatArgs` / `Command::Chat` | `crates/skein-cli/src/main.rs` | the exact flag set the demo invokes |
-| `SiloArgs::root` | `crates/skein-cli/src/main.rs` | `--root`, else `$SKEIN_ROOT`, else a loud refusal — so passing `--root` makes the demo independent of ambient env |
-| `LedgerCommand::{Log,Verify}` | `crates/skein-cli/src/main.rs` | `--run` narrows `log`; `verify` without `--run` covers every run in the silo |
-| `DEFAULT_BASE_URL` | `crates/skein-cli/src/wiring.rs` | `"http://localhost:11434/v1"`, and `--base-url` else `$SKEIN_MODEL_BASE_URL` else that — the precedence the script mirrors |
-| `ModelArgs::model` | `crates/skein-cli/src/wiring.rs` | `--model` is **required**, deliberately: *"defaulting to a model the machine may not have produces a 404 that looks like a bug"* |
-| `ModelArgs::timeout_secs` | `crates/skein-cli/src/wiring.rs` | default 120 s, whole-request — what D5's 180 raises |
-| `ToolArgs::chat_policy` | `crates/skein-cli/src/wiring.rs` | `chat` gets `fs_read`/`fs_list` (+ git when the root is a repo) and **never** `fs_write`: the demo is read-only by construction |
-| `ToolArgs::git_tools` | `crates/skein-cli/src/wiring.rs` | `git_status`/`git_log` appear only when `--fs-root` is a git repository |
-| `RunArgs::allow_run` | `crates/skein-cli/src/wiring.rs` | *"Grants this run's AppContainer identity an inheritable entry on that directory's ACL, which is a real and lasting change"* — D8 quotes this |
-| `chat` / `minted_run_id` | `crates/skein-cli/src/chat.rs` | run id to **stderr**, answer to **stdout**; a supplied `--run-id` bypasses minting, which is why D5 supplies one |
-| `sandbox::{list,prune}` | `crates/skein-cli/src/sandbox.rs` | the documented undo `QUICKSTART.md` points at |
-| `LocalEndpoint::parse` | `crates/skein-gateway/src/lib.rs` | loopback-only, `http://` only, no TLS backend compiled in |
-| `Silo::open` | `crates/skein-silo/src/lib.rs` | `create_dir_all`s the silo dir; the id must be one component of `[A-Za-z0-9._-]` |
-| `fs_read` / `fs_list` descriptions | `crates/skein-connectors/src/server.rs` | `path` is relative to the root — so the demo prompt names `README.md`, not an absolute path |
-| `record.rs` profile dir | `crates/skein-sandbox/src/record.rs` | `%LOCALAPPDATA%\Packages\<profile>\` — so `%LOCALAPPDATA%\skein\` is free for the demo silo root |
+| `ChatArgs` / `Command::Chat` | `crates/heddle-cli/src/main.rs` | the exact flag set the demo invokes |
+| `SiloArgs::root` | `crates/heddle-cli/src/main.rs` | `--root`, else `$HEDDLE_ROOT`, else a loud refusal — so passing `--root` makes the demo independent of ambient env |
+| `LedgerCommand::{Log,Verify}` | `crates/heddle-cli/src/main.rs` | `--run` narrows `log`; `verify` without `--run` covers every run in the silo |
+| `DEFAULT_BASE_URL` | `crates/heddle-cli/src/wiring.rs` | `"http://localhost:11434/v1"`, and `--base-url` else `$HEDDLE_MODEL_BASE_URL` else that — the precedence the script mirrors |
+| `ModelArgs::model` | `crates/heddle-cli/src/wiring.rs` | `--model` is **required**, deliberately: *"defaulting to a model the machine may not have produces a 404 that looks like a bug"* |
+| `ModelArgs::timeout_secs` | `crates/heddle-cli/src/wiring.rs` | default 120 s, whole-request — what D5's 180 raises |
+| `ToolArgs::chat_policy` | `crates/heddle-cli/src/wiring.rs` | `chat` gets `fs_read`/`fs_list` (+ git when the root is a repo) and **never** `fs_write`: the demo is read-only by construction |
+| `ToolArgs::git_tools` | `crates/heddle-cli/src/wiring.rs` | `git_status`/`git_log` appear only when `--fs-root` is a git repository |
+| `RunArgs::allow_run` | `crates/heddle-cli/src/wiring.rs` | *"Grants this run's AppContainer identity an inheritable entry on that directory's ACL, which is a real and lasting change"* — D8 quotes this |
+| `chat` / `minted_run_id` | `crates/heddle-cli/src/chat.rs` | run id to **stderr**, answer to **stdout**; a supplied `--run-id` bypasses minting, which is why D5 supplies one |
+| `sandbox::{list,prune}` | `crates/heddle-cli/src/sandbox.rs` | the documented undo `QUICKSTART.md` points at |
+| `LocalEndpoint::parse` | `crates/heddle-gateway/src/lib.rs` | loopback-only, `http://` only, no TLS backend compiled in |
+| `Silo::open` | `crates/heddle-silo/src/lib.rs` | `create_dir_all`s the silo dir; the id must be one component of `[A-Za-z0-9._-]` |
+| `fs_read` / `fs_list` descriptions | `crates/heddle-connectors/src/server.rs` | `path` is relative to the root — so the demo prompt names `README.md`, not an absolute path |
+| `record.rs` profile dir | `crates/heddle-sandbox/src/record.rs` | `%LOCALAPPDATA%\Packages\<profile>\` — so `%LOCALAPPDATA%\heddle\` is free for the demo silo root |
 | bootstrap scripts | `scripts/bootstrap.{ps1,sh}` | dependency installation only, **no build and no run step**; both read the pinned channel out of `rust-toolchain.toml` rather than hardcoding it — a pattern this slice copies |
 | CI | `.github/workflows/core.yml` | `fmt` / `clippy -D warnings` / `test`, tri-OS, **debug only — nothing in CI has ever built `--release`** |
 | C-compiler prerequisite | `docs/DEVELOPMENT.md` §*Machine prerequisites (not installed by the scripts)* | the section D3's hint text points at rather than inventing one |
@@ -158,7 +158,7 @@ message and not this slice's to change.
   `Process = Bypass` only because the shell this run measured from sets it. **So on a default box a
   `.ps1` arriving with a Mark-of-the-Web is refused**, with an error about signatures that says
   nothing about what to do. D11 addresses it.
-- `%LOCALAPPDATA%` = `D:\Users\cthedrez\AppData\Local`; `%LOCALAPPDATA%\skein` did not exist.
+- `%LOCALAPPDATA%` = `D:\Users\cthedrez\AppData\Local`; `%LOCALAPPDATA%\heddle` did not exist.
 
 ---
 
@@ -179,9 +179,9 @@ $SourceMode = (Test-Path (Join-Path $repoRoot 'Cargo.toml')) -and (Test-Path (Jo
 Both markers, not one, so a bundle extracted into an unlucky parent cannot be mistaken for a
 checkout.
 
-| | source mode (in a clone) | bundle mode (beside `skein.exe`) |
+| | source mode (in a clone) | bundle mode (beside `heddle.exe`) |
 |---|---|---|
-| binary | built by `cargo build --release -p skein-cli`, then `target/release/skein.exe` | `$PSScriptRoot/skein.exe`, as-is |
+| binary | built by `cargo build --release -p heddle-cli`, then `target/release/heddle.exe` | `$PSScriptRoot/heddle.exe`, as-is |
 | toolchain check | required | **skipped entirely** |
 | `--fs-root` | the repo root — a git repo, so `git_status`/`git_log` are advertised too | the **current working directory** (D9a) |
 
@@ -206,9 +206,9 @@ Two consequences honoured rather than improved on:
 
 ### D3 — Always invoke cargo; never hand-roll a staleness check
 
-Source mode runs `cargo build --release -p skein-cli` unconditionally. §0.3 measured the no-op at
+Source mode runs `cargo build --release -p heddle-cli` unconditionally. §0.3 measured the no-op at
 0.17–0.23 s, so "build if not already built" is a decision cargo makes faster and more correctly
-than a timestamp comparison over `src/**` would. `-p skein-cli` and not `--workspace`: the
+than a timestamp comparison over `src/**` would. `-p heddle-cli` and not `--workspace`: the
 quickstart needs one binary; `--workspace --release` is the *gate* (§4) and `package.ps1`'s job,
 which is different.
 
@@ -257,7 +257,7 @@ have shipped a quickstart that reliably fails on the machine it was written on. 
 
 The invariant forbids picking *silently*, not picking. A quickstart that refuses to run until you
 name a model is not a one-command quickstart; one that announces its choice and shows the
-alternatives is. Skein's own `--model` stays required — `wiring.rs` records why — and the script
+alternatives is. Heddle's own `--model` stays required — `wiring.rs` records why — and the script
 supplies the value rather than changing the CLI. It suggests `ollama pull gemma4` with its ~9.6 GB
 size; it never runs it.
 
@@ -269,7 +269,7 @@ anyone who wants another.
 
 ### D6 — `version = "0.1.0"` on `[workspace.package]`; every crate takes `version.workspace = true`
 
-`skein --version` printed `skein 0.0.0` — cargo's never-published placeholder, and what someone
+`heddle --version` printed `heddle 0.0.0` — cargo's never-published placeholder, and what someone
 handed a folder called *release* would read. One declaration on `[workspace.package]`, and
 `version.workspace = true` in all eight `crates/*/Cargo.toml`, matching how `edition`, `rust-version`
 and `license` are already inherited. Verified safe: nothing under `crates/` references
@@ -288,33 +288,33 @@ file with `0.2.0` and a one-line `0.1.0 — first packaged build (specs 001–02
 `RunArgs`'s own doc comment: *"Grants this run's AppContainer identity an inheritable entry on that
 directory's ACL, which is a real and lasting change to the directory's permissions."* §0.6 measured
 what that costs in practice: 1,640 leftover profiles here. A first-contact demo must not add to that
-pile on a colleague's laptop, nor require them to understand `skein sandbox prune` before they have
+pile on a colleague's laptop, nor require them to understand `heddle sandbox prune` before they have
 seen a single answer.
 
-Read-only is structural rather than promised: `ToolArgs::chat_policy` omits `fs_write` from `skein
+Read-only is structural rather than promised: `ToolArgs::chat_policy` omits `fs_write` from `heddle
 chat`'s allowlist entirely, with the comment explaining that a non-interactive command has nobody to
 confirm a destructive action to. The demo therefore *cannot* write, whatever the model tries.
 
 `QUICKSTART.md` gets a *Going further* section naming `--allow-run`, what it grants, that it is
-Windows-only in v0 (ADR-0006), and `skein sandbox list` / `prune` as the undo — with the suggestion
+Windows-only in v0 (ADR-0006), and `heddle sandbox list` / `prune` as the undo — with the suggestion
 to run `list` once after first trying it, so the cost is seen rather than described.
 
 ### D9 — "Distributable" = a folder and its zip, from `scripts/package.ps1`
 
 ```
-dist/skein-0.1.0-windows-x64/
-    skein.exe        12,943,872   from target/release (§0.3)
+dist/heddle-0.1.0-windows-x64/
+    heddle.exe        12,943,872   from target/release (§0.3)
     quickstart.ps1       10,732   the identical file from scripts/, copied (D1)
     QUICKSTART.md         5,365   the colleague's whole instruction set (D11)
     README.md             3,292   project context *and* the demo's fs_read target
     LICENSE              11,346   (D10)
-dist/skein-0.1.0-windows-x64.zip  5,192,500
+dist/heddle-0.1.0-windows-x64.zip  5,192,500
 ```
 
 `dist/` is already ignored, so the artifact is never committed. `package.ps1` runs
 `cargo build --workspace --release` first, so packaging cannot outrun the gate; the version is read
 out of `[workspace.package]` and never retyped, so the folder name and the binary's `--version`
-cannot disagree. `skein.pdb` is excluded: 7.3 MiB of separate debug symbols on a 13 MB payload,
+cannot disagree. `heddle.pdb` is excluded: 7.3 MiB of separate debug symbols on a 13 MB payload,
 serving nobody without the matching source tree. Rejected alternatives 10–13 record why this is not
 cargo-dist, not an MSI, not `cargo install` as the primary path, and not a bare `.exe`.
 
@@ -351,9 +351,9 @@ reader nothing. The binary is unsigned too, so SmartScreen may also interpose.
 `QUICKSTART.md` therefore opens with the literal commands, before any explanation:
 
 ```powershell
-Expand-Archive .\skein-0.1.0-windows-x64.zip -DestinationPath .
-Get-ChildItem -Recurse .\skein-0.1.0-windows-x64 | Unblock-File
-cd .\skein-0.1.0-windows-x64
+Expand-Archive .\heddle-0.1.0-windows-x64.zip -DestinationPath .
+Get-ChildItem -Recurse .\heddle-0.1.0-windows-x64 | Unblock-File
+cd .\heddle-0.1.0-windows-x64
 pwsh -ExecutionPolicy Bypass -File .\quickstart.ps1
 ```
 
@@ -378,7 +378,7 @@ Two Constitution rows are **⚠️ with a reason**, and must not be rounded up:
   sibling with a real run behind it is a named residual. The *product* remains tri-OS green via
   `core.yml`; only this onboarding script is not.
 - **Per-OS code signing** ⚠️ — *Additional Constraints* requires Authenticode for an agent that
-  drives the PC, and this bundle ships an **unsigned** `skein.exe`. No certificate exists. Recorded
+  drives the PC, and this bundle ships an **unsigned** `heddle.exe`. No certificate exists. Recorded
   as a deviation with its consequence (SmartScreen, D11) rather than passed over — and it is the
   strongest reason an MSI would be worse than a zip today: a signed installer is the real fix, and it
   needs a certificate, not a build system.
@@ -392,7 +392,7 @@ and is a sequence of calls onto the existing CLI plus a rendering — the same r
 - **S0** reset onto `dev` at `ae3a5a9`; confirm the tree; run the three gates as the control
   baseline.
 - **S1** verify `cargo build --workspace --release` and record exit, warnings, time and size.
-- **S2** the version bump (D6); `skein --version` → `skein 0.1.0`.
+- **S2** the version bump (D6); `heddle --version` → `heddle 0.1.0`.
 - **S3/S4** `scripts/quickstart.ps1` — mode detection, the four checks, model selection, then the
   demo turn and the ledger.
 - **S5** `scripts/package.ps1` and the bundle (D9).
@@ -415,7 +415,7 @@ Plus the two this slice adds:
 
 | gate | command | expectation |
 |---|---|---|
-| release build | `cargo build --workspace --release` | exit 0, **0 warnings**, `target/release/skein.exe` |
+| release build | `cargo build --workspace --release` | exit 0, **0 warnings**, `target/release/heddle.exe` |
 | the quickstart itself | `pwsh -File scripts/quickstart.ps1` | a real answer, then a `tool_call`/`approval`/`tool_result` triple on a chain `ledger verify` reports `ok` |
 
 **No new Rust tests.** The slice adds no Rust behaviour to prove, and a test asserting a PowerShell
@@ -430,7 +430,7 @@ implementer does not add one reflexively.
 - **A quickstart that "works" without calling a tool.** The failure D4's fourth check exists for.
   Mitigated twice — the capability filter before the run, and the ledger after it, where a missing
   `tool_call` step is both visible and called out in words. If a transcript ever shows a chain
-  without that triple, the run did **not** demonstrate Skein.
+  without that triple, the run did **not** demonstrate Heddle.
 - **An unusable network error.** §0.6: the probe's own exception text is either localized to the OS
   display language (measured) or blames a timeout for an instant refusal (measured at a shorter
   timeout, not reproduced here). Mitigated by never surfacing it; the S6(a) transcript asserts the

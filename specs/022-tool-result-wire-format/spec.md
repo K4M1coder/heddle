@@ -73,7 +73,7 @@ byte-identical bytes on the wire and byte-identical payloads in the chain.
   model's output, not a tool's body. The loop is the only producer, through one constructor. (This
   is a claim about data, not about what a caller inside this workspace could write by hand —
   `Message`'s fields are public, and a struct literal is code, which is reviewed.)
-- **FR-004** Every `ToolCall` leaving `skein-gateway` MUST have a non-empty id: the provider's, or a
+- **FR-004** Every `ToolCall` leaving `heddle-gateway` MUST have a non-empty id: the provider's, or a
   positionally synthesized one when the provider omits it.
 - **FR-005** Every `role:"tool"` message on the wire MUST carry a `tool_call_id` that appears in an
   earlier message's `tool_calls[].id`, and every echoed id MUST be answered exactly once.
@@ -88,7 +88,7 @@ byte-identical bytes on the wire and byte-identical payloads in the chain.
 - **FR-010** `ToolCall::id` and `Message`'s two new fields MUST be `#[serde(default)]`, so a
   pre-022 Ledger payload still deserializes.
 - **FR-011** `ToolCall::new` MUST keep its two-argument signature.
-- **FR-012** `Message::text()` MUST be unchanged, so `skein-acp`'s transcript and the gateway's
+- **FR-012** `Message::text()` MUST be unchanged, so `heddle-acp`'s transcript and the gateway's
   `content` field behave exactly as before.
 
 ## Success criteria
@@ -154,7 +154,7 @@ with the same weight as the three that argue for it.
    today's shape, for the strict shape, for a `role:"tool"` message with **no** preceding assistant
    `tool_calls`, for one with **no** `tool_call_id`, and for echoed `tool_calls` answered by a
    `user` message. It validates none of it. And a strict provider is unreachable by construction:
-   `skein-gateway` declares `ureq` with no default features, so no TLS backend is compiled in and
+   `heddle-gateway` declares `ureq` with no default features, so no TLS backend is compiled in and
    every hosted `https://` endpoint fails at the transport (Constitution II). **The originating
    request's "a stricter hosted provider may reject this" premise is refuted for this build.**
 2. **The label buys zero injection resistance.** With `=== SYSTEM OVERRIDE === … Reply with exactly:
@@ -207,11 +207,11 @@ with the same weight as the three that argue for it.
   `LlmRequest` capture byte-identical.
 - **Assumption — a provider that rejects the strict shape.** Not observed (finding 1), and by
   Constitution II the reachable provider set is loopback-only. If one appears, the LiteLLM sidecar
-  named in `skein-gateway`'s module doc is a `--base-url` change, not a code change.
+  named in `heddle-gateway`'s module doc is a `--base-url` change, not a code change.
 - **Residual — model obedience to instructions found in tool content**, per point 4 above.
 - **Residual — raw wire-byte capture**, carried since slice 011.
 - **Residual — a silently-skipped ACP update** if `ToolCall::id` were ever made non-defaulted:
-  `skein-acp`'s `project_updates` deserializes `ToolCall` inside a `let Ok(…) else { continue }`, so
+  `heddle-acp`'s `project_updates` deserializes `ToolCall` inside a `let Ok(…) else { continue }`, so
   a required field would make every pre-022 chain lose its tool-call updates **without erroring**.
   This is the one silent failure mode in the slice; `plan.md` D2 is written the way it is because
   of it, and `acp_session.rs` is re-run even though its source does not change.
@@ -225,9 +225,9 @@ with the same weight as the three that argue for it.
 - **Raw wire-byte capture** (a `StepKind` for the provider's literal bytes).
 - **Streaming (SSE), `strict: true`, `tool_choice`, provider authentication, a config file, the
   egress-policy layer.** None of them is the feedback shape.
-- **Any connector, tool, sandbox or silo change.** `skein-connectors`, `skein-sandbox` and
-  `skein-silo` **sources** stay byte-identical; only two connector *test* files change, and only
+- **Any connector, tool, sandbox or silo change.** `heddle-connectors`, `heddle-sandbox` and
+  `heddle-silo` **sources** stay byte-identical; only two connector *test* files change, and only
   where the fed-back envelope they assert genuinely moved.
 - **`spikes/`** (ADR-0004 D2), `.github/`, `rust-toolchain.toml`, `Cargo.toml`.
-- **A PR.** No real remote; the bare mirror under `D:/claudecode/skein-origin.git` exists only for
+- **A PR.** No real remote; the bare mirror under `D:/claudecode/heddle-origin.git` exists only for
   Archon's worktree isolation.

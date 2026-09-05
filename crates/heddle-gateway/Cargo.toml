@@ -1,0 +1,20 @@
+[package]
+name = "heddle-gateway"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+heddle-core = { path = "../heddle-core" }
+serde.workspace = true
+serde_json.workspace = true
+# No default features, deliberately: `default = ["rustls", "gzip"]` would compile
+# a TLS backend in, and without one an `https://` endpoint is unreachable at the
+# transport (`ureq::Error::TlsRequired`). That is what makes "local providers
+# only" (Constitution II) a property of the build. Do not relax this.
+ureq = { workspace = true }
+http.workspace = true
+# Parsing only: the provider table an operator writes. The workspace manifest
+# records why its default features are off.
+toml.workspace = true

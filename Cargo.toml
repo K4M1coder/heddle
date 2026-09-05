@@ -30,7 +30,7 @@ rusqlite = { version = "0.40", default-features = false, features = ["bundled"] 
 # `default-features = false` is the point, not tidiness: git2 0.21's `default`
 # is empty, so with `https` and `ssh` left off **no network transport is
 # compiled in at all** — no `openssl-sys`, no `libssh2-sys` in the tree. That is
-# the same build-property guarantee `skein-gateway` makes about TLS
+# the same build-property guarantee `heddle-gateway` makes about TLS
 # (Constitution II, NON-NEGOTIABLE), now applied to git. `vendored-libgit2`
 # pins one libgit2 on all three OSes instead of linking whatever a runner has,
 # mirroring `rusqlite`'s `bundled` above.
@@ -40,7 +40,7 @@ chrono = { version = "0.4", default-features = false, features = ["std"] }
 # a directory handle, and opens resolved relative to it. Windows has no
 # `openat`, so a genuine handle-relative open needs `NtCreateFile` with
 # `OBJECT_ATTRIBUTES.RootDirectory` — the `Wdk_*` layer of `windows-sys`, below
-# the Win32 layer `skein-sandbox` uses. This crate is the Bytecode Alliance's,
+# the Win32 layer `heddle-sandbox` uses. This crate is the Bytecode Alliance's,
 # it is the filesystem sandbox underneath Wasmtime's WASI, and it clears every
 # criterion ADR-0006 used to reject `rappct` (~5,400 all-time downloads, single
 # maintainer, pre-1.0) by orders of magnitude: ~18.9M all-time downloads, an
@@ -68,22 +68,22 @@ ureq = { version = "3", default-features = false }
 http = "1"
 # The first config-file parser in the workspace, and `default-features = false`
 # for `ureq`'s reason rather than for tidiness: `default` turns on `display`,
-# which is a TOML *writer*. Skein reads an operator's file and never writes one,
+# which is a TOML *writer*. Heddle reads an operator's file and never writes one,
 # so the writer is code that could only ever be dead. What is left is a pure
 # parser — no network, no TLS, no filesystem — which is what keeps spec 012's
-# SC-007 ("no TLS crate in `skein-gateway`'s tree") true of a crate that now has
+# SC-007 ("no TLS crate in `heddle-gateway`'s tree") true of a crate that now has
 # a dependency it did not have. `preserve_order` stays off, matching the
 # `serde_json` decision slices 008 and 014 reconciled.
 toml = { version = "1", default-features = false, features = ["parse", "serde", "std"] }
 # Pinned to 0.61 and not the newer 0.62 on purpose: `win32job` below depends on
 # `windows ^0.61`, and one copy of a very large generated crate in the tree
-# beats two. Nothing `skein-sandbox` calls is 0.62-only, and `assign_process`
+# beats two. Nothing `heddle-sandbox` calls is 0.62-only, and `assign_process`
 # takes an `isize` rather than a `HANDLE`, so even a future split would not be
 # a type-safety problem — the pin is about footprint, the same discipline that
 # produced `git2`'s and `ureq`'s `default-features = false`.
 #
 # Both entries appear **only** in `[target.'cfg(windows)'.dependencies]` of
-# `skein-sandbox`, so `cargo tree` on Linux and macOS shows neither at all.
+# `heddle-sandbox`, so `cargo tree` on Linux and macOS shows neither at all.
 windows = { version = "0.61", default-features = false, features = [
   "Win32_Foundation",
   "Win32_Security",

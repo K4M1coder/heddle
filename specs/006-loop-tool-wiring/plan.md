@@ -21,11 +21,11 @@ byte-identical to what the chain records.
 
 ## Technical Context
 **Language/Version**: Rust 1.97 (pinned in `rust-toolchain.toml`, unchanged this slice)
-**Primary Dependencies**: none added. `crates/skein-core/Cargo.toml` declares exactly `serde`,
+**Primary Dependencies**: none added. `crates/heddle-core/Cargo.toml` declares exactly `serde`,
 `serde_json`, `thiserror`, `sha2`, and gains nothing; no `Cargo.toml` in the repo changes.
 **Storage**: the existing in-memory `Ledger` (durable SQLite-backed silo still deferred)
 **Testing**: `cargo test`; a hand-rolled `RecordingTransport` double local to
-`tests/native_loop.rs`, and the existing live in-process rmcp server fixture in `skein-mcp`.
+`tests/native_loop.rs`, and the existing live in-process rmcp server fixture in `heddle-mcp`.
 **Target Platform**: Windows + macOS + Linux
 **Project Type**: library (two workspace members, unchanged)
 **Performance Goals**: N/A (functional correctness first)
@@ -75,14 +75,14 @@ specs/006-loop-tool-wiring/
 
 ### Source Code (repository root)
 ```text
-crates/skein-core/
+crates/heddle-core/
   src/model.rs             # +use crate::tool::ToolCall; +#[serde(default)] tool_calls field;
                            #  corrected doc comment (tool calls arrived; advertisement has not)
   src/tool.rs              # +ToolGateway::call_captured; `call` reduced to a delegate
   src/native_loop.rs       # +T: ToolTransport type param, +pub gateway field, +mediate helper
   tests/native_loop.rs     # +RecordingTransport, +no_tools(), +reply_with_tools(), +8 tests;
                            #  the 10 existing NativeLoop::new sites gain a third argument
-crates/skein-mcp/
+crates/heddle-mcp/
   tests/rmcp_gateway.rs    # +1 test driving NativeLoop against the live embedded server
 ```
 **Structure Decision**: no new module and no new file outside `specs/006-loop-tool-wiring/`.

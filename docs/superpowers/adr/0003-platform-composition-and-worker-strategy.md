@@ -9,29 +9,29 @@
 
 ## Context
 
-Skein aims to combine the useful behavior of coding agents, personal assistants, workflow engines, chat platforms, local inference systems and enterprise connectors while remaining simple, local-first, governable and cross-platform.
+Heddle aims to combine the useful behavior of coding agents, personal assistants, workflow engines, chat platforms, local inference systems and enterprise connectors while remaining simple, local-first, governable and cross-platform.
 
-Making Goose, OpenCode, Cline, Hermes, Archon or another product the internal source of truth would hide important events or couple Skein's security and persistence semantics to an external runtime. Reimplementing every commodity capability would be equally risky and wasteful.
+Making Goose, OpenCode, Cline, Hermes, Archon or another product the internal source of truth would hide important events or couple Heddle's security and persistence semantics to an external runtime. Reimplementing every commodity capability would be equally risky and wasteful.
 
 ## Decision
 
-Skein will be distributed as a **single product and modular monorepo**, implemented as a **modular monolith with supervised optional sidecars and workers**.
+Heddle will be distributed as a **single product and modular monorepo**, implemented as a **modular monolith with supervised optional sidecars and workers**.
 
-Skein owns the control plane and canonical contracts. Existing agents may be:
+Heddle owns the control plane and canonical contracts. Existing agents may be:
 
 - optional workers;
 - sources of compatible libraries or crates;
 - references for UX and behavior;
 - never the owner of policy, workflow state, artifacts, context manifests, evidence or completion.
 
-The default runtime path is a Skein-owned loop. Embedded Goose crates, goosed, OpenCode, Cline, Hermes, Claude Code and other agents are evaluated as `WorkerAdapter` implementations. A worker is accepted only if Skein can observe and govern every model turn, tool request, approval, effect and termination signal required by the selected execution contract.
+The default runtime path is a Heddle-owned loop. Embedded Goose crates, goosed, OpenCode, Cline, Hermes, Claude Code and other agents are evaluated as `WorkerAdapter` implementations. A worker is accepted only if Heddle can observe and govern every model turn, tool request, approval, effect and termination signal required by the selected execution contract.
 
 ## Options considered
 
 ### A. Fork Goose as the product core
 
 **Pros:** Rust, Apache-2.0, MCP-native, broad providers and desktop components.  
-**Cons:** Skein requirements exceed Goose's ownership model; turn-level visibility and event semantics may not match; a long-lived fork increases upstream merge cost.
+**Cons:** Heddle requirements exceed Goose's ownership model; turn-level visibility and event semantics may not match; a long-lived fork increases upstream merge cost.
 
 **Decision:** Reject as default. Reuse crates or adapter paths only after spike evidence.
 
@@ -44,12 +44,12 @@ The default runtime path is a Skein-owned loop. Embedded Goose crates, goosed, O
 
 ### C. Embed Archon as workflow engine
 
-**Pros:** workflow semantics closely match Skein; YAML, deterministic nodes, loops, worktrees and approvals.  
+**Pros:** workflow semantics closely match Heddle; YAML, deterministic nodes, loops, worktrees and approvals.  
 **Cons:** canonical artifacts, Ledger, policy and team hierarchy differ; TypeScript/Bun runtime adds a mandatory sidecar if embedded unchanged.
 
 **Decision:** Build an Archon-inspired canonical workflow engine; investigate parser/schema/code reuse and import/export compatibility.
 
-### D. Skein-owned control plane with replaceable adapters
+### D. Heddle-owned control plane with replaceable adapters
 
 **Pros:** satisfies local-first, evidence, RBAC, loop control and enterprise requirements; allows gradual reuse of best components.  
 **Cons:** more initial design work and responsibility for stable contracts.
@@ -60,9 +60,9 @@ The default runtime path is a Skein-owned loop. Embedded Goose crates, goosed, O
 
 - The Phase 0 runtime spike must compare at least native Rust, embedded/goosed Goose, OpenCode and Cline integration surfaces.
 - A `WorkerAdapter` and `CapabilityDescriptor` become one-way-door contracts and require examples, contract tests and versioning rules before implementation.
-- The UI may borrow interaction patterns but must communicate only with Skein's API.
+- The UI may borrow interaction patterns but must communicate only with Heddle's API.
 - Open WebUI is not embedded under its current license.
-- LiteLLM is an initial replaceable adapter; Skein's capability and policy model remains independent.
+- LiteLLM is an initial replaceable adapter; Heddle's capability and policy model remains independent.
 - The repository may exceed one million tokens over time; context selection, not whole-repository injection, is a core product capability.
 
 ## Quality gate

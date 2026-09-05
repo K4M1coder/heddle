@@ -10,8 +10,8 @@ and carries a measured counterfactual instead.
 
 ## T1 — RED: a named local provider routes to its own address
 
-**Action:** CREATE `crates/skein-gateway/tests/provider_routing.rs` — a `Stub` that counts
-`accept()`s, an in-test `FakeSecrets` implementing `skein_core::SecretProvider` directly, and three
+**Action:** CREATE `crates/heddle-gateway/tests/provider_routing.rs` — a `Stub` that counts
+`accept()`s, an in-test `FakeSecrets` implementing `heddle_core::SecretProvider` directly, and three
 tests: a named route reaches its own base URL with its own model and sends no `Authorization`
 header; an unknown name is refused and names what *is* configured; a `Local` route pointed off this
 machine is still refused.
@@ -19,15 +19,15 @@ machine is still refused.
 ### Observed red
 
 ```
-error[E0432]: unresolved imports `skein_gateway::ProviderKind`, `skein_gateway::ProviderRoute`,
-              `skein_gateway::ProviderTable`, `skein_gateway::Router`
-  --> crates\skein-gateway\tests\provider_routing.rs:22:21
+error[E0432]: unresolved imports `heddle_gateway::ProviderKind`, `heddle_gateway::ProviderRoute`,
+              `heddle_gateway::ProviderTable`, `heddle_gateway::Router`
+  --> crates\heddle-gateway\tests\provider_routing.rs:22:21
    |                     no `ProviderKind` in the root … no `Router` in the root
-error: could not compile `skein-gateway` (test "provider_routing") due to 1 previous error
+error: could not compile `heddle-gateway` (test "provider_routing") due to 1 previous error
 ```
 
-**Note.** `skein-silo`'s `TestSecret` fixture was deliberately *not* reused: it is backed by the
-real OS keychain and lives in a crate `skein-gateway` must not depend on (Constitution IV).
+**Note.** `heddle-silo`'s `TestSecret` fixture was deliberately *not* reused: it is backed by the
+real OS keychain and lives in a crate `heddle-gateway` must not depend on (Constitution IV).
 Implementing the trait in-test is a handful of lines and tests the router against the boundary it
 actually promises.
 
@@ -35,7 +35,7 @@ actually promises.
 
 ## T2 — GREEN: `route.rs` — `ProviderKind`, `ProviderRoute`, `ProviderTable`, `Router`
 
-**Action:** CREATE `crates/skein-gateway/src/route.rs`; wire `mod route` + re-exports into
+**Action:** CREATE `crates/heddle-gateway/src/route.rs`; wire `mod route` + re-exports into
 `lib.rs`.
 
 One incidental change was needed to compile the test: `expect_err` requires `T: Debug`, so
@@ -48,7 +48,7 @@ hand-written one for the reason recorded there.
 
 ## T3 — RED: a cloud route resolves its credential and sends `Authorization: Bearer`
 
-**Action:** UPDATE `crates/skein-gateway/tests/provider_routing.rs` — four tests: the bearer header
+**Action:** UPDATE `crates/heddle-gateway/tests/provider_routing.rs` — four tests: the bearer header
 appears on the wire and the token appears in neither the request line nor the body; a cloud route
 with no credential sends no header at all; a 401 produces an error naming the status and **not** the
 token; a credential store answering `requires_network() == true` is refused when egress is off.
@@ -57,7 +57,7 @@ token; a credential store answering `requires_network() == true` is refused when
 
 ```
 ---- a_cloud_route_resolves_its_credential_and_sends_it_as_a_bearer_token stdout ----
-panicked at crates\skein-gateway\tests\provider_routing.rs:356:5:
+panicked at crates\heddle-gateway\tests\provider_routing.rs:356:5:
 the resolved credential is sent as a bearer token, in:
 POST /v1/chat/completions HTTP/1.1
 content-length: 85
@@ -67,7 +67,7 @@ host: 127.0.0.1:65043
 content-type: application/json
 
 ---- a_credential_store_that_needs_the_network_is_refused_when_egress_is_off stdout ----
-panicked at crates\skein-gateway\tests\provider_routing.rs:457:10:
+panicked at crates\heddle-gateway\tests\provider_routing.rs:457:10:
 a networked secret store is egress, whatever the route's kind: OpenAiCompatClient { endpoint:
 LocalEndpoint { base_url: "http://127.0.0.1:65045/v1" }, model: "llama3.1", agent: Agent { config:
 Config { http_status_as_error: false, https_only: false, ip_family: Any, proxy: None, no_delay:
@@ -96,7 +96,7 @@ Rewriting the unreachable-provider message to cover both endpoint kinds broke a 
 
 ```
 ---- an_unreachable_provider_fails_with_a_message_naming_the_endpoint stdout ----
-panicked at crates\skein-gateway\tests\openai_compat.rs:557:5:
+panicked at crates\heddle-gateway\tests\openai_compat.rs:557:5:
 the operator must be told which endpoint and what to check, got: POST
 http://127.0.0.1:57266/v1/chat/completions failed: io: Connection refused; is a provider
 listening at http://127.0.0.1:57266/v1?
@@ -114,7 +114,7 @@ whether Ollama is running — the message's only actionable word — and `cli_ch
 
 ## T5 / T6 — egress refusal: **no red**, and a measured mutation instead
 
-**Action:** UPDATE `crates/skein-gateway/tests/provider_routing.rs` — three tests: a cloud route
+**Action:** UPDATE `crates/heddle-gateway/tests/provider_routing.rs` — three tests: a cloud route
 with egress off is refused before any connection is opened; a local route is unaffected by egress
 being off; a cloud route with egress on reaches its address.
 
@@ -145,7 +145,7 @@ connects and says nothing is still counted as egress.
 
 ## T7 — RED+GREEN: `ProviderTable::from_toml_str` and the `toml` dependency
 
-**Action:** CREATE tests (seven), UPDATE `route.rs`, `crates/skein-gateway/Cargo.toml`, workspace
+**Action:** CREATE tests (seven), UPDATE `route.rs`, `crates/heddle-gateway/Cargo.toml`, workspace
 `Cargo.toml`.
 
 ### Observed red
@@ -164,10 +164,10 @@ This slice's top pre-recorded risk was that `toml` would pull a TLS crate transi
 break spec 012 SC-007. Measured after the addition:
 
 ```
-$ cargo tree -e normal -p skein-gateway | grep -icE 'rustls|native-tls|webpki|openssl'
+$ cargo tree -e normal -p heddle-gateway | grep -icE 'rustls|native-tls|webpki|openssl'
 0
 
-$ cargo tree -e normal -p skein-gateway
+$ cargo tree -e normal -p heddle-gateway
 ├── toml v1.1.5+spec-1.1.0
 │   ├── serde_core v1.0.229
 │   ├── serde_spanned v1.1.1
@@ -178,7 +178,7 @@ $ cargo tree -e normal -p skein-gateway
 ```
 
 Five packages, all parse-only. The prepared fallback — hand-rolling the flat `[[provider]]` parser —
-was not needed. `default-features = false` also drops `display`, TOML's *writer*: Skein reads an
+was not needed. `default-features = false` also drops `display`, TOML's *writer*: Heddle reads an
 operator's file and never writes one, so the writer could only ever be dead code.
 
 `deny_unknown_fields` is load-bearing rather than decorative: the realistic typo is `credentials`
@@ -190,7 +190,7 @@ to suspect their own file.
 
 ## T8 — `wiring.rs`: `ProviderArgs` and `LazyKeychain`
 
-**Action:** UPDATE `crates/skein-cli/src/wiring.rs`.
+**Action:** UPDATE `crates/heddle-cli/src/wiring.rs`.
 
 `ProviderArgs::client()` returns `Result<Option<OpenAiCompatClient>>` — `None` when `--provider` is
 absent, and in that case the provider file is **not read at all**.
@@ -203,7 +203,7 @@ broken that rule for every named provider — including a cloud one about to be 
 since `client_for` checks egress *before* resolving anything. The lazy adapter preserves the rule
 one layer down.
 
-**Result:** `cargo build -p skein-cli` clean.
+**Result:** `cargo build -p heddle-cli` clean.
 
 ---
 
@@ -216,13 +216,13 @@ and a refused egress are all exit codes before a chain exists.
 `--timeout-secs` is threaded through both paths: it is a budget for the request rather than a
 property of the provider.
 
-**Result:** `cargo build -p skein-cli` clean; `skein chat --help` lists all three flags.
+**Result:** `cargo build -p heddle-cli` clean; `heddle chat --help` lists all three flags.
 
 ---
 
 ## T10 — CLI-level subprocess tests
 
-**Action:** UPDATE `crates/skein-cli/tests/cli_chat.rs`. Six tests, each a real-binary invocation;
+**Action:** UPDATE `crates/heddle-cli/tests/cli_chat.rs`. Six tests, each a real-binary invocation;
 `StubProvider` gained the same `accept()`-counter as the gateway stub.
 
 The refusal test asserts, beyond the exit code and the message, that **no silo directory was
@@ -242,8 +242,8 @@ pre-existing `cli_chat` tests are unchanged live controls.
 $ cargo fmt --all -- --check                                   → clean
 $ cargo clippy --workspace --all-targets -- -D warnings        → clean
 $ cargo test --workspace                                       → 251 passed, 5 ignored, 0 failed
-$ cargo tree -e normal -p skein-gateway | grep -icE 'rustls|native-tls|webpki|openssl'  → 0
-$ git diff --stat -- crates/skein-mcp crates/skein-acp crates/skein-silo crates/skein-core → empty
+$ cargo tree -e normal -p heddle-gateway | grep -icE 'rustls|native-tls|webpki|openssl'  → 0
+$ git diff --stat -- crates/heddle-mcp crates/heddle-acp crates/heddle-silo crates/heddle-core → empty
 ```
 
 **Environment note, recorded because it interrupted the run and not because it is a code fact.** The
@@ -262,10 +262,10 @@ touched. **The drive remains close to full and is worth attention independently 
       relaxed *for convenience* — so it needs a slice that argues for it, not a feature flag flipped
       in passing.
 - [ ] **`--model` when `--provider` is given.** Still required by clap and then ignored. The fix is
-      either flattening `ProviderArgs` into `skein acp-agent` too, or splitting `ModelArgs` so the
+      either flattening `ProviderArgs` into `heddle acp-agent` too, or splitting `ModelArgs` so the
       model name is separable from the budget flags. Both are decisions about `acp-agent`'s session
       model. See spec.md Assumptions.
-- [ ] **`--provider` for `skein acp-agent`**, which raises the real question this slice deferred:
+- [ ] **`--provider` for `heddle acp-agent`**, which raises the real question this slice deferred:
       may a session switch provider mid-conversation, and if so what does the chain record about the
       switch?
 - [ ] **redaction on the `LlmRequest`/`LlmResponse` path.** Carried from slices 011 and 012 and

@@ -1,4 +1,4 @@
-# Implementation Plan: slice 021 — a Tauri Chat window over `skein acp-agent`
+# Implementation Plan: slice 021 — a Tauri Chat window over `heddle acp-agent`
 
 ## Problem
 
@@ -13,8 +13,8 @@ Three premises in the original request did not match the repository, and are cor
 | Premise | Reality |
 |---|---|
 | "the next spec number is after 034" | `specs/` tops out at `020-run-dir-allowlist`. **021** is next. |
-| "specs 025–028 (streaming-sse, mid-stream-cancel, cancel-tool-call, cancel-permission-wait) already exist" | None of them exists. No SSE or HTTP streaming surface exists anywhere in the tree. The two access surfaces are `skein chat` (one-shot) and `skein acp-agent` (ACP over stdio). The real dependencies are **008-acp-facade** and **013-acp-agent**. |
-| "the streaming/cancel machinery is already there" | `crates/skein-acp/src/lib.rs`'s `PromptRequest` handler runs the loop to completion, then emits every update in one batch **before** responding. `crates/skein-acp/src/cancel.rs`'s own doc comment states "cancellation is not mid-turn". |
+| "specs 025–028 (streaming-sse, mid-stream-cancel, cancel-tool-call, cancel-permission-wait) already exist" | None of them exists. No SSE or HTTP streaming surface exists anywhere in the tree. The two access surfaces are `heddle chat` (one-shot) and `heddle acp-agent` (ACP over stdio). The real dependencies are **008-acp-facade** and **013-acp-agent**. |
+| "the streaming/cancel machinery is already there" | `crates/heddle-acp/src/lib.rs`'s `PromptRequest` handler runs the loop to completion, then emits every update in one batch **before** responding. `crates/heddle-acp/src/cancel.rs`'s own doc comment states "cancellation is not mid-turn". |
 
 Grepping for the cited spec numbers before writing a task line is what turned a false premise into three lines of correction instead of a plan that claimed a feature the repository does not have.
 
@@ -24,7 +24,7 @@ Also checked before anything was locked: **`tauri` 2.11.5 declares `rust-version
 
 ### D1 — The window is an ACP *client*, not an embedder
 
-The alternative was linking `skein-core` (or `skein-acp`) into the Tauri binary and calling the loop in-process. Rejected: it would make the UI a second host for agent logic, and the only thing keeping it honest would be discipline. Spawning `skein acp-agent` and speaking the protocol to it means the window is structurally incapable of doing anything the CLI cannot — the same subprocess, the same argv, the same wire an editor uses. `crates/skein-cli/tests/cli_acp_agent.rs` is the reference for the client code; nothing about ACP framing is reimplemented.
+The alternative was linking `heddle-core` (or `heddle-acp`) into the Tauri binary and calling the loop in-process. Rejected: it would make the UI a second host for agent logic, and the only thing keeping it honest would be discipline. Spawning `heddle acp-agent` and speaking the protocol to it means the window is structurally incapable of doing anything the CLI cannot — the same subprocess, the same argv, the same wire an editor uses. `crates/heddle-cli/tests/cli_acp_agent.rs` is the reference for the client code; nothing about ACP framing is reimplemented.
 
 `ui/src-tauri` depends on no crate under `crates/`. The dependency runs the other way at runtime, through argv.
 
@@ -38,17 +38,17 @@ This is the reason the acceptance tests can drive the shipped client against the
 
 `Client::connect_with` scopes the connection to one async closure. A long-lived desktop app needs to issue requests from that closure at arbitrary later times, so the closure runs a loop over a `futures::channel::mpsc` of commands.
 
-The loop must never `await` a request to completion. If it did, a `session/cancel` arriving while a prompt was in flight could not be delivered — the loop would be sitting on the prompt's response. So every request is issued with `on_receiving_result`, which registers a callback and returns immediately, and the answer travels back to the caller over a `oneshot`. This is the same reasoning `crates/skein-acp/src/permission.rs` records for its own non-blocking `send_request`.
+The loop must never `await` a request to completion. If it did, a `session/cancel` arriving while a prompt was in flight could not be delivered — the loop would be sitting on the prompt's response. So every request is issued with `on_receiving_result`, which registers a callback and returns immediately, and the answer travels back to the caller over a `oneshot`. This is the same reasoning `crates/heddle-acp/src/permission.rs` records for its own non-blocking `send_request`.
 
 ### D4 — Shutdown is closing the pipe, not killing a process
 
-`SessionHandle` is `Arc`-backed and cloneable; the session ends when the last handle drops. Dropping ends the command loop, which ends the `connect_with` closure, which closes the connection, which closes the child's stdin — and `skein acp-agent` exits zero when its client disconnects (a behaviour slice 013 already tests). Nothing is killed, so nothing can be orphaned by a failed kill.
+`SessionHandle` is `Arc`-backed and cloneable; the session ends when the last handle drops. Dropping ends the command loop, which ends the `connect_with` closure, which closes the connection, which closes the child's stdin — and `heddle acp-agent` exits zero when its client disconnects (a behaviour slice 013 already tests). Nothing is killed, so nothing can be orphaned by a failed kill.
 
 ### D5 — Permission requests are declined, by protocol kind
 
 There are exactly three possible behaviours for a client with no permission dialog: allow, decline, or don't answer. Not answering hangs the child's loop thread forever. Allowing makes the UI grant what the operator never approved. Declining is the only one a client is *permitted* to choose unilaterally, because a client may narrow what runs and never widen it (Constitution VI).
 
-The rejection is selected out of the options the agent offered, matching `PermissionOptionKind::RejectOnce | RejectAlways`, falling back to `RequestPermissionOutcome::Cancelled`. Hardcoding `skein.reject-once` would couple the UI to an implementation detail of `skein-acp` rather than to the protocol.
+The rejection is selected out of the options the agent offered, matching `PermissionOptionKind::RejectOnce | RejectAlways`, falling back to `RequestPermissionOutcome::Cancelled`. Hardcoding `heddle.reject-once` would couple the UI to an implementation detail of `heddle-acp` rather than to the protocol.
 
 With no `--fs-root` the question never arises: the policy allows nothing, and a tool the policy refuses never becomes a permission request.
 
@@ -66,9 +66,9 @@ The reducer folds one update at a time rather than one batch at a time, so if re
 
 ### D8 — Configuration is environment→argv, and it refuses rather than guesses
 
-No settings screen (out of scope) and no config file (v0 has none anywhere). `config.rs` maps the environment onto flags `skein acp-agent` already parses, and refuses on a missing required value naming it — the reasoning `SiloArgs::root` already records. An unset *optional* value produces no flag at all, not an empty one: the child inherits this process's environment, and "absent here" and "absent there" are different facts.
+No settings screen (out of scope) and no config file (v0 has none anywhere). `config.rs` maps the environment onto flags `heddle acp-agent` already parses, and refuses on a missing required value naming it — the reasoning `SiloArgs::root` already records. An unset *optional* value produces no flag at all, not an empty one: the child inherits this process's environment, and "absent here" and "absent there" are different facts.
 
-The `skein` binary is resolved beside the app's own executable, never from a hardcoded path.
+The `heddle` binary is resolved beside the app's own executable, never from a hardcoded path.
 
 ### D9 — `ui/src-tauri` is an explicit workspace member, and CI pays for it visibly
 
@@ -102,7 +102,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-`cargo test --workspace` is the canonical command for this slice rather than `cargo test -p skein-ui`: `CARGO_BIN_EXE_*` only covers the current package's binaries, and `tests/chat_session.rs` drives `skein`, which belongs to `skein-cli`. The test derives the path from its own location and, if the binary is absent, fails with the exact remedy rather than with a confusing spawn error.
+`cargo test --workspace` is the canonical command for this slice rather than `cargo test -p heddle-ui`: `CARGO_BIN_EXE_*` only covers the current package's binaries, and `tests/chat_session.rs` drives `heddle`, which belongs to `heddle-cli`. The test derives the path from its own location and, if the binary is absent, fails with the exact remedy rather than with a confusing spawn error.
 
 ### New gates
 
@@ -118,7 +118,7 @@ cd ui && npm ci && npm test && npm run build
 |---|---|---|
 | `starting_a_session_spawns_the_real_agent_and_names_the_session` | `chat_session.rs` | The shell spawns the real binary and completes `initialize` + `session/new`; the id is the one the chain will use. |
 | `a_prompt_is_answered_and_its_transcript_is_relayed_before_the_answer` | `chat_session.rs` | `session/prompt` end to end, and the ordering guarantee the reducer depends on. |
-| `two_prompts_run_on_one_session_and_both_transcripts_arrive` | `chat_session.rs` | One session, many runs — the shape `SkeinSession` records as `skein-1#1`, `skein-1#2`. |
+| `two_prompts_run_on_one_session_and_both_transcripts_arrive` | `chat_session.rs` | One session, many runs — the shape `HeddleSession` records as `heddle-1#1`, `heddle-1#2`. |
 | `a_cancel_stops_the_run_at_the_next_turn_boundary_and_says_so` | `chat_session.rs` | `StopReason::Cancelled`, and that the turn after the cancel did not run. |
 | `cancelling_with_nothing_in_flight_is_not_an_error` | `chat_session.rs` | A no-op, not an error. |
 | `dropping_the_handle_shuts_the_agent_down_and_reports_it_once` | `chat_session.rs` | D4: the pipe closes, the child ends, the window is told once. |
@@ -136,7 +136,7 @@ A `TcpListener` in the test process stands in for the model, so no test needs Ol
 |---|---|
 | Tauri's MSRV exceeds the toolchain pin | Checked before locking a version: 1.77.2 vs. 1.97. Resolved, not deferred. |
 | A reviewer expects token-level streaming | `spec.md`'s point 3, this plan's premise table, and `docs/UI.md`'s "Known limitations" all state up front that it does not exist. |
-| An orphaned `skein acp-agent` if the app crashes | D4: shutdown is the pipe closing, and the child exits zero on client disconnect on its own. A hard crash of the app closes its handles too. |
+| An orphaned `heddle acp-agent` if the app crashes | D4: shutdown is the pipe closing, and the child exits zero on client disconnect on its own. A hard crash of the app closes its handles too. |
 | The Linux CI leg fails on a missing webview | The apt step in `core.yml`, added in the same change as the `members` entry that causes the need. |
 | Workspace build time grows for everyone | Accepted and recorded in `spec.md`'s residuals. The alternative — exempting the UI from the gates — is worse for a slice whose claim is that it adds no logic. |
 

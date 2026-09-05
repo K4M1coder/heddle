@@ -6,20 +6,20 @@
 
 **Status**: Draft — architecture-spike blocked; plan/tasks require regeneration
 
-**Input**: Derived from `_bmad-output/planning-artifacts/epics.md` (Epic 1) and the design `docs/superpowers/specs/2026-07-15-skein-design.md` (§8 Phase 0).
+**Input**: Derived from `_bmad-output/planning-artifacts/epics.md` (Epic 1) and the design `docs/superpowers/specs/2026-07-15-heddle-design.md` (§8 Phase 0).
 
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Persisted conversation that acts on files (Priority: P1)
 As a user, I start a conversation from the terminal; the agent reads/writes a file, and my session is persisted and can be reloaded.
 
-**Why this priority**: this is the exit criterion for Phase 0 — it proves the complete vertical slice (CLI → Skein control plane → governed per-turn runtime/worker → Gateway → model → silo).
+**Why this priority**: this is the exit criterion for Phase 0 — it proves the complete vertical slice (CLI → Heddle control plane → governed per-turn runtime/worker → Gateway → model → silo).
 
-**Independent Test**: `skein chat -t "..."` then `skein session show <id>` reloads user+assistant; an expected file exists.
+**Independent Test**: `heddle chat -t "..."` then `heddle session show <id>` reloads user+assistant; an expected file exists.
 
 **Acceptance Scenarios**:
-1. **Given** a configured local model, **When** I run `skein chat -t "create hello.txt containing skein"`, **Then** `hello.txt` is created and the session `s000001` is persisted.
-2. **Given** an existing session, **When** I run `skein session show s000001`, **Then** the user and assistant messages are displayed.
+1. **Given** a configured local model, **When** I run `heddle chat -t "create hello.txt containing heddle"`, **Then** `hello.txt` is created and the session `s000001` is persisted.
+2. **Given** an existing session, **When** I run `heddle session show s000001`, **Then** the user and assistant messages are displayed.
 
 ### User Story 2 - Strict silo isolation (Priority: P1)
 As a user, my Local mode data is not visible in any other silo.
@@ -36,11 +36,11 @@ As a user, I can see everything sent to/received from the model (Ledger) and no 
 
 **Why this priority**: transparency/reversibility (constitution V) and JIT secrets (VI) — foundations to anchor early.
 
-**Independent Test**: `skein ledger log <session>` lists LlmRequest+LlmResponse; `skein gateway-health` resolves a key from the keyring without ever displaying it.
+**Independent Test**: `heddle ledger log <session>` lists LlmRequest+LlmResponse; `heddle gateway-health` resolves a key from the keyring without ever displaying it.
 
 **Acceptance Scenarios**:
-1. **Given** a completed chat, **When** `skein ledger log s000001`, **Then** both LlmRequest AND LlmResponse appear (hash-chained).
-2. **Given** a key stored in the keyring, **When** `skein gateway-health`, **Then** health is verified without exposing the key.
+1. **Given** a completed chat, **When** `heddle ledger log s000001`, **Then** both LlmRequest AND LlmResponse appear (hash-chained).
+2. **Given** a key stored in the keyring, **When** `heddle gateway-health`, **Then** health is verified without exposing the key.
 
 ### Edge Cases
 - Offline: Local mode (egress OFF) works with a local model; secret resolution via the OS keyring works without a network.
@@ -50,7 +50,7 @@ As a user, I can see everything sent to/received from the model (Ledger) and no 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
-- **FR-001**: The system MUST expose a headless core driven by a CLI (`skein chat`, `session list|show`, `ledger log|show`, `secret-set`, `gateway-health`).
+- **FR-001**: The system MUST expose a headless core driven by a CLI (`heddle chat`, `session list|show`, `ledger log|show`, `secret-set`, `gateway-health`).
 - **FR-002**: The system MUST run an agentic loop via Goose in headless mode (adapter behind `AgentRuntime`).
 - **FR-003**: The system MUST route model calls through an OpenAI-compatible gateway (LiteLLM) to a local model.
 - **FR-004**: The system MUST persist sessions in a SQLite store **namespaced per silo** (`local`).
@@ -81,8 +81,8 @@ As a user, I can see everything sent to/received from the model (Ledger) and no 
 ### Measurable Outcomes
 - **SC-001**: The US1 scenario succeeds from the CLI, with a file created + session reloaded.
 - **SC-002**: The isolation test (US2) passes in CI on Windows, macOS, and Linux.
-- **SC-003**: `skein ledger log` shows both model in AND out (US3), not just the result.
-- **SC-004**: `skein gateway-health` works offline without exposing the key.
+- **SC-003**: `heddle ledger log` shows both model in AND out (US3), not just the result.
+- **SC-004**: `heddle gateway-health` works offline without exposing the key.
 
 ## Assumptions
 - Ollama is the default local model (cross-platform); LiteLLM runs locally (`:4000`).

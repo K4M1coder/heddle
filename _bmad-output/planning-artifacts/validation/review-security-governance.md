@@ -1,4 +1,4 @@
-# Skein Pre-Implementation Security, Privacy, Identity, and Compliance Review
+# Heddle Pre-Implementation Security, Privacy, Identity, and Compliance Review
 
 **Review date:** 2026-07-16  
 **Review scope:** BMAD planning artifacts, Spec-Kit feature artifacts, constitution, master design, architecture-hardening ADRs, methodology, and design-completeness policy  
@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary
 
-Skein has a credible security direction: default-local operation, silo and team partitioning, deny-by-default authorization, a hard egress boundary, just-in-time secret resolution, event-sourced evidence, explicit human approvals, and a correct statement that ISO 27001 and SOC 2 certification are organizational matters. ADR 0002 materially improves the design by addressing network enforcement, event identity, irreversible effects, crypto-shredding, defense-in-depth secret detection, dual control, and loop safety.
+Heddle has a credible security direction: default-local operation, silo and team partitioning, deny-by-default authorization, a hard egress boundary, just-in-time secret resolution, event-sourced evidence, explicit human approvals, and a correct statement that ISO 27001 and SOC 2 certification are organizational matters. ADR 0002 materially improves the design by addressing network enforcement, event identity, irreversible effects, crypto-shredding, defense-in-depth secret detection, dual control, and loop safety.
 
 The design is not implementation-ready, however. Most governance controls remain architectural intentions rather than complete, testable contracts. The planning set lacks a system threat model, data-protection threat model, identity trust model, authorization decision model, data inventory and lifecycle model, MCP trust and supply-chain model, compliance control matrix, abuse cases, negative authorization tests, and release quality gates. ABAC and ReBAC are absent. External identity providers are named but their assurance, provisioning, deprovisioning, group reconciliation, tenant binding, session, and break-glass semantics are undefined. Computer and MCP scopes are described in the master design but are not carried into PRD requirements, feature specs, stories, or acceptance suites.
 
@@ -24,7 +24,7 @@ The gate therefore fails until the Critical and High findings below are closed o
 - `_bmad-output/implementation-artifacts/sprint-status.yaml`
 - `specs/001-phase0-walking-skeleton/spec.md`, `plan.md`, and `tasks.md`
 - `specs/002-workflow-engine/spec.md`
-- `docs/superpowers/specs/2026-07-15-skein-design.md`
+- `docs/superpowers/specs/2026-07-15-heddle-design.md`
 - `docs/superpowers/adr/0002-design-hardening.md`
 - `docs/superpowers/adr/0003-platform-composition-and-worker-strategy.md`
 - `docs/DESIGN-COMPLETENESS-POLICY.md`
@@ -171,7 +171,7 @@ ADR 0002’s subject-key crypto-shredding is a useful direction, but data is not
 
 ### SG-010 — High — EU AI Act enablement is too generic for an omni-purpose agent platform
 
-Transparency, human oversight, model routing documentation, and risk classification are named, but Skein can be configured for employment, education, access to services, biometrics, surveillance, and other regulated contexts. The design has no prohibited-use policy, deployment/use-case classification workflow, provider/deployer role assessment, high-risk feature gate, fundamental-rights impact support, AI literacy support, post-market monitoring, incident handling, accuracy/robustness/cybersecurity evidence, or generated-content marking policy by modality.
+Transparency, human oversight, model routing documentation, and risk classification are named, but Heddle can be configured for employment, education, access to services, biometrics, surveillance, and other regulated contexts. The design has no prohibited-use policy, deployment/use-case classification workflow, provider/deployer role assessment, high-risk feature gate, fundamental-rights impact support, AI literacy support, post-market monitoring, incident handling, accuracy/robustness/cybersecurity evidence, or generated-content marking policy by modality.
 
 **Required closure evidence:**
 
@@ -230,7 +230,7 @@ OpenTelemetry is appropriate, but prompts, model responses, tool outputs, file p
 
 ### SG-015 — Medium — Compliance and capability wording contains overclaims
 
-The PRD vision says Skein provides “enterprise compliance,” “full transparency and reversibility,” connects to “all AI providers,” and “masters” BMAD/Spec-Kit/powerskills. Those are outcome or universal claims not supported by the current design or evidence. Later text correctly states that the software only provides controls and that certification is organizational, but the opening claim remains misleading.
+The PRD vision says Heddle provides “enterprise compliance,” “full transparency and reversibility,” connects to “all AI providers,” and “masters” BMAD/Spec-Kit/powerskills. Those are outcome or universal claims not supported by the current design or evidence. Later text correctly states that the software only provides controls and that certification is organizational, but the opening claim remains misleading.
 
 **Required wording changes:**
 
@@ -288,4 +288,4 @@ Implementation may begin only when all conditions below are evidenced:
 
 ## 8. Final Gate Decision
 
-**FAIL / BLOCKED.** Skein’s security principles are promising but are not yet expressed as sufficiently complete, traceable, testable, and auditable contracts for an agent platform that can control a computer, invoke MCP tools, connect to enterprise systems, expose a team backend, and retain exact model/tool content. No product code should be implemented from the current artifacts. The next permissible work is planning, threat modeling, formal control definition, clarification, quality-gate construction, and evidence-producing architecture spikes.
+**FAIL / BLOCKED.** Heddle’s security principles are promising but are not yet expressed as sufficiently complete, traceable, testable, and auditable contracts for an agent platform that can control a computer, invoke MCP tools, connect to enterprise systems, expose a team backend, and retain exact model/tool content. No product code should be implemented from the current artifacts. The next permissible work is planning, threat modeling, formal control definition, clarification, quality-gate construction, and evidence-producing architecture spikes.

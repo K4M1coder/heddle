@@ -12,32 +12,32 @@ load-bearing.
 ### 0.1 The worktree was stale, and the stale state invites the wrong fix
 
 `HEAD` here was `d364405`, which predates slice 023 **entirely**:
-`git show d364405:crates/skein-core/src/tool.rs | grep -c redact_wire` returns `0`. The whole premise
+`git show d364405:crates/heddle-core/src/tool.rs | grep -c redact_wire` returns `0`. The whole premise
 of this slice is that `redact_wire` already exists and is already the right tool for an
 already-serialized body. An implementer starting from `d364405` would find no such method and would
 be strongly tempted to write a second, divergent one from scratch. **S0 of this run: fast-forward
 `029-toolresult-redaction` onto `dev` at `fe13c73` and re-measure the control baseline.** Verified
-after the fast-forward: `git show HEAD:crates/skein-core/src/tool.rs` has `redact_wire` at line 237.
+after the fast-forward: `git show HEAD:crates/heddle-core/src/tool.rs` has `redact_wire` at line 237.
 Every anchor below is a `dev` anchor.
 
 ### 0.2 Anchors verified on `dev` at `fe13c73`
 
 | anchor | file | fact |
 |---|---|---|
-| the defect | `skein-core/src/tool.rs:410` | `content: self.redactor.redact(&outcome.content)` |
-| `Redactor::redact` | `skein-core/src/tool.rs:209` | `text.replace(secret.expose(), "***")` — the literal needle only |
-| `Redactor::redact_json` | `skein-core/src/tool.rs:224` | scrub-**then**-serialize; its doc names the escaping hazard |
-| `Redactor::redact_wire` | `skein-core/src/tool.rs:237` | literal **and** `Value::String`-escaped needle; the exact premise a tool result satisfies |
-| the source of the escaping | `skein-mcp/src/lib.rs:57` | `content: serde_json::to_string(&result)?` — the whole `CallToolResult`, serialized |
-| the only other `ToolOutcome` construction in the product | — | there is none: `grep -rn "ToolOutcome {" crates/*/src` returns `tool.rs:76` (the definition) and `skein-mcp/src/lib.rs:57` |
-| every `impl ToolTransport` funnels through it | `wiring.rs:141,390`, `connector.rs:85`, `skein-mcp/src/lib.rs:43` | four impls, and none of them is a second producer: `ConfiguredTools` dispatches to `NoTools` or to `LocalConnector`, `LocalConnector` delegates to its `RmcpToolTransport` field (`connector.rs:38`), and `NoTools::call` returns `Err` unconditionally. So "already-serialized JSON" is a property of the port, not of one caller |
-| the propagation | `skein-core/src/native_loop.rs:186` | `Ok((_, captured)) => captured.content` — the capture is what goes back to the model |
-| the two existing `redact_wire` callers | `skein-core/src/native_loop.rs:115-116` | `exchange.request` / `exchange.response`, with the comment stating the premise |
-| the unit-level control | `skein-core/tests/tool_gateway.rs:226` | `secret_is_redacted_from_args_and_result_before_capture`, over `SECRET = "sk-SECRET-abc123"` — no escapable character, so it is green either way |
-| the integration control | `skein-connectors/tests/governed_fs_run.rs:652` | `a_secret_in_a_files_contents_is_scrubbed_from_the_chain`, over `SECRET_ON_DISK = "sk-from-disk-SECRET-abc123"` — likewise |
-| the assertion shape that cannot catch this | `skein-connectors/tests/governed_fs_run.rs:685` | `payloads.iter().all(|p| !p.contains(SECRET_ON_DISK))` |
-| the helper that is *still* not enough | `skein-connectors/tests/governed_fs_run.rs:290` | `escaped(text)` — single-escaped; the `ToolResult` payload is doubly escaped |
-| `replay_tool_calls` | `skein-core/src/tool.rs:424` | parses each `ToolResult` payload into a `CapturedResult`; the parsed form every assertion here uses |
+| the defect | `heddle-core/src/tool.rs:410` | `content: self.redactor.redact(&outcome.content)` |
+| `Redactor::redact` | `heddle-core/src/tool.rs:209` | `text.replace(secret.expose(), "***")` — the literal needle only |
+| `Redactor::redact_json` | `heddle-core/src/tool.rs:224` | scrub-**then**-serialize; its doc names the escaping hazard |
+| `Redactor::redact_wire` | `heddle-core/src/tool.rs:237` | literal **and** `Value::String`-escaped needle; the exact premise a tool result satisfies |
+| the source of the escaping | `heddle-mcp/src/lib.rs:57` | `content: serde_json::to_string(&result)?` — the whole `CallToolResult`, serialized |
+| the only other `ToolOutcome` construction in the product | — | there is none: `grep -rn "ToolOutcome {" crates/*/src` returns `tool.rs:76` (the definition) and `heddle-mcp/src/lib.rs:57` |
+| every `impl ToolTransport` funnels through it | `wiring.rs:141,390`, `connector.rs:85`, `heddle-mcp/src/lib.rs:43` | four impls, and none of them is a second producer: `ConfiguredTools` dispatches to `NoTools` or to `LocalConnector`, `LocalConnector` delegates to its `RmcpToolTransport` field (`connector.rs:38`), and `NoTools::call` returns `Err` unconditionally. So "already-serialized JSON" is a property of the port, not of one caller |
+| the propagation | `heddle-core/src/native_loop.rs:186` | `Ok((_, captured)) => captured.content` — the capture is what goes back to the model |
+| the two existing `redact_wire` callers | `heddle-core/src/native_loop.rs:115-116` | `exchange.request` / `exchange.response`, with the comment stating the premise |
+| the unit-level control | `heddle-core/tests/tool_gateway.rs:226` | `secret_is_redacted_from_args_and_result_before_capture`, over `SECRET = "sk-SECRET-abc123"` — no escapable character, so it is green either way |
+| the integration control | `heddle-connectors/tests/governed_fs_run.rs:652` | `a_secret_in_a_files_contents_is_scrubbed_from_the_chain`, over `SECRET_ON_DISK = "sk-from-disk-SECRET-abc123"` — likewise |
+| the assertion shape that cannot catch this | `heddle-connectors/tests/governed_fs_run.rs:685` | `payloads.iter().all(|p| !p.contains(SECRET_ON_DISK))` |
+| the helper that is *still* not enough | `heddle-connectors/tests/governed_fs_run.rs:290` | `escaped(text)` — single-escaped; the `ToolResult` payload is doubly escaped |
+| `replay_tool_calls` | `heddle-core/src/tool.rs:424` | parses each `ToolResult` payload into a `CapturedResult`; the parsed form every assertion here uses |
 
 ### 0.3 What leaks today, measured
 
@@ -96,7 +96,7 @@ let captured = CapturedResult {
 };
 ```
 
-`ToolOutcome.content` has exactly one producer in the product — `skein-mcp/src/lib.rs:57`,
+`ToolOutcome.content` has exactly one producer in the product — `heddle-mcp/src/lib.rs:57`,
 `serde_json::to_string(&result)?` — so "already-serialized JSON" is not a convention this line hopes
 for, it is the only thing the port is ever handed. That is `redact_wire`'s documented premise
 verbatim (`tool.rs:228-236`), and it was written one slice ago for the two other bodies satisfying
@@ -133,11 +133,11 @@ test behind it, and FR-008 pins its current behaviour instead.
 
 | site | argument | already-serialized? | verdict |
 |---|---|---|---|
-| `skein-acp/src/stream.rs:72` | a model's streamed text delta | no | correct; its comment at `:54-57` already states this |
-| `skein-core/src/native_loop.rs:113` | `exchange.url` | no — ours, plain | correct |
-| `skein-core/src/native_loop.rs:192` | the tool name out of a `ToolDenied` | no | correct |
-| `skein-core/src/tool.rs:262` | `call.tool`, from a parsed response | no | correct |
-| `skein-core/src/tool.rs:410` | `outcome.content` | **yes** | **the defect** |
+| `heddle-acp/src/stream.rs:72` | a model's streamed text delta | no | correct; its comment at `:54-57` already states this |
+| `heddle-core/src/native_loop.rs:113` | `exchange.url` | no — ours, plain | correct |
+| `heddle-core/src/native_loop.rs:192` | the tool name out of a `ToolDenied` | no | correct |
+| `heddle-core/src/tool.rs:262` | `call.tool`, from a parsed response | no | correct |
+| `heddle-core/src/tool.rs:410` | `outcome.content` | **yes** | **the defect** |
 
 Recorded so this slice's scope is a measurement rather than a claim, and so a later reader does not
 re-audit four correct lines.
@@ -238,4 +238,4 @@ edit.
 - **Unconfigured secrets** (FR-009).
 - **`Redactor`'s public surface** — no new method, no signature change.
 - **`redact_call` / the `ToolCall` capture** (D2).
-- **`skein-acp`'s streamed deltas** — plain text; D3.
+- **`heddle-acp`'s streamed deltas** — plain text; D3.

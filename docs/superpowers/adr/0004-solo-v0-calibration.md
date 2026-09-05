@@ -7,7 +7,7 @@
 
 ## Context
 
-The BMAD validation pass produced enterprise-grade quality gates (G0–G6: 100% evidence completeness, compliance registries, isolation matrices, threat models, truth tables). The architecture direction (Skein-owned control plane, ADR-0003) is validated by three independent passes. But two calibration errors remain:
+The BMAD validation pass produced enterprise-grade quality gates (G0–G6: 100% evidence completeness, compliance registries, isolation matrices, threat models, truth tables). The architecture direction (Heddle-owned control plane, ADR-0003) is validated by three independent passes. But two calibration errors remain:
 
 1. **Process weight exceeds a solo open-source v0.** The cure for the "platform-sized MVP" finding is to *shrink the scope to build*, not to *add gates*. Unchecked, G0–G6 produce governance theater and paralysis for a one-person project.
 2. **The pipeline blocks the very experiments that unblock it.** The five ADR-0003 spikes produce code; `build_authorization: NOT_READY` reads as "no code", creating a deadlock.
@@ -29,7 +29,7 @@ Also observed: the bootstrap failed in one agent session (Python/uv absent from 
 - **Spike code is authorized now**, under quarantine rules: lives in `spikes/` (never `crates/`), throwaway by default, no product dependency may import it, each spike has pre-registered exit criteria and produces an evidence note in `docs/superpowers/spikes/`. Deleting a spike after its evidence is captured is the normal outcome.
 
 ### D3 — v0 scope: strict-local coding agent core
-The only honest v0 is a **strict-local coding agent**: Skein-owned loop (per ADR-0003/landscape: ACP-shaped core boundary), MCP tools (fs/git/shell), one local model path (Ollama via gateway), silo Local + Ledger + SecretProvider foundation + LoopController budgets, CLI surface. **Everything else** — Atlassian/M365 connectors, team modes over network, UI, multimodal v2–v8, workflow engine full form, IdP/RBAC advanced, task trackers — stays specified but **out of v0 build scope**. Scope additions to v0 require an explicit ADR, not a conversation drift.
+The only honest v0 is a **strict-local coding agent**: Heddle-owned loop (per ADR-0003/landscape: ACP-shaped core boundary), MCP tools (fs/git/shell), one local model path (Ollama via gateway), silo Local + Ledger + SecretProvider foundation + LoopController budgets, CLI surface. **Everything else** — Atlassian/M365 connectors, team modes over network, UI, multimodal v2–v8, workflow engine full form, IdP/RBAC advanced, task trackers — stays specified but **out of v0 build scope**. Scope additions to v0 require an explicit ADR, not a conversation drift.
 
 ### D4 — Bootstrap hardening
 `scripts/bootstrap.{ps1,sh}` must verify tool availability *in the same shell profile the agent/dev will use*, fail loudly with remediation hints, and never rely on incidental venvs from unrelated projects. PATH prerequisites are documented in `docs/DEVELOPMENT.md`.

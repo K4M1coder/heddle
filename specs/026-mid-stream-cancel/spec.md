@@ -24,7 +24,7 @@ is sent no more.
 **The provider stops generating.** Abandoning the response body drops ureq's connection, which closes
 the socket; the provider sees its peer go away. Tokens are not spent on an answer nobody will read.
 
-**Nothing else about a run changes.** `skein chat` is byte-identical — it installs no sink, and a
+**Nothing else about a run changes.** `heddle chat` is byte-identical — it installs no sink, and a
 client with no sink is a client with nothing to cancel. A run that is not cancelled reads exactly the
 same bytes it read before. The `StepKind` sequence, the chain payloads and the CLI surface are
 untouched.
@@ -32,7 +32,7 @@ untouched.
 ## Four things a reader must know up front
 
 1. **The signal travels on the sink, not on a new port.** `TextSink` gains one defaulted method,
-   `wants_more(&self) -> bool`, returning `true`. `skein-core` never learns what cancellation is; it
+   `wants_more(&self) -> bool`, returning `true`. `heddle-core` never learns what cancellation is; it
    learns that a consumer may stop wanting text. Every existing sink keeps compiling and keeps
    behaving identically.
 2. **The check is per line of the stream, not per delta.** It is the first thing in the gateway's
@@ -78,7 +78,7 @@ untouched.
 | # | alternative | why not |
 |---|---|---|
 | 1 | `on_text` returns `bool` | conflates "here is text" with "keep going"; changes every sink's signature; can only be asked when a *content* delta arrives, so a cancel during tool-call or reasoning events waits |
-| 2 | an `Arc<AtomicBool>` threaded into `OpenAiCompatClient` | makes the gateway name a mechanism ACP owns, and hands `skein chat` a flag it has no way to set |
+| 2 | an `Arc<AtomicBool>` threaded into `OpenAiCompatClient` | makes the gateway name a mechanism ACP owns, and hands `heddle chat` a flag it has no way to set |
 | 3 | a `Cancellable` port separate from `TextSink` | two ports for one thing (VII); every caller that can cancel mid-stream is already being streamed to |
 | 4 | a custom ureq `Connector`/`Transport` with a cancellable socket | ureq already closes the socket and skips the pool for a half-read body, by ownership rather than by a `Drop` hook — verified in its source (`plan.md` §0.3). It would buy only the interruption of an already-blocked read |
 | 5 | `WireExchange { cancelled: bool }` | a claim about the bytes beside the bytes (V); *why* a read stopped is the run's outcome, which the chain and `StopReason` already record |
@@ -91,5 +91,5 @@ untouched.
 - Interrupting a `read_until` that is already blocked on a silent provider. The client's global
   timeout governs that case exactly as before.
 - Cancelling a tool call in flight.
-- A cancellation surface for `skein chat`.
+- A cancellation surface for `heddle chat`.
 - Buffered redaction for the live transcript (slice 025's standing residual, untouched).

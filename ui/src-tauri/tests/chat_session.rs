@@ -1,7 +1,7 @@
 //! Acceptance tests for the Tauri shell's ACP client (spec 021).
 //!
-//! Same shape as `crates/skein-cli/tests/cli_acp_agent.rs`, one role over: that
-//! file proves an ACP client can drive the real `skein` binary, this one proves
+//! Same shape as `crates/heddle-cli/tests/cli_acp_agent.rs`, one role over: that
+//! file proves an ACP client can drive the real `heddle` binary, this one proves
 //! that **the client the desktop app actually ships** does. The model is a
 //! `std::net::TcpListener` in this test process, so nothing here needs a running
 //! Ollama, and no test opens a window — `session.rs` names no Tauri type, which
@@ -12,7 +12,7 @@
 //! than about how fast a runner happens to be.
 
 use agent_client_protocol::schema::v1::{SessionUpdate, StopReason};
-use skein_ui::session::{AgentLaunch, SessionHandle};
+use heddle_ui::session::{AgentLaunch, SessionHandle};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
@@ -27,7 +27,7 @@ const OBSERVE_TIMEOUT: Duration = Duration::from_secs(30);
 
 // ---------------------------------------------------------------------------
 // The model: a real HTTP/1.1 server on loopback, answering a fixed script.
-// Copied from `cli_acp_agent.rs` rather than shared — `skein-cli` has no lib
+// Copied from `cli_acp_agent.rs` rather than shared — `heddle-cli` has no lib
 // target to share it through, and this crate must not grow a dependency on the
 // CLI to borrow a test double.
 // ---------------------------------------------------------------------------
@@ -171,20 +171,20 @@ fn tool_call_reply(tool: &str) -> String {
 // The subject.
 // ---------------------------------------------------------------------------
 
-/// The `skein` binary this test drives.
+/// The `heddle` binary this test drives.
 ///
-/// `CARGO_BIN_EXE_*` only covers the *current* package's binaries and `skein`
-/// belongs to `skein-cli`, so the path is derived from this test binary's own
+/// `CARGO_BIN_EXE_*` only covers the *current* package's binaries and `heddle`
+/// belongs to `heddle-cli`, so the path is derived from this test binary's own
 /// location (`target/<profile>/deps/`) instead. `cargo test --workspace` builds
-/// it; `cargo test -p skein-ui` alone does not, hence the explicit remedy.
-fn skein_binary() -> PathBuf {
+/// it; `cargo test -p heddle-ui` alone does not, hence the explicit remedy.
+fn heddle_binary() -> PathBuf {
     let mut path = std::env::current_exe().expect("the test binary's own path");
     path.pop(); // deps/
     path.pop(); // <profile>/
-    path.push(format!("skein{}", std::env::consts::EXE_SUFFIX));
+    path.push(format!("heddle{}", std::env::consts::EXE_SUFFIX));
     assert!(
         path.is_file(),
-        "{} is missing: run `cargo build -p skein-cli --bin skein` \
+        "{} is missing: run `cargo build -p heddle-cli --bin heddle` \
          (or `cargo test --workspace`, which builds it)",
         path.display()
     );
@@ -202,7 +202,7 @@ struct Started {
 
 fn start(provider: &StubProvider) -> Started {
     let root = TempDir::new().expect("a temp root");
-    let launch = AgentLaunch::new(skein_binary())
+    let launch = AgentLaunch::new(heddle_binary())
         .args([
             "acp-agent",
             "--root",
@@ -212,7 +212,7 @@ fn start(provider: &StubProvider) -> Started {
             "--model",
             "llama3.1",
             // Passed as a flag, not left to the environment: the child inherits
-            // this process's environment and a stray `$SKEIN_MODEL_BASE_URL`
+            // this process's environment and a stray `$HEDDLE_MODEL_BASE_URL`
             // could not be unset for it.
             "--base-url",
             &provider.base_url,
@@ -290,7 +290,7 @@ fn starting_a_session_spawns_the_real_agent_and_names_the_session() {
 
     // Deterministic: the facade mints session ids from an AtomicU64 starting at
     // 1, and this is a fresh child process.
-    assert_eq!(started.handle.session_id(), "skein-1");
+    assert_eq!(started.handle.session_id(), "heddle-1");
 }
 
 #[test]
@@ -313,7 +313,7 @@ fn a_prompt_is_answered_and_its_transcript_is_relayed_before_the_answer() {
     assert_eq!(stop, StopReason::EndTurn);
 
     // Sent before the response, so a client holding the answer has already been
-    // told about the run that produced it (`crates/skein-acp/src/lib.rs`).
+    // told about the run that produced it (`crates/heddle-acp/src/lib.rs`).
     assert_eq!(
         texts(&started.updates),
         vec!["the answer is 42".to_string()]
@@ -342,7 +342,7 @@ fn two_prompts_run_on_one_session_and_both_transcripts_arrive() {
         texts(&started.updates),
         vec!["the answer is 42".to_string(), "and 43".to_string()]
     );
-    assert_eq!(started.handle.session_id(), "skein-1");
+    assert_eq!(started.handle.session_id(), "heddle-1");
 }
 
 #[test]
@@ -379,7 +379,7 @@ fn a_cancel_stops_the_run_at_the_next_turn_boundary_and_says_so() {
         "a cancel that lands mid-run must be reported as cancelled, not as a normal end of turn"
     );
     // Turn 1 completed: cancellation is not mid-turn
-    // (`crates/skein-acp/src/cancel.rs`).
+    // (`crates/heddle-acp/src/cancel.rs`).
     assert!(
         !texts(&started.updates).contains(&"unreachable".to_string()),
         "the turn after the cancel must not have run"
@@ -403,7 +403,7 @@ fn dropping_the_handle_shuts_the_agent_down_and_reports_it_once() {
 
     drop(started.handle);
 
-    // The child's stdin closes, `skein acp-agent` exits zero, and the shell says
+    // The child's stdin closes, `heddle acp-agent` exits zero, and the shell says
     // so exactly once — a window that keeps accepting messages into a dead pipe
     // is the failure this callback exists to prevent.
     let reason = exits

@@ -1,7 +1,7 @@
 # Tasks: deny-by-default for tool identity (v0 strict-local)
 
 **Spec:** `specs/007-tool-allowlist/spec.md` · TDD (red→green), product code in
-`crates/skein-core`, branch `007-tool-allowlist` cut from `dev`.
+`crates/heddle-core`, branch `007-tool-allowlist` cut from `dev`.
 
 ## Constitution Check (ADR-0004 D1 solo-v0 bar)
 - I Headless core ✅ (library API; no UI, no bin) · II Local-first ✅ (no network, no new deps,
@@ -9,7 +9,7 @@
 - III Test-First ✅ (T2 red before T3 green) · IV Inverted coupling ✅ (the transport seam is
   untouched; `ToolPolicy` names no protocol and no server)
 - V Traceability ✅ (an unlisted tool is refused through the *existing* `[ToolCall, Approval]`
-  shape and the existing `SkeinError::ToolDenied` — no new `StepKind`, no second denial path;
+  shape and the existing `HeddleError::ToolDenied` — no new `StepKind`, no second denial path;
   `verify_chain` asserted on the new refusal)
 - VI Security ✅ (this slice restores the principle's opening clause: deny-by-default now
   governs tool *identity*, not only mutation, and fails closed — `ToolPolicy::new(Vec::new(),
@@ -40,7 +40,7 @@
       unobserved until the repository has a remote (SC-001)
 - [x] **T5** control diff: `git diff dev` empty on `src/native_loop.rs`, `src/loop_ctl.rs`,
       `src/ledger.rs`, `src/error.rs`, `src/model.rs`, `src/content.rs`,
-      `skein-mcp/src/lib.rs` and `tests/core.rs`. In the three test files every *removed*
+      `heddle-mcp/src/lib.rs` and `tests/core.rs`. In the three test files every *removed*
       line is an import line, a line inside `fn gateway` / `fn live_server`, or the `no_tools`
       doc comment — no pre-existing `#[test]` body changed, so specs 004/005/006 stay
       controls (SC-004, FR-006)
@@ -54,30 +54,30 @@
 
 `cargo test --workspace` on `dev` / `31051cb`, working tree clean, 2026-09-03: **35 passing** —
 `tests/core.rs` 6, `tests/native_loop.rs` 17, `tests/tool_gateway.rs` 6,
-`skein-mcp/tests/rmcp_gateway.rs` 6; 0 failed, 0 ignored. This is the number T4 diffs against:
+`heddle-mcp/tests/rmcp_gateway.rs` 6; 0 failed, 0 ignored. This is the number T4 diffs against:
 35 pre-existing + 5 new = 40.
 
 ## Observed red (Constitution III)
 
 - **T2** `cargo build --workspace --all-targets`, 2026-09-03:
-  - `error[E0432]: unresolved import skein_core::ToolAccess`
-    (`crates/skein-core/tests/tool_gateway.rs`,
-    `crates/skein-core/tests/native_loop.rs`,
-    `crates/skein-mcp/tests/rmcp_gateway.rs:16:52`)
-  - `error: could not compile skein-core (test "tool_gateway") due to 1 previous error`
-  - `error: could not compile skein-core (test "native_loop") due to 1 previous error`
-  - `error: could not compile skein-mcp (test "rmcp_gateway") due to 1 previous error`
+  - `error[E0432]: unresolved import heddle_core::ToolAccess`
+    (`crates/heddle-core/tests/tool_gateway.rs`,
+    `crates/heddle-core/tests/native_loop.rs`,
+    `crates/heddle-mcp/tests/rmcp_gateway.rs:16:52`)
+  - `error: could not compile heddle-core (test "tool_gateway") due to 1 previous error`
+  - `error: could not compile heddle-core (test "native_loop") due to 1 previous error`
+  - `error: could not compile heddle-mcp (test "rmcp_gateway") due to 1 previous error`
   - The `ToolPolicy::new` argument-type errors the plan also expected are *not* in this
     output: rustc abandons a crate once import resolution fails, so the unresolved
     `ToolAccess` import is the only diagnostic each test crate reaches. Same red, one
     diagnostic per crate instead of two.
 
 ## Next slice (not this feature)
-- [x] ACP client facade over the native loop + gateway — spec 008, `crates/skein-acp`
+- [x] ACP client facade over the native loop + gateway — spec 008, `crates/heddle-acp`
 - [ ] a typed `Content::ToolResult` variant and real prompt-injection defense; redacting the
       tool *name* on its way into the Ledger
 - [ ] tool advertisement on `TurnRequest`, which needs tool discovery (`tools/list`)
 - [ ] cost / wall-clock budgets and `Exit::Error`; the `ts`/`principal`/`silo` fields design
       §4.11 sketches on `Step`
 - [ ] silo-backed durable Ledger (SQLite) + `SecretProvider` (OS keychain)
-- [ ] `skein-cli` reference client
+- [ ] `heddle-cli` reference client

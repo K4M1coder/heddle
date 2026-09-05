@@ -25,7 +25,7 @@ It is not yet a complete reconciliation of durable user intent. Four blocking co
 
 ### C-01 — The required local-backend lifecycle is still not a normative product outcome
 
-**Evidence:** The durable decision states that the local backend always exists, network exposure is configurable, and local execution stands down while the application is attached to another exposed Skein instance (`.memlog.md:14-15`; `reconcile-user-conversations.md:59-61`). The PRD defines explicit modes and isolated transitions (`PRD.update-draft.md:177-183`) and defines Server and Remote terms (`PRD.update-draft.md:464-465`), but never requires the backend to remain installed/functional, bind locally by default, cease being the active execution backend on Remote attachment, or reactivate safely after detachment. The addendum leaves all of this as open architecture questions (`addendum.update-draft.md:121-133`).
+**Evidence:** The durable decision states that the local backend always exists, network exposure is configurable, and local execution stands down while the application is attached to another exposed Heddle instance (`.memlog.md:14-15`; `reconcile-user-conversations.md:59-61`). The PRD defines explicit modes and isolated transitions (`PRD.update-draft.md:177-183`) and defines Server and Remote terms (`PRD.update-draft.md:464-465`), but never requires the backend to remain installed/functional, bind locally by default, cease being the active execution backend on Remote attachment, or reactivate safely after detachment. The addendum leaves all of this as open architecture questions (`addendum.update-draft.md:121-133`).
 
 **Impact:** An implementation could satisfy the draft while destroying or disabling the local backend in Remote mode, exposing it by default, running local and remote execution concurrently, or failing over silently. This drops a direct user decision and affects process ownership, split-brain safety, mode isolation, and recovery.
 
@@ -59,7 +59,7 @@ It is not yet a complete reconciliation of durable user intent. Four blocking co
 
 ### H-01 — Ownership is present, but the explicit non-affiliation and repository-language prohibitions have no durable destination
 
-The PRD correctly identifies Cédric Thedrez, `kamicoder`, and `cethgame` and calls Skein independent/open source (`PRD.update-draft.md:20-24`). The forbidden organizational association does not appear in either draft, which is correct, but no governance requirement prevents its future introduction. English-only persistent code/documentation is absent from both drafts despite `reconcile-user-conversations.md:281-282`. These are project-governance rules rather than product FRs, but they still require explicit placement before readiness.
+The PRD correctly identifies Cédric Thedrez, `kamicoder`, and `cethgame` and calls Heddle independent/open source (`PRD.update-draft.md:20-24`). The forbidden organizational association does not appear in either draft, which is correct, but no governance requirement prevents its future introduction. English-only persistent code/documentation is absent from both drafts despite `reconcile-user-conversations.md:281-282`. These are project-governance rules rather than product FRs, but they still require explicit placement before readiness.
 
 **Required disposition:** Put ownership, non-affiliation, English-only repository content, and French-only user conversation policy in project governance/contribution/release metadata, referenced by the build gate. Do not insert the forbidden organization name into normal project materials.
 

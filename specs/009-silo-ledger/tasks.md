@@ -1,7 +1,7 @@
 # Tasks: a durable silo-backed Ledger (v0 slice)
 
-**Spec:** `specs/009-silo-ledger/spec.md` · TDD (red→green), product code in `crates/skein-core`
-and the new `crates/skein-silo`, branch `009-silo-ledger` cut from `dev`.
+**Spec:** `specs/009-silo-ledger/spec.md` · TDD (red→green), product code in `crates/heddle-core`
+and the new `crates/heddle-silo`, branch `009-silo-ledger` cut from `dev`.
 
 ## Constitution Check (ADR-0004 D1 solo-v0 bar)
 - I Headless core ✅ (library only; the silo is reachable through the existing headless API and,
@@ -11,7 +11,7 @@ and the new `crates/skein-silo`, branch `009-silo-ledger` cut from `dev`.
 - III Test-First ✅ (T1 pins the `rusqlite` surface against the vendored source before any
   product code; T3's red observed before T4, T5's before T6; `s3` is the dedicated isolation test
   Principle III requires) · IV Inverted coupling ✅ (`LedgerStore` is the seam; `rusqlite` is
-  named in exactly one module of one crate and never in `skein-core`, whose direct dependency
+  named in exactly one module of one crate and never in `heddle-core`, whose direct dependency
   list stays four)
 - V Traceability ✅ (**one** hash function, **one** chaining rule, **one** `verify_chain`, shared
   by both storage shapes; append-only enforced by SQL triggers, not by convention; `s6` proves
@@ -34,31 +34,31 @@ and the new `crates/skein-silo`, branch `009-silo-ledger` cut from `dev`.
       spellings were wrong; see below
 - [x] **T2** control baseline: `cargo test --workspace` on `dev` before any edit — **52**
 - [x] **T3** RED — the three `// ---- ledger store seam ----` tests in
-      `crates/skein-core/tests/core.rs` against the not-yet-existing API; compiler errors
+      `crates/heddle-core/tests/core.rs` against the not-yet-existing API; compiler errors
       recorded below
 - [x] **T4** GREEN — `LedgerStore`, `Ledger::open`, the `store` field, fallible `append`,
-      `SkeinError::Storage`, and the `?` churn across `native_loop.rs`, `tool.rs` and the three
-      `skein-core` test binaries
-- [x] **T5** RED — `crates/skein-silo` with an empty `src/lib.rs` and the whole of
+      `HeddleError::Storage`, and the `?` churn across `native_loop.rs`, `tool.rs` and the three
+      `heddle-core` test binaries
+- [x] **T5** RED — `crates/heddle-silo` with an empty `src/lib.rs` and the whole of
       `tests/silo_ledger.rs` against the not-yet-existing `Silo`; red recorded below
 - [x] **T6** GREEN — `SqliteLedgerStore` + `Silo`
-- [x] **T7** `skein-acp` wiring: `SessionParts.ledger`, the two test construction sites, and one
+- [x] **T7** `heddle-acp` wiring: `SessionParts.ledger`, the two test construction sites, and one
       new test (`a8`) — without it FR-011 would ship untested, because an unwired `Ledger::new()`
       and a wired-but-empty injected ledger are indistinguishable to the existing twelve
 - [x] **T8** gates: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D
       warnings`, `cargo test --workspace`; new total recorded below
-- [x] **T9** control diff: `git diff dev` empty on `crates/skein-mcp/`, `spikes/`, `.github/`
+- [x] **T9** control diff: `git diff dev` empty on `crates/heddle-mcp/`, `spikes/`, `.github/`
       and `rust-toolchain.toml`
 - [x] **T10** dependency drift recorded below
 - [x] **T11** close out: split the "silo-backed durable Ledger (SQLite) + `SecretProvider`"
-      bullet in `specs/003-skein-core-foundation/tasks.md` into two and ticked the 009 half, set
+      bullet in `specs/003-heddle-core-foundation/tasks.md` into two and ticked the 009 half, set
       this spec's Status, and populated the "Next slice" list
 
 ## Control baseline (T2)
 
 `cargo test --workspace` on `009-silo-ledger` @ `1d351df` (identical to `dev`), working tree
-clean, 2026-09-03: **52 passing** — `skein-acp/tests/acp_session.rs` 12, `skein-core/tests/core.rs`
-6, `tests/native_loop.rs` 18, `tests/tool_gateway.rs` 9, `skein-mcp/tests/rmcp_gateway.rs` 7;
+clean, 2026-09-03: **52 passing** — `heddle-acp/tests/acp_session.rs` 12, `heddle-core/tests/core.rs`
+6, `tests/native_loop.rs` 18, `tests/tool_gateway.rs` 9, `heddle-mcp/tests/rmcp_gateway.rs` 7;
 0 failed, 0 ignored. This is the number T8 diffs against.
 
 ## Pinned rusqlite surface (T1)
@@ -84,7 +84,7 @@ is used by `ledger_store.rs` exactly as spelled here.
 
 1. **`u64` implements neither `ToSql` nor `FromSql`.** `rusqlite` covers `i8..=i64` and
    `u8..=u32`; `u64` needs the `fallible_uint` feature. `Step::seq` is `u64`, so the store casts
-   to `i64` on write and converts back on read, failing with `SkeinError::Storage` rather than
+   to `i64` on write and converts back on read, failing with `HeddleError::Storage` rather than
    panicking if a stored value does not fit. Observed as
    `error[E0277]: the trait bound u64: ToSql is not satisfied`.
 2. **`Row::get::<_, u64>` fails the same way** on `FromSql`.
@@ -104,17 +104,17 @@ is used by `ledger_store.rs` exactly as spelled here.
 
 ## Observed red (Constitution III)
 
-- **T3** `cargo test -p skein-core --test core`, 2026-09-03:
-  - `error[E0432]: unresolved import skein_core::LedgerStore` — *"no `LedgerStore` in the root"*
-    (`crates/skein-core/tests/core.rs:4:28`)
-  - `error: could not compile skein-core (test "core") due to 1 previous error`
+- **T3** `cargo test -p heddle-core --test core`, 2026-09-03:
+  - `error[E0432]: unresolved import heddle_core::LedgerStore` — *"no `LedgerStore` in the root"*
+    (`crates/heddle-core/tests/core.rs:4:28`)
+  - `error: could not compile heddle-core (test "core") due to 1 previous error`
   - As in slices 007 and 008, rustc abandons the crate once import resolution fails, so this one
     diagnostic is the whole red: the `Ledger::open` and fallible-`append` errors underneath it are
     never reached.
-- **T5** `cargo test -p skein-silo --test silo_ledger`, 2026-09-03, against an empty `src/lib.rs`:
-  - `error[E0432]: unresolved import skein_silo::Silo` — *"no `Silo` in the root"*
-    (`crates/skein-silo/tests/silo_ledger.rs:14:5`)
-  - `error: could not compile skein-silo (test "silo_ledger") due to 1 previous error`
+- **T5** `cargo test -p heddle-silo --test silo_ledger`, 2026-09-03, against an empty `src/lib.rs`:
+  - `error[E0432]: unresolved import heddle_silo::Silo` — *"no `Silo` in the root"*
+    (`crates/heddle-silo/tests/silo_ledger.rs:14:5`)
+  - `error: could not compile heddle-silo (test "silo_ledger") due to 1 previous error`
   - Every name the suite needs comes through `Silo`, so again one diagnostic is the whole red.
     `rusqlite` itself resolves in the test binary from the crate's `[dependencies]`, which is how
     `s5`/`s6` reach the file with raw SQL without a second dependency spelling.
@@ -127,21 +127,21 @@ remote (SC-001).
 - `cargo fmt --all -- --check` — clean.
 - `cargo clippy --workspace --all-targets -- -D warnings` — clean, no objection raised.
 - `cargo test --workspace` — **63 passing**, 0 failed, 0 ignored: 52 pre-existing + 3 core seam
-  tests + 7 `skein-silo` tests + `a8`. Per binary: `acp_session` 13, `core` 9, `native_loop` 18,
+  tests + 7 `heddle-silo` tests + `a8`. Per binary: `acp_session` 13, `core` 9, `native_loop` 18,
   `tool_gateway` 9, `rmcp_gateway` 7, `silo_ledger` 7.
-- `cargo test -p skein-core -p skein-mcp` in isolation — **43 passing** (the pre-slice 40 plus the
+- `cargo test -p heddle-core -p heddle-mcp` in isolation — **43 passing** (the pre-slice 40 plus the
   three new seam tests), so nothing in the two oldest crates moved. Slice 008's
   `serde_json/preserve_order` feature-unification hazard has no analogue here: `rusqlite`'s
   `serde_json` dependency is optional and stays off, and `default-features = false` drops its
   `cache` and `ffi-sqlite-wasm-rs` defaults, so the only features it unifies are on crates
-  `skein-core` does not use.
+  `heddle-core` does not use.
 
 ## Control diff (T9)
 
-`git diff dev --stat -- crates/skein-mcp/ spikes/ .github/ rust-toolchain.toml` is empty
+`git diff dev --stat -- crates/heddle-mcp/ spikes/ .github/ rust-toolchain.toml` is empty
 (SC-003, SC-004). `git diff dev -- Cargo.toml` is exactly two added `[workspace.dependencies]`
-lines (SC-005). The rest of the slice is additive-plus-`?`-churn under `crates/skein-core/` and
-`crates/skein-acp/`, new files under `crates/skein-silo/` and `specs/009-silo-ledger/`, and five
+lines (SC-005). The rest of the slice is additive-plus-`?`-churn under `crates/heddle-core/` and
+`crates/heddle-acp/`, new files under `crates/heddle-silo/` and `specs/009-silo-ledger/`, and five
 lines in `docs/DEVELOPMENT.md`.
 
 ## Drift (T10)
@@ -152,10 +152,10 @@ real resolution rather than from the previous slice's note.
 - **Dependency growth.** `cargo tree -e normal,build,dev` resolves **115** distinct
   package-versions before the slice and **126** after: **11** added, and none removed. Six are
   built into the product — `rusqlite`, `libsqlite3-sys`, `fallible-iterator`,
-  `fallible-streaming-iterator`, the new `skein-silo` itself, and dev-only `tempfile` — and five
+  `fallible-streaming-iterator`, the new `heddle-silo` itself, and dev-only `tempfile` — and five
   are `libsqlite3-sys`'s build-time chain: `cc`, `find-msvc-tools`, `shlex`, `pkg-config`,
   `vcpkg`. `bitflags` and `smallvec` were already in the graph via the ACP stack, so `rusqlite`
-  adds no second copy. **`skein-core` still has exactly four direct dependencies** (`serde`,
+  adds no second copy. **`heddle-core` still has exactly four direct dependencies** (`serde`,
   `serde_json`, `thiserror`, `sha2`) and names no database. (`Cargo.lock` is `.gitignore`d in
   this repository, so the resolved graph is the measurable artefact rather than a lockfile diff;
   the base worktree also resolved `serde`/`proc-macro2`/`quote` one patch ahead of the working
@@ -172,8 +172,8 @@ real resolution rather than from the previous slice's note.
   picked up with no CI edit — confirmed by reading, not edited.
 
 ## Next slice (not this feature)
-- [x] `SecretProvider` (OS keychain) + JIT `Redactor` — spec 010, extending `crates/skein-silo`
-- [ ] `skein-cli` reference client and `skein ledger log|show|verify` — the first consumer that
+- [x] `SecretProvider` (OS keychain) + JIT `Redactor` — spec 010, extending `crates/heddle-silo`
+- [ ] `heddle-cli` reference client and `heddle ledger log|show|verify` — the first consumer that
       opens a silo by name rather than by path
 - [ ] bounded / paged `Ledger` reads: today `Ledger::open` mirrors a silo's whole history in RAM.
       The `LedgerStore` seam already admits a bounded read path when a caller needs one

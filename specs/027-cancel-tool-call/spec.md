@@ -24,7 +24,7 @@ an error saying it was cancelled, and `session/prompt` is answered `StopReason::
 answer to a mid-`proc_run` cancel was however long the command had left, up to thirty seconds. It is
 now a poll slice.
 
-**Nothing else about a run changes.** `skein chat` is byte-identical — it has no cancel channel and
+**Nothing else about a run changes.** `heddle chat` is byte-identical — it has no cancel channel and
 passes a flag nothing sets. A run that is not cancelled runs exactly as long as it ran before, exits
 with the same code, and reports the same two streams. No flag is added to any command, no `StepKind`
 is added, no chain payload changes, and the timeout keeps its own distinct message.
@@ -32,7 +32,7 @@ is added, no chain payload changes, and the timeout keeps its own distinct messa
 ## Four things a reader must know up front
 
 1. **The signal is the flag the session already has, threaded down by value.** No new port, no
-   widening of `ToolTransport`, no decorator. `skein-cli`'s ACP session factory mints one
+   widening of `ToolTransport`, no decorator. `heddle-cli`'s ACP session factory mints one
    `Arc<AtomicBool>` per session and hands the **same** one to the session and to the tool
    transport; it flows `ToolArgs::transport` → `local_connector_with_run` →
    `EmbeddedServer::with_run` → `run::execute` → `Sandbox::run` → `launch::wait`.
@@ -51,7 +51,7 @@ is added, no chain payload changes, and the timeout keeps its own distinct messa
 
 ## Requirements
 
-- **FR-001** `SessionParts` MUST carry the cancellation flag, and `SkeinSession` MUST use the one it
+- **FR-001** `SessionParts` MUST carry the cancellation flag, and `HeddleSession` MUST use the one it
   is given rather than minting its own. The flag MUST still be reset at the start of each run.
 - **FR-002** `Sandbox::run` MUST take a cancellation flag and MUST observe it while the child runs.
 - **FR-003** Observing a set flag MUST terminate the child and its whole process tree, by the same
@@ -67,10 +67,10 @@ is added, no chain payload changes, and the timeout keeps its own distinct messa
   real exit code and its real streams.
 - **FR-008** `EmbeddedServer` MUST make "a sandbox without a cancel channel" and "a cancel channel
   with no sandbox" unrepresentable.
-- **FR-009** `skein acp-agent`'s session factory MUST give the session and its tool transport the
+- **FR-009** `heddle acp-agent`'s session factory MUST give the session and its tool transport the
   **same** flag. A test MUST fail if two are wired, and MUST fail on elapsed time rather than on the
   stop reason.
-- **FR-010** `skein chat` MUST be behaviourally unchanged, with no cancellation surface added.
+- **FR-010** `heddle chat` MUST be behaviourally unchanged, with no cancellation surface added.
 - **FR-011** The two existing cancellation paths MUST be unchanged: `CancellableModel`'s pre-turn
   refusal and `AcpTextSink::wants_more`'s per-line check, with their tests passing unmodified.
 
@@ -78,7 +78,7 @@ is added, no chain payload changes, and the timeout keeps its own distinct messa
 
 | # | alternative | why not |
 |---|---|---|
-| 1 | widen `ToolTransport` with `cancel()` | `skein-core` would name cancellation twice in two shapes, for one implementation out of four; and it cannot work — `AcpPermissionTransport::call` holds `&mut self` for the whole call, so no `&mut` is left for a canceller to reach through |
+| 1 | widen `ToolTransport` with `cancel()` | `heddle-core` would name cancellation twice in two shapes, for one implementation out of four; and it cannot work — `AcpPermissionTransport::call` holds `&mut self` for the whole call, so no `&mut` is left for a canceller to reach through |
 | 2 | a `CancellableTransport` decorator mirroring `CancellableModel` | the mirror is superficial: `CancellableModel` refuses *before* delegating, which is meaningful; the defect here is *inside* a call already delegated, past two protocol boundaries and a tokio runtime |
 | 3 | store the flag on `Sandbox` | `EmbeddedServer` is `Clone` and rmcp clones per request; and one sandbox serves every call in a session, so the channel would belong to the sandbox rather than to the run |
 | 4 | `Option<Arc<AtomicBool>>` through the chain | six signatures each carrying a `None` that means what a never-set flag already means, plus a branch per poll for no behavioural difference |
@@ -96,5 +96,5 @@ is added, no chain payload changes, and the timeout keeps its own distinct messa
   untimed `recv()`; a cancel arriving then is observed when the human answers. A real gap, and a
   different one — it needs a second channel into that `recv`.
 - A pre-launch check (rejected alternative 7).
-- A cancellation surface for `skein chat` (slice 026 recorded the same boundary).
+- A cancellation surface for `heddle chat` (slice 026 recorded the same boundary).
 - Non-Windows. `Sandbox` is uninhabited off Windows and `--allow-run` is a refusal there.

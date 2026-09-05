@@ -12,13 +12,13 @@
   dependency
 - III Test-First ✅ the whole slice **is** the test. Each new test's red was observed and recorded
   verbatim under `## Observed red` before its green, and the first one corrected the spec's own
-  prediction about how a missing handler fails · IV Inverted coupling ✅ untouched. `skein-cli` is
-  the one crate that already depends on both `skein-acp` and `skein-connectors`, which is why the
+  prediction about how a missing handler fails · IV Inverted coupling ✅ untouched. `heddle-cli` is
+  the one crate that already depends on both `heddle-acp` and `heddle-connectors`, which is why the
   proof lives here and not in either of them: a real `fs_write` effect on disk needs
-  `skein-connectors`, which `skein-acp` does not depend on and must not
+  `heddle-connectors`, which `heddle-acp` does not depend on and must not
 - V Traceability ✅ this slice is where the ACP gate's chain shape first becomes a checked claim.
-  Both runs' chains are read back **in a second process** through `skein ledger log` and
-  `skein ledger verify`, at 12 and 11 steps; the deny chain differs from the allow chain by the
+  Both runs' chains are read back **in a second process** through `heddle ledger log` and
+  `heddle ledger verify`, at 12 and 11 steps; the deny chain differs from the allow chain by the
   absence of `tool_result` and nothing else. No new `StepKind` — the existing deny shape is matched,
   not reinvented
 - VI Security ✅ **the principle this slice exists for.** Deny-by-default is proven at the layer
@@ -68,15 +68,15 @@ This is slice 017's recorded close figure exactly. The plan predicted it would b
 
 All on 2026-09-03. Recorded verbatim.
 
-**T2/T3, first red — the imports.** `cargo test -p skein-cli --test cli_acp_agent`, against the
+**T2/T3, first red — the imports.** `cargo test -p heddle-cli --test cli_acp_agent`, against the
 harness written but the `use` block untouched:
 
 ```
 error[E0425]: cannot find type `RequestPermissionRequest` in this scope
-   --> crates\skein-cli\tests\cli_acp_agent.rs:723:30
+   --> crates\heddle-cli\tests\cli_acp_agent.rs:723:30
 error[E0433]: cannot find type `PermissionOptionKind` in this scope
 error[E0433]: cannot find type `ToolCallId` in this scope
-error: could not compile `skein-cli` (test "cli_acp_agent") due to 7 previous errors
+error: could not compile `heddle-cli` (test "cli_acp_agent") due to 7 previous errors
 ```
 
 **T3, the red that matters — and it is not the one the spec predicted.** The harness was run once
@@ -92,7 +92,7 @@ test an_acp_client_that_allows_lets_a_real_fs_write_execute ... FAILED
 
 ---- an_acp_client_that_allows_lets_a_real_fs_write_execute stdout ----
 thread 'an_acp_client_that_allows_lets_a_real_fs_write_execute' (38280) panicked at
-crates\skein-cli\tests\cli_acp_agent.rs:163:10:
+crates\heddle-cli\tests\cli_acp_agent.rs:163:10:
 the ACP client finished within 60s: Timeout
 
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 8 filtered out; finished in 60.01s
@@ -117,7 +117,7 @@ First, the answer flipped to `AllowOnce` and nothing else changed:
 
 ```
 ---- an_acp_client_that_rejects_stops_the_fs_write_and_the_run_survives stdout ----
-thread '...' (41700) panicked at crates\skein-cli\tests\cli_acp_agent.rs:954:5:
+thread '...' (41700) panicked at crates\heddle-cli\tests\cli_acp_agent.rs:954:5:
 a client's refusal must have had no effect whatsoever
 ```
 
@@ -127,7 +127,7 @@ expected chain:
 
 ```
 ---- an_acp_client_that_rejects_stops_the_fs_write_and_the_run_survives stdout ----
-thread '...' (21396) panicked at crates\skein-cli\tests\cli_acp_agent.rs:973:5:
+thread '...' (21396) panicked at crates\heddle-cli\tests\cli_acp_agent.rs:973:5:
 assertion `left == right` failed
   left: ["iteration_boundary", "llm_request", "llm_response", "budget_spent", "tool_call",
 "approval", "iteration_boundary", "llm_request", "llm_response", "budget_spent", "exit"]
@@ -141,7 +141,7 @@ asserted into existence. Both edits were reverted verbatim afterwards and the ta
 
 ## Append-only check (T5)
 
-`git diff dev -- crates/skein-cli/tests/cli_acp_agent.rs`, filtered to removed lines, is exactly the
+`git diff dev -- crates/heddle-cli/tests/cli_acp_agent.rs`, filtered to removed lines, is exactly the
 two-line `use` block that was rewritten to add six imports:
 
 ```
@@ -173,15 +173,15 @@ macOS and Linux legs remain unobserved until this repository has a remote. This 
 
 ## Control diff (T6)
 
-`git diff 4eeea42 --stat -- crates/skein-core/ crates/skein-acp/ crates/skein-connectors/
-crates/skein-gateway/ crates/skein-mcp/ crates/skein-silo/ spikes/ .github/ rust-toolchain.toml
+`git diff 4eeea42 --stat -- crates/heddle-core/ crates/heddle-acp/ crates/heddle-connectors/
+crates/heddle-gateway/ crates/heddle-mcp/ crates/heddle-silo/ spikes/ .github/ rust-toolchain.toml
 Cargo.toml Cargo.lock 'crates/*/src/'` — **empty**. The `crates/*/src/` half is the stronger claim
 and it is the one FR-001 makes: **no product code changed anywhere in the workspace.**
 
 Everything the slice touched, `git diff 4eeea42 --stat`:
 
 ```
- crates/skein-cli/tests/cli_acp_agent.rs | 374 +++++++++++++++++++++++++++++-
+ crates/heddle-cli/tests/cli_acp_agent.rs | 374 +++++++++++++++++++++++++++++-
  specs/018-acp-permission-gate/plan.md   | 388 ++++++++++++++++++++++++++++++++
  specs/018-acp-permission-gate/spec.md   | 166 ++++++++++++++
  specs/018-acp-permission-gate/tasks.md  |  69 ++++++
@@ -237,7 +237,7 @@ Deliberately not done, so no one helpfully does it. Identical to the spec's list
   `p3_a_cancelled_answer_denies_without_reaching_the_transport`.
 - **`AllowAlways` / `RejectAlways` or any answer persistence**, **new mutating tools**, **any UI**,
   and **a live-model test** — a live model cannot be made to answer Deny.
-- **`crates/skein-silo/`, `spikes/`, `.github/`, `rust-toolchain.toml`, `Cargo.toml`,
+- **`crates/heddle-silo/`, `spikes/`, `.github/`, `rust-toolchain.toml`, `Cargo.toml`,
   `Cargo.lock`** — verified empty in the control diff.
 
 ## Next slice (not this feature)
@@ -249,7 +249,7 @@ Deliberately not done, so no one helpfully does it. Identical to the spec's list
 - **Residuals this slice adds**, recorded rather than hidden:
   - **A permission request cannot be correlated to its tool call by a client.**
     `AcpPermissionTransport::ask` uses `ToolCallId::new(tool)` — the tool *name* — while
-    `skein_acp::project_updates` uses `step.id`, the chain hash. The two ids never match, so an
+    `heddle_acp::project_updates` uses `step.id`, the chain hash. The two ids never match, so an
     editor cannot join the prompt it showed to the tool call it later sees. Fixing it needs the
     chain step id inside the transport, which the transport does not have; that is a design change.
     `project_updates`' own docstring — *"the ACP tool-call id **is** the chain id of the `ToolCall`

@@ -1,7 +1,7 @@
 # Feature Specification: wire the Tool Gateway into the native loop (v0 strict-local)
 
 **Feature Branch:** `006-loop-tool-wiring` · **Created:** 2026-09-03 · **Status:** Implemented (v0 slice)
-**Input:** ADR-0003 (Accepted, decision A = native Skein-owned loop, decision 4 = tool
+**Input:** ADR-0003 (Accepted, decision A = native Heddle-owned loop, decision 4 = tool
 governance via `rmcp`) · design §4.2/§4.3/§4.11/§4.14/§7 · builds directly on
 `specs/004-native-loop` (Implemented, 15/15) and `specs/005-tool-gateway` (Implemented, 26/26),
 whose "Next slice" names this gap: *"wire the gateway into `NativeLoop`"*.
@@ -62,7 +62,7 @@ As a user, turn steps and tool steps share one hash chain and one `run_id`.
    `[IterationBoundary, LlmRequest, LlmResponse, BudgetSpent, ToolCall, Approval, ToolResult,
    IterationBoundary, LlmRequest, LlmResponse, BudgetSpent, Exit]`.
 2. **Given** a transport that errors, **When** the loop runs, **Then** it returns
-   `SkeinError::Tool`, no `ToolResult` is fabricated, and `verify_chain` still passes.
+   `HeddleError::Tool`, no `ToolResult` is fabricated, and `verify_chain` still passes.
 
 ### User Story 6 — The loop discovers tools through a port (P2)
 As a developer, the loop is generic over `ToolTransport` and holds a concrete `ToolGateway`;
@@ -79,7 +79,7 @@ there is no mockable seam that could substitute an ungoverned mediator.
   ledger, no second `run_id` scheme, no new `StepKind` (Constitution V).
 - **FR-004**: Tool results fed back into the conversation MUST be the gateway's **redacted**
   capture, MUST enter as `Role::User`, and MUST be labelled as tool data (Constitution VI).
-- **FR-005**: A `SkeinError::ToolDenied` MUST NOT end the run; any other tool error MUST
+- **FR-005**: A `HeddleError::ToolDenied` MUST NOT end the run; any other tool error MUST
   propagate as `Err` and MUST leave `verify_chain` passing.
 - **FR-006**: `record_iteration` and `should_exit` MUST be called exactly once per iteration
   boundary regardless of tool calls, and `loop_ctl.rs` MUST NOT change (Constitution VIII(a)).
@@ -91,8 +91,8 @@ there is no mockable seam that could substitute an ungoverned mediator.
 - **SC-002**: The loop's tool call is proven against a **live embedded rmcp server**, not only
   against the in-core double.
 - **SC-003**: `git diff` on every `Cargo.toml` in the repository is empty.
-- **SC-004**: `git diff` on `crates/skein-core/tests/tool_gateway.rs` and
-  `crates/skein-core/src/loop_ctl.rs` is empty; the four Exit-variant tests of spec 004 differ
+- **SC-004**: `git diff` on `crates/heddle-core/tests/tool_gateway.rs` and
+  `crates/heddle-core/src/loop_ctl.rs` is empty; the four Exit-variant tests of spec 004 differ
   only by the added `NativeLoop::new` argument, so they remain controls.
 - **SC-005**: `git diff` under `spikes/` is empty (ADR-0004 D2).
 - As in specs 004 and 005, the macOS and Linux legs of `core.yml` are unobserved until the
@@ -114,7 +114,7 @@ there is no mockable seam that could substitute an ungoverned mediator.
   the caller was trusted product code; from this slice the *model* picks the name, so
   "anything not classified mutating is allowed" is a materially weaker posture than it was.
   Blast radius is bounded by the configured transport's own tool list — an unknown name fails
-  downstream as `SkeinError::Tool` — and by the operator's choice of which server to connect.
+  downstream as `HeddleError::Tool` — and by the operator's choice of which server to connect.
   This is a named, open governance gap, carried into "Next slice"; it is not fixed here because
   adding a required allowlist changes `ToolPolicy::new`'s signature and would rewrite the
   eleven spec-005 tests this slice exists to keep as controls.
@@ -142,5 +142,5 @@ there is no mockable seam that could substitute an ungoverned mediator.
   list of tool names, exactly as spec 005 assumed. Constitution VIII(d) stays open.
 - **Design §4.11's `Step` sketch carries `ts`, `principal` and `silo` fields** the v0 `Step`
   does not have. That gap predates this slice (spec 003) and is not widened here.
-- The ACP client facade, the durable SQLite Ledger, `SecretProvider` and `skein-cli` remain the
+- The ACP client facade, the durable SQLite Ledger, `SecretProvider` and `heddle-cli` remain the
   following slices.

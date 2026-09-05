@@ -1,5 +1,5 @@
 ---
-title: Skein User Conversation Reconciliation Extract
+title: Heddle User Conversation Reconciliation Extract
 document_type: source-extraction-report
 status: draft-for-bmad-input
 created: 2026-07-16
@@ -9,7 +9,7 @@ sources:
 canonical: false
 ---
 
-# Skein User Conversation Reconciliation Extract
+# Heddle User Conversation Reconciliation Extract
 
 ## 1. Purpose and Method
 
@@ -34,15 +34,15 @@ Source labels:
 
 | ID | Source | Durable user input | Current PRD mapping | Status | Preservation note |
 |---|---|---|---|---|---|
-| ID-01 | P | The project name/codename is **Skein**. | Title; §1 | Covered | Preserve the name unless the owner explicitly reopens naming. |
-| ID-02 | P | Skein is an independent open-source project owned by Cédric Thedrez. | None | Missing | Ownership and provenance must not be inferred from repository location or prior employers. |
+| ID-01 | P | The project name/codename is **Heddle**. | Title; §1 | Covered | Preserve the name unless the owner explicitly reopens naming. |
+| ID-02 | P | Heddle is an independent open-source project owned by Cédric Thedrez. | None | Missing | Ownership and provenance must not be inferred from repository location or prior employers. |
 | ID-03 | P | Owner identity: Cédric Thedrez, GitHub alias `kamicoder`, alias `cethgame` elsewhere. | None | Missing | Needed for project metadata, copyright, governance, and release ownership. |
-| ID-04 | P | Skein has no relationship with SodiusWillert or any of its entities. | None | Missing | Explicit prohibition: do not mention or imply affiliation. |
+| ID-04 | P | Heddle has no relationship with SodiusWillert or any of its entities. | None | Missing | Explicit prohibition: do not mention or imply affiliation. |
 | ID-05 | P | All source code and persistent documentation must be in English. | None | Missing | Applies to code, comments, schemas, examples, scripts, operational docs, and generated repository artifacts. |
 | ID-06 | P | Conversation with the owner may be in French. | None | Missing | Interaction preference, not a product localization requirement by itself. |
 | ID-07 | P | BMAD and Spec-Kit artifacts should also be in English. | None | Missing | The final preference favored English for all persistent artifacts. |
 | ID-08 | P+R | Deliver one coherent product/package/repository/install experience, while retaining modular internals and supervised auxiliary processes where needed. | §1; §5 “No separate server product” | Partial | “Single product” must not be normalized into “single binary” or “single process.” |
-| ID-09 | P+R | Position Skein between or beyond Claude Code, GitHub Copilot, OpenCode, OpenClaw, Goose, Hermes, Open WebUI, Archon, and related tools. | §1; FR-18 | Partial | This is a capability and experience benchmark, not a requirement to clone branding or internals. |
+| ID-09 | P+R | Position Heddle between or beyond Claude Code, GitHub Copilot, OpenCode, OpenClaw, Goose, Hermes, Open WebUI, Archon, and related tools. | §1; FR-18 | Partial | This is a capability and experience benchmark, not a requirement to clone branding or internals. |
 | ID-10 | P+R | Prefer integration, reuse, inspiration, compatible libraries/crates, or controlled forks over rebuilding commodity components; implement internally only where existing components fail the requirements. | §5 first non-goal | Covered | Preserve replaceability and license review. |
 | ID-11 | P+R | The tool must feel simple and complete despite the breadth of the platform. | None | Missing | **Qualitative intent at risk:** architectural completeness must not leak as operational complexity. |
 | ID-12 | P+R | The product must adapt to the user's environment rather than require one fixed enterprise or cloud topology. | §1; FR-3; FR-6; FR-8 | Partial | **Qualitative intent at risk:** adaptability spans hardware, connectivity, identity, providers, tools, and deployment. |
@@ -58,8 +58,8 @@ Source labels:
 | SUR-05 | P | The desktop UI, CLI, and API must expose equivalent core capabilities. | SM-1 | Partial | SM-1 proves one journey, not comprehensive surface parity. |
 | SUR-06 | P | Desktop is the primary packaged experience, with an always-functional backend. | §1; §5 | Partial | The PRD does not explicitly state desktop packaging or backend lifecycle. |
 | SUR-07 | P | The backend always exists locally; only its network exposure is configurable. | §5 “team backend = exposed instance” | Partial | Must distinguish service availability from network publication. |
-| SUR-08 | P | When connected to another exposed Skein instance, the local backend stops serving as the active backend. | None | Missing | Requires lifecycle, handoff, local capability behavior, and failure-recovery semantics. |
-| SUR-09 | P+R | Skein must run usefully on a single ordinary desktop with no team or cloud dependency. | §1; §6.1 | Partial | **Qualitative intent at risk:** local independence must remain a first-class acceptance property. |
+| SUR-08 | P | When connected to another exposed Heddle instance, the local backend stops serving as the active backend. | None | Missing | Requires lifecycle, handoff, local capability behavior, and failure-recovery semantics. |
+| SUR-09 | P+R | Heddle must run usefully on a single ordinary desktop with no team or cloud dependency. | §1; §6.1 | Partial | **Qualitative intent at risk:** local independence must remain a first-class acceptance property. |
 | SUR-10 | P | Cross-platform support is required for Windows, Linux, and macOS. | Assumption §4.2 only references Ollama | Missing | Applies to product, bootstrap, packaging, connectors, and tests—not merely inference. |
 | SUR-11 | P+R | A single user command may launch a long autonomous engineering campaign, but internally it must be decomposed into durable, gated, resumable work. | FR-13; FR-16 | Partial | One user initiation is acceptable; one unbounded model trajectory is not. |
 
@@ -94,9 +94,9 @@ Source labels:
 | HAR-07 | P | Hierarchical authority determines which harness settings, tools, connectors, and skills can be enabled or overridden. | FR-7; FR-15 | Partial | Tools/skills/connector authorization is not fully bound to hierarchy. |
 | HAR-08 | P | The tool must natively sequence multi-agent actions across connected tools through workflows. | FR-13 | Covered | Workflow is a core capability, not a thin integration. |
 | HAR-09 | P+R | Workflows must support agents, tools, subagents, approvals, conditions, parallelism, loops, retries, and human gates. | FR-13; FR-16 | Covered | Preserve deterministic boundaries around model-directed work. |
-| HAR-10 | P+R | Use an Archon-like approach where useful, or integrate an existing durable workflow component if it satisfies Skein's contracts. | FR-13 | Partial | The current wording says “inspired” but does not preserve the evaluate-before-build decision. |
+| HAR-10 | P+R | Use an Archon-like approach where useful, or integrate an existing durable workflow component if it satisfies Heddle's contracts. | FR-13 | Partial | The current wording says “inspired” but does not preserve the evaluate-before-build decision. |
 | HAR-11 | P+R | Support interchangeable external agent workers such as Claude Code, Codex, OpenCode, Goose, and Hermes when governable. | FR-18 | Covered | External workers must not own authorization or canonical state. |
-| HAR-12 | P+R | Skein must guarantee the harness and workflow independently of the selected model or worker. | FR-16; FR-18 | Partial | **Qualitative intent at risk:** consistency is the product value, not just worker compatibility. |
+| HAR-12 | P+R | Heddle must guarantee the harness and workflow independently of the selected model or worker. | FR-16; FR-18 | Partial | **Qualitative intent at risk:** consistency is the product value, not just worker compatibility. |
 | HAR-13 | P+R | Every loop must have external termination criteria and bounded iteration/token/cost/time or resource budgets. | FR-16 | Covered | The user specifically rejected unbounded “one-shot” autonomy. |
 | HAR-14 | P+R | Verification and retry must consume ground-truth feedback such as tests, compiler results, tool results, or human judgment. | FR-16 | Covered | Model self-confidence is not an acceptance oracle. |
 | HAR-15 | P+R | Detect stagnation/no progress and escalate or stop. | FR-16 | Covered | Terminal states must be explicit. |
@@ -110,9 +110,9 @@ Source labels:
 
 | ID | Source | Durable user input | Current PRD mapping | Status | Preservation note |
 |---|---|---|---|---|---|
-| MET-01 | P | Skein itself must master and expose BMAD, Spec-Kit, and powerskills by default. | FR-5 | Covered | Product capability. |
-| MET-02 | P | Skein's own conception and implementation must follow official BMAD usage. | None | Missing | Process requirement for this project, distinct from FR-5. |
-| MET-03 | P | Skein's own conception and implementation must follow official Spec-Kit usage. | None | Missing | Process requirement for this project, distinct from FR-5. |
+| MET-01 | P | Heddle itself must master and expose BMAD, Spec-Kit, and powerskills by default. | FR-5 | Covered | Product capability. |
+| MET-02 | P | Heddle's own conception and implementation must follow official BMAD usage. | None | Missing | Process requirement for this project, distinct from FR-5. |
+| MET-03 | P | Heddle's own conception and implementation must follow official Spec-Kit usage. | None | Missing | Process requirement for this project, distinct from FR-5. |
 | MET-04 | P | BMAD and Spec-Kit must be bridged through a real, operational artifact flow, not merely co-installed or represented by prompts. | FR-5 | Partial | Current PRD does not define bridge completeness. |
 | MET-05 | P | Verify whether an established BMAD–Spec-Kit bridge exists and use official conventions rather than claiming completion prematurely. | None | Missing | Requires sourced evaluation and bridge acceptance evidence. |
 | MET-06 | P | Complete conception before launching implementation. | None | Missing | Explicit sequencing gate. |
@@ -185,7 +185,7 @@ Source labels:
 | INT-05 | P+R | Support common development, productivity, browser, creative, office, and enterprise tools through replaceable adapters/plugins. | §5; FR-12; FR-18 | Partial | No explicit capability/plugin registry requirement. |
 | INT-06 | P | MCP connectors may be embedded/bundled when safe and license-compatible. | None | Missing | Bundling must not imply automatic authorization or activation. |
 | INT-07 | P | Connector availability and activation are controlled by silo/project/conversation owners according to hierarchy; default is full local/minimal exposure. | FR-15 | Partial | Scope ownership and default connector set are missing. |
-| INT-08 | P+R | Place a Skein policy gateway in front of MCP/tool execution for schema validation, authorization, approvals, isolation, redaction, rate limits, and audit. | FR-8/9/11/13 | Partial | The composed gateway behavior is not an explicit FR. |
+| INT-08 | P+R | Place a Heddle policy gateway in front of MCP/tool execution for schema validation, authorization, approvals, isolation, redaction, rate limits, and audit. | FR-8/9/11/13 | Partial | The composed gateway behavior is not an explicit FR. |
 | INT-09 | P+R | Separate read/search capability from mutation/action capability and require stronger controls for consequential actions. | FR-2 confirmation | Partial | Applies to every connector, not only destructive shell/file actions. |
 | INT-10 | P+R | Provide real browser automation using a controlled browser engine and evidence capture. | FR-12 | Partial | “Browser companion” does not explicitly cover profiles, sessions, downloads, domains, screenshots, and traces. |
 | INT-11 | P | Provide computer control via virtual keyboard/mouse plus screen and window capture. | FR-12 | Partial | Exact control and perception primitives are not enumerated. |
@@ -252,7 +252,7 @@ Source labels:
 |---|---|---|---|---|---|
 | CTX-01 | R | A million tokens is roughly a context-capacity unit, not a sensible repository-size ceiling. | FR-17 | Covered | Do not optimize product scope merely to fit the whole mature repository into one prompt. |
 | CTX-02 | R | A serious local MVP may fit below roughly one million source tokens, while a mature enterprise platform with tests, docs, connectors, packaging, and compliance evidence will probably exceed it. | None | Missing | Feasibility planning insight, not an FR. |
-| CTX-03 | P+R | Repository size and active model context are different engineering concerns. | FR-17 | Covered | This distinction must guide both Skein and its own development process. |
+| CTX-03 | P+R | Repository size and active model context are different engineering concerns. | FR-17 | Covered | This distinction must guide both Heddle and its own development process. |
 | CTX-04 | P+R | Each model call should receive the smallest sufficient context rather than the entire repository. | FR-17 | Covered | **Qualitative intent at risk:** more context is not automatically better context. |
 | CTX-05 | P+R | Build repo maps, symbol indexes, dependency graphs, lexical/semantic retrieval, lazy loading, and trajectory compression. | FR-17 | Covered | Selection and compression must remain traceable. |
 | CTX-06 | P+R | Preserve room in the context window for instructions, task input, tool output, diffs, tests, errors, and final output. | FR-17 | Partial | Token allocation is recorded, but budget categories are not explicit. |
@@ -260,7 +260,7 @@ Source labels:
 | CTX-08 | P+R | Every call requires a reproducible manifest of selected sources, hashes, classifications, budget, and rationale. | FR-17 | Covered | Supports replay, audit, and debugging. |
 | CTX-09 | R | The core harness can be relatively compact because model reasoning is external, but enterprise reliability complexity lies in governance, connectors, tests, compatibility, and operations. | None | Missing | Planning insight that counters misleading “clone built in days” comparisons. |
 | CTX-10 | R | Rapid solo clones reproduce visible behavior using existing infrastructure and AI-generated code; they do not prove enterprise maturity, security, compatibility, or compliance. | None | Missing | Feasibility and expectation-management input. |
-| CTX-11 | P+R | A highly autonomous build is feasible as a campaign of many bounded tasks, checkpoints, tests, reviews, and repairs—not as a single unreviewed pass. | FR-13; FR-16 | Partial | Applies directly to Skein's own implementation authorization. |
+| CTX-11 | P+R | A highly autonomous build is feasible as a campaign of many bounded tasks, checkpoints, tests, reviews, and repairs—not as a single unreviewed pass. | FR-13; FR-16 | Partial | Applies directly to Heddle's own implementation authorization. |
 | CTX-12 | R | Human judgment remains required at product, legal, security, subjective-quality, and irreversible decision boundaries. | FR-13 approvals; FR-16 escalation | Partial | Human accountability boundaries should be explicit. |
 
 ### 2.13 Explicit prohibitions and non-negotiable boundaries
@@ -278,7 +278,7 @@ Source labels:
 | PRO-09 | P+R | Do not treat untrusted retrieved/web/tool content as higher-priority instructions. | None | Missing | Core prompt-injection defense. |
 | PRO-10 | P+R | Do not promise automatic GDPR/ISO 27001/SOC 2/AI Act/NIS2 compliance or certification. | Compliance | Covered | State “supports controls/evidence,” subject to deployment and organization. |
 | PRO-11 | P+R | Do not rewrite commodity infrastructure without a demonstrated requirements gap. | §5 | Covered | Internal differentiation remains harness, workflow, governance, context, and evidence. |
-| PRO-12 | P | Do not mention or associate SodiusWillert with Skein. | None | Missing | Applies to repository and public project materials. |
+| PRO-12 | P | Do not mention or associate SodiusWillert with Heddle. | None | Missing | Applies to repository and public project materials. |
 | PRO-13 | P | Do not write persistent project code or documentation in French. | None | Missing | English-only repository policy. |
 | PRO-14 | P+R | Do not use a single model, provider, agent worker, IdP, secret manager, task tracker, or workflow dependency as an irreplaceable control-plane authority. | §5; FR-18 | Partial | Current non-goal names provider/IdP/secrets but not every listed dependency class. |
 | PRO-15 | P+R | Do not equate one package with one process or force all optional heavy inference/media dependencies onto a basic desktop install. | None | Missing | Packaging must preserve a simple baseline and optional capability packs. |
@@ -287,10 +287,10 @@ Source labels:
 
 These intents are cross-cutting and can be lost even when individual requirements appear covered:
 
-1. **Simplicity:** Skein should present one understandable product and one coherent interaction model. Users should not need to understand its internal sidecars, adapters, models, or workflow graph to obtain ordinary results.
-2. **Adaptability:** Skein should discover and adapt to hardware, operating system, connectivity, available local engines, enterprise identity, existing tools, and organizational policy. Adaptation is user-visible and user-controlled.
+1. **Simplicity:** Heddle should present one understandable product and one coherent interaction model. Users should not need to understand its internal sidecars, adapters, models, or workflow graph to obtain ordinary results.
+2. **Adaptability:** Heddle should discover and adapt to hardware, operating system, connectivity, available local engines, enterprise identity, existing tools, and organizational policy. Adaptation is user-visible and user-controlled.
 3. **Omni illusion:** the user experiences one capable assistant even when multiple specialist models and tools execute in parallel or sequence. Internal specialization must not fragment the interaction.
-4. **Local independence:** a single user on an ordinary desktop can install, operate, develop with, and recover Skein without a cloud account, enterprise service, or another Skein server.
+4. **Local independence:** a single user on an ordinary desktop can install, operate, develop with, and recover Heddle without a cloud account, enterprise service, or another Heddle server.
 5. **Team collaboration:** the same product can expose its backend to a small trusted team, preserve team-only sharing, and later connect to enterprise identity and work systems without replacing the local-first core.
 6. **Full transparency:** users can inspect raw model inputs and outputs, context selection, tool calls, policies, approvals, tests, and state—not merely summaries or final files.
 7. **Governed autonomy:** broad autonomous execution is desirable only when bounded by explicit policies, budgets, ground-truth verification, checkpoints, evidence, independent review, and human authority at consequential boundaries.

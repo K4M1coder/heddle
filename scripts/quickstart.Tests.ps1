@@ -48,7 +48,7 @@ BeforeAll {
   # regex. Every match is collected rather than the first taken: a second
   # environment variable or a second constant in wiring.rs would make a
   # first-match lift quietly test the wrong one.
-  $wiring = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '../crates/skein-cli/src/wiring.rs')
+  $wiring = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot '../crates/heddle-cli/src/wiring.rs')
   $script:wiringEnvVars = @([regex]::Matches($wiring, 'std::env::var\("([^"]+)"\)') |
     ForEach-Object { $_.Groups[1].Value })
   $script:wiringBaseUrls = @([regex]::Matches($wiring, 'const DEFAULT_BASE_URL: &str = "([^"]+)"') |
@@ -59,8 +59,8 @@ Describe 'Resolve-Placement' {
   BeforeEach {
     # A bundle extracted where a mail client put it: no workspace manifest in it
     # or above it, and an operator sitting somewhere else entirely.
-    $script:bundleDir = Join-Path ([System.IO.Path]::GetTempPath()) "skein-placement-bundle-$(New-Guid)/skein-0.0.0-windows-x64"
-    $script:operatorCwd = Join-Path ([System.IO.Path]::GetTempPath()) "skein-placement-cwd-$(New-Guid)"
+    $script:bundleDir = Join-Path ([System.IO.Path]::GetTempPath()) "heddle-placement-bundle-$(New-Guid)/heddle-0.0.0-windows-x64"
+    $script:operatorCwd = Join-Path ([System.IO.Path]::GetTempPath()) "heddle-placement-cwd-$(New-Guid)"
     New-Item -ItemType Directory -Force -Path $script:bundleDir, $script:operatorCwd | Out-Null
     Set-Content -LiteralPath (Join-Path $script:operatorCwd 'marker.txt') -Value 'the folder the operator ran from'
   }
@@ -128,7 +128,7 @@ Describe 'Get-ParameterBillions' {
 }
 
 Describe 'the local-provider default' {
-  # quickstart.ps1 probes the endpoint `skein chat` will reach for when the
+  # quickstart.ps1 probes the endpoint `heddle chat` will reach for when the
   # operator passes neither -BaseUrl nor the environment variable, and it names
   # that endpoint in literals of its own. wiring.rs owns them; this is the only
   # thing crossing the Rust/PowerShell boundary, so without it a rename or a

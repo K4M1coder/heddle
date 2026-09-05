@@ -1,4 +1,4 @@
-//! SPIKE Option A — native Skein-owned agent loop (quarantined, throwaway).
+//! SPIKE Option A — native Heddle-owned agent loop (quarantined, throwaway).
 //! Proves the five pre-registered criteria of docs/superpowers/spikes/spike-protocol.md
 //! against an OpenAI-compatible endpoint: exact I/O capture, tool interception,
 //! external termination, run correlation. MCP wiring (rmcp) is a follow-up probe;
@@ -92,7 +92,7 @@ fn echo_tool(args: &Value) -> Value {
     json!({ "echoed": args })
 }
 
-/// Run a Skein-owned agent loop against an OpenAI-compatible `endpoint`.
+/// Run a Heddle-owned agent loop against an OpenAI-compatible `endpoint`.
 pub async fn run_loop(
     endpoint: &str,
     user_prompt: &str,

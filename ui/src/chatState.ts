@@ -4,7 +4,7 @@
  * This module owns **all** of the frontend's logic and none of its DOM:
  * `main.ts` is glue that calls these functions and paints the result. That
  * split is Constitution I's "the UI adds no capability of its own" made
- * checkable — everything here is a projection of what `skein acp-agent` already
+ * checkable — everything here is a projection of what `heddle acp-agent` already
  * sent, and everything testable lives in one file with no Tauri import in it.
  *
  * The `SessionUpdate` types below are the **wire** shapes, not a convenient
@@ -81,7 +81,7 @@ export interface ChatState {
   readonly lastStop: StopReason | null;
   /** A transport- or agent-level failure, shown once and cleared on the next send. */
   readonly error: string | null;
-  /** False once the `skein acp-agent` child is gone; nothing can be sent after that. */
+  /** False once the `heddle acp-agent` child is gone; nothing can be sent after that. */
   readonly connected: boolean;
 }
 
@@ -117,9 +117,9 @@ function toolOutput(content: ToolCallContent[] | undefined): string | null {
 /**
  * Folds one ACP `session/update` notification into the view state.
  *
- * Deliberately does **not** touch `pending`. `skein-acp` sends a run's whole
+ * Deliberately does **not** touch `pending`. `heddle-acp` sends a run's whole
  * batch of updates before it answers `session/prompt`
- * (`crates/skein-acp/src/lib.rs`), so an update is never evidence that the turn
+ * (`crates/heddle-acp/src/lib.rs`), so an update is never evidence that the turn
  * is over — only `promptFinished` is.
  */
 export function applyUpdate(state: ChatState, update: SessionUpdate): ChatState {
@@ -203,7 +203,7 @@ export function promptFailed(state: ChatState, message: string): ChatState {
 }
 
 /**
- * The `skein acp-agent` child is gone. Everything closes: a desktop app whose
+ * The `heddle acp-agent` child is gone. Everything closes: a desktop app whose
  * agent died must say so, not keep accepting messages into a dead pipe.
  */
 export function disconnected(state: ChatState, message: string): ChatState {
@@ -212,7 +212,7 @@ export function disconnected(state: ChatState, message: string): ChatState {
 
 /**
  * Whether Send may fire. With a `draft`, also whether that draft is worth
- * sending — `skein chat` refuses an empty prompt, and the UI must not be the
+ * sending — `heddle chat` refuses an empty prompt, and the UI must not be the
  * first layer to relax a core rule.
  */
 export function canSend(state: ChatState, draft?: string): boolean {

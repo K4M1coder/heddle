@@ -1,7 +1,7 @@
 # Feature Specification: a pinned, handle-relative `FsRoot` (v0 slice)
 
 **Feature Branch:** `021-fs-root-handle-relative` · **Created:** 2026-09-04 · **Status:**
-Implemented (v0 slice) · **Input:** `crates/skein-connectors/src/fs.rs`'s own recorded residual —
+Implemented (v0 slice) · **Input:** `crates/heddle-connectors/src/fs.rs`'s own recorded residual —
 *"there is a TOCTOU window between the `canonicalize` below and the `File::open` that follows it — a
 symlink swapped into that window escapes the root. Closing it needs `cap-std`-style
 directory-handle-relative opens, which this slice deliberately does not add"* — first written in
@@ -25,7 +25,7 @@ all, so there is no moment between deciding a path is contained and using it.
 
 **The `--fs-root` directory is pinned for as long as a run is attached to it.** This is a real,
 user-visible consequence and not an implementation detail: an operator who tries to rename, move or
-delete their project directory while a `skein chat` or `skein acp-agent` session is running will get
+delete their project directory while a `heddle chat` or `heddle acp-agent` session is running will get
 a sharing violation on Windows (measured here: `os error 32`). On Unix the directory can still be
 renamed, and the session keeps working on the same directory rather than following the name.
 Stopping the session releases the handle.
@@ -56,9 +56,9 @@ Stopping the session releases the handle.
    `win32job` were accepted, both large, because they were the only way to get a **security
    property** the product had claimed. This is the second shape.
 6. **Hand-rolling was the serious alternative and it lost on three measurements**, not on taste:
-   `CreateFileW` has no `RootDirectory` parameter, so the Win32 layer `skein-sandbox` uses cannot
-   express this at all; a hand-rolled resolver would put `unsafe` in `skein-connectors`, the crate
-   that serves model-supplied paths, breaking the tree's "`skein-sandbox` holds every `unsafe` block
+   `CreateFileW` has no `RootDirectory` parameter, so the Win32 layer `heddle-sandbox` uses cannot
+   express this at all; a hand-rolled resolver would put `unsafe` in `heddle-connectors`, the crate
+   that serves model-supplied paths, breaking the tree's "`heddle-sandbox` holds every `unsafe` block
    in the product" boundary; and it would need an `NtCreateFile` implementation and an `openat` one
    where the project deliberately has a single containment implementation with no `#[cfg]` in it.
 7. **A hard link inside the root pointing outside it is not an escape either mechanism can see**,
@@ -87,7 +87,7 @@ Stopping the session releases the handle.
   truncate that link's target.
 - **FR-008** A refusal MUST reach the model as a tool-level error (`isError: true`) which the run
   survives, exactly as it did before.
-- **FR-009** No `cap-std` type may appear in `skein-core`, in any `ToolTransport` signature, or in
+- **FR-009** No `cap-std` type may appear in `heddle-core`, in any `ToolTransport` signature, or in
   any public signature outside `FsRoot`.
 - **FR-010** `src/fs.rs` MUST gain no `#[cfg]`: slice 016's "no `#[cfg]` in the containment code"
   invariant holds.
@@ -129,8 +129,8 @@ Stopping the session releases the handle.
 ## Out of scope
 
 - Any change to `git2` or to how `git.rs` opens a repository.
-- Any change to `proc_run`, `skein-sandbox`, the AppContainer profile or its DACL. The research
-  question of whether one Win32 primitive could serve both is answered **no**: `skein-sandbox` uses
+- Any change to `proc_run`, `heddle-sandbox`, the AppContainer profile or its DACL. The research
+  question of whether one Win32 primitive could serve both is answered **no**: `heddle-sandbox` uses
   the Win32 layer, handle-relative opens need the NT layer.
 - Hard-link containment.
 - A general capability-based filesystem abstraction. Three methods with three current callers
