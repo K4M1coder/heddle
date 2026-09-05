@@ -18,14 +18,30 @@ use skein_silo::Silo;
 use std::io::Read;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub fn chat(silo: &SiloArgs, args: &ChatArgs) -> Result<()> {
     // Before the silo is touched, so a refused endpoint opens no chain: an
     // endpoint that cannot be built is an endpoint no socket was opened to, and
     // a silo with a one-step run in it would be a misleading record of an
-    // attempt that never left the process.
-    let endpoint = args.model.endpoint()?;
+    // attempt that never left the process. That reasoning is why `--provider`
+    // resolves here too — an unreadable provider table, an unknown provider
+    // name and a route refused for egress are all failures of the same kind,
+    // and they must be exit codes at the same point in the sequence.
+    //
+    // `--provider` wins when it is given, and `--base-url`/`--model` are the
+    // path when it is not. There is no merge: a named provider carries its own
+    // address and its own model, so taking half of each would produce a
+    // configuration no operator wrote down. `--timeout-secs` is threaded
+    // through both, because it is a budget for the request rather than a
+    // property of the provider.
+    let model_client = match args
+        .provider
+        .client(Duration::from_secs(args.model.timeout_secs))?
+    {
+        Some(client) => client,
+        None => args.model.client(args.model.endpoint()?),
+    };
     // Before the silo for the same reason, and after the endpoint so the three
     // refusals keep the order both commands document.
     let redactor = args.redact.redactor()?;
@@ -51,7 +67,7 @@ pub fn chat(silo: &SiloArgs, args: &ChatArgs) -> Result<()> {
     let mut ledger = Silo::open(silo.root()?, &silo.silo)?.ledger()?;
     let mut controller = LoopController::new(args.model.budget());
     let mut loops = NativeLoop::new(
-        args.model.client(endpoint),
+        model_client,
         NoGroundTruth,
         ToolGateway::new(
             transport,

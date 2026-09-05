@@ -61,6 +61,15 @@ apple-native-keyring-store = { version = "1", features = ["keychain"] }
 linux-keyutils-keyring-store = "1"
 ureq = { version = "3", default-features = false }
 http = "1"
+# The first config-file parser in the workspace, and `default-features = false`
+# for `ureq`'s reason rather than for tidiness: `default` turns on `display`,
+# which is a TOML *writer*. Skein reads an operator's file and never writes one,
+# so the writer is code that could only ever be dead. What is left is a pure
+# parser — no network, no TLS, no filesystem — which is what keeps spec 012's
+# SC-007 ("no TLS crate in `skein-gateway`'s tree") true of a crate that now has
+# a dependency it did not have. `preserve_order` stays off, matching the
+# `serde_json` decision slices 008 and 014 reconciled.
+toml = { version = "1", default-features = false, features = ["parse", "serde", "std"] }
 # Pinned to 0.61 and not the newer 0.62 on purpose: `win32job` below depends on
 # `windows ^0.61`, and one copy of a very large generated crate in the tree
 # beats two. Nothing `skein-sandbox` calls is 0.62-only, and `assign_process`

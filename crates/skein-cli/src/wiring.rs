@@ -15,11 +15,12 @@ use skein_connectors::{
 #[cfg(windows)]
 use skein_connectors::RunDirs;
 use skein_core::{
-    LoopBudget, ProgressProbe, Redactor, Result, SecretRef, SkeinError, ToolAccess, ToolCall,
-    ToolOutcome, ToolPolicy, ToolSpec, ToolTransport,
+    LoopBudget, ProgressProbe, Redactor, Result, SecretProvider, SecretRef, SecretValue,
+    SkeinError, ToolAccess, ToolCall, ToolOutcome, ToolPolicy, ToolSpec, ToolTransport,
 };
-use skein_gateway::{LocalEndpoint, OpenAiCompatClient};
+use skein_gateway::{LocalEndpoint, OpenAiCompatClient, ProviderTable, Router};
 use skein_silo::OsKeychain;
+use std::cell::OnceCell;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -81,6 +82,102 @@ impl ModelArgs {
 
     pub fn budget(&self) -> LoopBudget {
         LoopBudget::new(self.max_iters, self.max_tokens, self.no_progress_limit)
+    }
+}
+
+/// Which *named* provider this run reaches, and whether it may leave the
+/// machine to reach it.
+///
+/// Deliberately not part of [`ModelArgs`], for the reason [`RedactArgs`] is
+/// not: which provider an operator has configured, and whether egress is
+/// permitted, are run-governance rather than model knobs. Keeping them apart
+/// is also what lets `--provider` be **purely additive** — a run that does not
+/// pass it behaves exactly as it did before this flag existed, down to not
+/// reading the provider file at all.
+///
+/// Flattened into `skein chat` and nowhere else in this slice. `skein
+/// acp-agent` keeps `--base-url`/`--model`; extending it is a later decision
+/// about what a session may switch mid-conversation, not a line to add here.
+#[derive(Args)]
+pub struct ProviderArgs {
+    /// Route this run through a provider named in --providers-file, taking its
+    /// base URL, model and credential from there. Wins over --base-url and
+    /// --model. Absent, those flags are used and the file is never read.
+    #[arg(long, value_name = "NAME")]
+    pub provider: Option<String>,
+    /// The provider table: a flat list of [[provider]] entries. Read only when
+    /// --provider names one.
+    #[arg(long, value_name = "PATH", default_value = "providers.toml")]
+    pub providers_file: PathBuf,
+    /// Permit this run to reach a provider declared `kind = "cloud"`.
+    ///
+    /// Off by default, and the default is the decision (Constitution II): a run
+    /// that has not said this leaves the machine for nothing, and is told so by
+    /// name rather than failing at a socket.
+    #[arg(long)]
+    pub allow_egress: bool,
+}
+
+impl ProviderArgs {
+    /// The client for the named provider, or `None` when no name was given.
+    ///
+    /// `None` rather than a defaulted client, so the caller's existing
+    /// `--base-url`/`--model` path stays the one that runs when this flag is
+    /// absent — there is no merged code path in which a default provider table
+    /// could quietly become the source of an endpoint.
+    ///
+    /// Call this **before** opening a silo, for the reason
+    /// [`ModelArgs::endpoint`] documents: an unreadable table, an unknown name
+    /// and a refused egress are all failures that must happen before a chain
+    /// holds a one-step run for an attempt that never left the process.
+    pub fn client(&self, timeout: Duration) -> Result<Option<OpenAiCompatClient>> {
+        let Some(name) = &self.provider else {
+            return Ok(None);
+        };
+        let table = ProviderTable::from_path(&self.providers_file)?;
+        Router::new(&table)
+            .client_for(name, &LazyKeychain::new(), self.allow_egress, timeout)
+            .map(Some)
+    }
+}
+
+/// The platform credential store, opened on **first resolve** and not before.
+///
+/// The laziness is the point, and it is [`RedactArgs::redactor`]'s rule applied
+/// one layer down: a run that configures no secret must not acquire a runtime
+/// credential-store dependency. Passing an eagerly-built `OsKeychain` to
+/// [`Router::client_for`] would open the store for every named provider,
+/// including the overwhelmingly common local one that has no credential at all
+/// — and including a cloud one about to be refused for egress, since
+/// `client_for` checks egress before it resolves anything.
+struct LazyKeychain(OnceCell<OsKeychain>);
+
+impl LazyKeychain {
+    fn new() -> LazyKeychain {
+        LazyKeychain(OnceCell::new())
+    }
+}
+
+impl SecretProvider for LazyKeychain {
+    fn resolve(&self, secret: &SecretRef) -> Result<SecretValue> {
+        if self.0.get().is_none() {
+            // `set` cannot fail here — nothing else holds this cell, and
+            // `SecretProvider` is `&self` on a type that is not `Sync`.
+            let _ = self.0.set(OsKeychain::new()?);
+        }
+        self.0
+            .get()
+            .expect("the cell was just filled")
+            .resolve(secret)
+    }
+
+    /// `OsKeychain`'s own answer, and not a guess: the platform credential
+    /// store is on this machine, which is what makes Local mode with egress OFF
+    /// usable at all (design §7.3). Reported without constructing one, because
+    /// opening the store to ask whether opening it is allowed would defeat the
+    /// laziness above.
+    fn requires_network(&self) -> bool {
+        false
     }
 }
 

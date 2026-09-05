@@ -13,6 +13,8 @@ Skein is created and owned by **Cédric Thedrez**:
 
 v0 — the strict-local coding agent scoped by [ADR-0004 D3](docs/superpowers/adr/0004-solo-v0-calibration.md) — is implemented: a Skein-owned native loop behind an ACP boundary, MCP tools for `fs` and `git` plus a Windows-first sandboxed `shell` connector ([ADR-0006](docs/superpowers/adr/0006-shell-connector-windows-first-sandbox.md)), one local model path via an Ollama-compatible gateway, a silo-backed event-sourced Ledger and OS-keychain `SecretProvider`, and the `skein` CLI (`chat`, `acp-agent`, `ledger`, `secret`, `sandbox`). Each implemented slice has its own spec, plan and task record under [`specs/`](specs/), numbered in build order; the design docs below remain the source of intent behind them.
 
+`skein chat` now routes through **named providers**: an operator describes each provider once in a flat `providers.toml` — its address, its model and, optionally, a reference to a credential in the platform keychain — and later runs name it with `--provider <NAME>`. A provider declared `kind = "cloud"` is **refused before any socket is opened** unless the run passes `--allow-egress`, which is off by default; a provider declared `kind = "local"` keeps the loopback-only guarantee unconditionally. No TLS backend is compiled in, so reaching a real cloud endpoint is deliberately still not possible — see [`specs/035-model-gateway-routing/spec.md`](specs/035-model-gateway-routing/spec.md).
+
 Key documents:
 
 - [Master design](docs/superpowers/specs/2026-07-15-skein-design.md)
