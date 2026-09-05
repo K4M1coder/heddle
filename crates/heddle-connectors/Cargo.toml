@@ -33,6 +33,24 @@ cap-std.workspace = true
 # `EmbeddedServer::with_run` needs in order to fail there rather than serve a
 # silently missing tool.
 heddle-sandbox = { path = "../heddle-sandbox" }
+# `src/atlassian/` is the only module in the workspace that names either of
+# these, and the boundary is the same one `git2` and `cap-std` above get.
+#
+# No default features, deliberately, and the reason is `heddle-gateway`'s
+# verbatim: `default = ["rustls", "gzip"]` would compile a TLS backend in, and
+# without one an `https://` endpoint is unreachable at the transport
+# (`ureq::Error::TlsRequired`). The two crates' TLS posture must move together
+# or not at all — Cargo unifies features across the graph, so enabling a
+# backend here would silently give `heddle-gateway`'s cloud-provider path real
+# HTTPS too and retire spec 012 SC-007 for the shipped binary. Do not relax
+# this in one crate.
+ureq = { workspace = true }
+# Parsing only: the `--atlassian-base-url` an operator names, checked before a
+# socket exists, exactly as `LocalEndpoint::parse` checks a provider's.
+http.workspace = true
+# Jira and Confluence speak JSON, so this is a product dependency here and not
+# only a test one.
+serde_json.workspace = true
 
 [dev-dependencies]
 # The headline acceptance test needs the model client, the loop and the
@@ -40,7 +58,6 @@ heddle-sandbox = { path = "../heddle-sandbox" }
 # Product code must not depend on `heddle-gateway`: a connector has no business
 # knowing a model provider exists.
 heddle-gateway = { path = "../heddle-gateway" }
-serde_json.workspace = true
 tempfile.workspace = true
 # Declared again here because an integration test in `tests/` links against the
 # crate as an external dependency and does not inherit its product dependencies.
