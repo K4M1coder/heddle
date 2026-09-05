@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The whole of what the Chat window is allowed to do: listen for the two events the Rust shell emits, and call the three commands that are the three ACP calls `heddle acp-agent` already serves. Deny-by-default is Tauri's own model here (Constitution VI) - the frontend has no shell, no filesystem, no HTTP and no process permission, so it cannot spawn an agent, read a directory or reach a provider even if its code tried to.",
+  "description": "The whole of what the window is allowed to do: listen for the two events the Rust shell emits, and call the six commands `main.rs` registers - three ACP calls `heddle acp-agent` already serves, plus two reads through the very `heddle_connectors::FsRoot` the agent's own fs tools resolve every path through, plus one read-only report of the launch the child was spawned from. Deny-by-default is Tauri's own model here (Constitution VI) - this grant is `core:default` and `core:event:default` and nothing more, so the frontend still has no shell, no filesystem, no HTTP and no process permission of its own: it cannot spawn an agent, open a directory or reach a provider even if its code tried to. The Code view is not an exception to that. It never touches a file; it asks the Rust shell, which answers only inside the one directory the operator named with HEDDLE_UI_FS_ROOT and refuses every path that leaves it - the same refusal, from the same primitive, that the agent gets.",
   "windows": ["main"],
   "permissions": ["core:default", "core:event:default"]
 }

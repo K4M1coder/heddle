@@ -9,11 +9,27 @@
       remote origins. Local-first is a build property, not a promise
       (Constitution II).
     -->
-    <title>Heddle — Chat</title>
+    <title>Heddle</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <main class="chat">
+    <!--
+      Three screens in one window, one session behind all of them. The tabs
+      switch what is painted; they never start, stop or re-launch an agent.
+    -->
+    <nav class="tabs" role="tablist" aria-label="Screens">
+      <button id="tab-chat" class="tab" type="button" role="tab" aria-selected="true" aria-controls="screen-chat">
+        Chat
+      </button>
+      <button id="tab-code" class="tab" type="button" role="tab" aria-selected="false" aria-controls="screen-code">
+        Code
+      </button>
+      <button id="tab-settings" class="tab" type="button" role="tab" aria-selected="false" aria-controls="screen-settings">
+        Settings
+      </button>
+    </nav>
+
+    <main id="screen-chat" class="chat screen" role="tabpanel" aria-labelledby="tab-chat">
       <header class="chat__header">
         <h1>Heddle Chat</h1>
         <p id="status" class="chat__status">Starting the agent…</p>
@@ -45,6 +61,48 @@
         </div>
       </form>
     </main>
+
+    <!--
+      Read-only. There is no save button and its absence is the decision: a
+      second writer racing the agent's own `fs_write` on the same root is a
+      question this slice does not answer (`docs/UI.md`).
+    -->
+    <section id="screen-code" class="code screen" role="tabpanel" aria-labelledby="tab-code" hidden>
+      <header class="screen__header">
+        <h1>Code</h1>
+        <p id="code-status" class="screen__status">
+          The files this session's agent can reach, and nothing outside them.
+        </p>
+      </header>
+
+      <nav id="code-crumbs" class="crumbs" aria-label="Path"></nav>
+
+      <div class="code__panes">
+        <ul id="code-entries" class="tree" aria-label="Directory"></ul>
+        <pre id="code-content" class="code__content" aria-live="polite"></pre>
+      </div>
+    </section>
+
+    <section
+      id="screen-settings"
+      class="settings screen"
+      role="tabpanel"
+      aria-labelledby="tab-settings"
+      hidden
+    >
+      <header class="screen__header">
+        <h1>Connectors</h1>
+        <p id="settings-root" class="screen__status"></p>
+      </header>
+      <!--
+        A report, not a control panel: every row below is derived from the flags
+        this session's `heddle acp-agent` was launched with. Changing one means
+        changing those flags and restarting, which is why there is nothing here
+        to click (Constitution I).
+      -->
+      <ul id="settings-rows" class="settings__rows"></ul>
+    </section>
+
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

@@ -23,11 +23,30 @@ path = "src/main.rs"
 # of. This shell is an ACP *client*: it sends what an editor would send.
 agent-client-protocol.workspace = true
 futures.workspace = true
+serde.workspace = true
 tauri.workspace = true
+
+# The one crate under `crates/` this shell depends on, and slice 036's
+# "`ui/src-tauri` depends on no crate under `crates/`" is narrowed by it rather
+# than quietly dropped. The Code view has to decide whether a path an operator
+# clicked is inside the session's `--fs-root`, and that decision already exists:
+# `FsRoot` is the handle-relative containment primitive the CLI's own `fs_read`
+# and `fs_list` tools resolve every model-supplied path through. Reimplementing
+# it here would be a second, untested copy of the one rule in the product that a
+# string cannot express (Constitution VII: reuse over reinvention), so the
+# dependency is taken on `heddle-connectors` and on nothing else. It carries no
+# loop, no chain, no silo and no model, so it cannot become a place for agent
+# logic to hide — which is the property Constitution I and IV were protecting.
+heddle-connectors = { path = "../../crates/heddle-connectors" }
 
 [build-dependencies]
 tauri-build.workspace = true
 
 [dev-dependencies]
+# `tests/settings_command.rs` makes a **real** repository rather than asserting
+# against a boolean it set itself: the Settings screen's git row is whatever
+# `heddle_connectors::is_git_repository` says after walking the directory, so
+# the fixture has to be a directory that walk really succeeds on.
+git2.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
