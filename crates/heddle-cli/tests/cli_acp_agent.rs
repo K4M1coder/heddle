@@ -14,9 +14,15 @@
 #[cfg(windows)]
 mod guard;
 
+// `CancelNotification` is imported separately and `#[cfg(windows)]`-gated:
+// its one caller is `acp_agent_cancelling_a_proc_run_kills_it_without_waiting_for_its_timeout`,
+// itself Windows-only because `proc_run` is (ADR-0006), so an unconditional
+// import here is unused off Windows.
+#[cfg(windows)]
+use agent_client_protocol::schema::v1::CancelNotification;
 use agent_client_protocol::schema::v1::{
-    CancelNotification, ContentBlock, InitializeRequest, NewSessionRequest, PermissionOptionKind,
-    PromptRequest, RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
+    ContentBlock, InitializeRequest, NewSessionRequest, PermissionOptionKind, PromptRequest,
+    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
     SelectedPermissionOutcome, SessionId, SessionNotification, SessionUpdate, StopReason,
     TextContent, ToolCallId, ToolCallStatus,
 };
