@@ -17,6 +17,8 @@ v0 — the strict-local coding agent scoped by [ADR-0004 D3](docs/superpowers/ad
 
 A first Phase-1 desktop slice now sits on top of that core: a Tauri Chat window (`ui/`) drives the same `heddle acp-agent` an editor would, so every UI action is a call the CLI already serves — see [the UI guide](docs/UI.md) for how to run it and what each button sends. The Code view and the settings/connector screens are deliberately not in it yet.
 
+A `heddle-skills` crate now compiles a **recipe** — a small TOML file naming its steps, its required connectors and its parameters (design §4.4) — into the same `heddle_workflow::Workflow` the native engine already executes, so a BMAD-, Spec-Kit- or project-defined skill runs as a durable, resumable, Ledger-traced workflow rather than through a second execution path. The chain a compiled recipe leaves is the chain a hand-built workflow leaves, asserted step-for-step. It compiles one recipe file at a time and reads none of the skills already in the repository; a catalogue for discovering installed recipes, a CLI verb to run one, and recipe steps for the four workflow node kinds the engine still defers are all deliberately not built yet — see [`specs/037-skills-engine/spec.md`](specs/037-skills-engine/spec.md).
+
 Key documents:
 
 - [Master design](docs/superpowers/specs/2026-07-15-heddle-design.md)
