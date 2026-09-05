@@ -164,7 +164,12 @@ pub struct EmbeddedServer {
     ///
     /// Off Windows [`Sandbox`] is uninhabited, so this can only ever be `None`
     /// there — the platform gate needs no `#[cfg]` at this level because the
-    /// type already carries it.
+    /// type already carries it. It is still stored unconditionally (not
+    /// `#[cfg(windows)]`-gated itself) so [`EmbeddedServer`] has the same shape
+    /// on every platform; the only place that reads it back out, `proc_run`'s
+    /// `#[cfg(windows)]` body, is compiled out entirely off Windows, which
+    /// makes the field provably unread there rather than merely unused.
+    #[cfg_attr(not(windows), allow(dead_code))]
     launcher: Option<Launcher>,
     tool_router: ToolRouter<Self>,
 }
@@ -183,7 +188,12 @@ pub struct EmbeddedServer {
 /// sandbox and the *same* flag rather than a copy of either.
 #[derive(Clone)]
 struct Launcher {
+    // Both fields are read only from `proc_run`'s `#[cfg(windows)]` body
+    // (see `EmbeddedServer::launcher`'s doc comment), so both are provably
+    // dead off Windows rather than merely unused there.
+    #[cfg_attr(not(windows), allow(dead_code))]
     sandbox: Arc<Sandbox>,
+    #[cfg_attr(not(windows), allow(dead_code))]
     cancelled: Arc<AtomicBool>,
 }
 
