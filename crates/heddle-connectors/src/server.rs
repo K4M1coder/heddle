@@ -263,9 +263,11 @@ impl EmbeddedServer {
             tool_router.disable_route("git_status");
             tool_router.disable_route("git_log");
         }
-        // Only registered on Windows, so only disablable there. Everywhere
-        // else there is no such route to advertise in the first place.
-        #[cfg(windows)]
+        // `proc_run` is defined on every platform (see its own doc comment)
+        // but is only ever usable on Windows: off Windows `launcher` can
+        // never be `Some` (there is no `Sandbox` to build one from), so this
+        // single check disables the route unconditionally there too, with no
+        // `#[cfg]` needed at this call site.
         if launcher.is_none() {
             tool_router.disable_route("proc_run");
         }
@@ -390,9 +392,19 @@ impl EmbeddedServer {
         git::log(&self.root, count)
     }
 
-    /// Windows-only in v0 (ADR-0006). On the other two platforms this route
-    /// does not exist, so nothing advertises it and nothing can call it.
-    #[cfg(windows)]
+    /// Windows-only in v0 (ADR-0006). `build` unconditionally disables the
+    /// route off Windows (`launcher` can never be `Some` there — building one
+    /// needs a real `Sandbox`, and off Windows that type is uninhabited), so
+    /// nothing advertises it and nothing can call it there either.
+    ///
+    /// Defined on every platform rather than `#[cfg(windows)]`-gated: rmcp's
+    /// `#[tool_router]` builds its route table by naming every `#[tool]`
+    /// method on this impl unconditionally, so a method absent on some
+    /// platform is a platform-specific compile error inside the macro's own
+    /// expansion, not a missing-route runtime question. Every other
+    /// conditionally-relevant tool here (`git_status`, `git_log`) is handled
+    /// the same way: defined always, disabled by `build` when it does not
+    /// apply.
     #[tool(
         description = "Run one program inside a Windows sandbox over the configured root, and \
                        return its exit code and both output streams. `command` is either a bare \
@@ -405,23 +417,34 @@ impl EmbeddedServer {
                        truncated at 16384 bytes with a note saying how much was dropped."
     )]
     pub fn proc_run(&self, params: Parameters<RunParams>) -> Result<String, String> {
-        let RunParams { command, args } = params.0;
-        // Unreachable while `build` is the only constructor of this field: it
-        // disables the route in exactly the `None` case. It is an `Err` rather
-        // than an `expect` because a panic inside an rmcp handler would take
-        // the session with it, where a tool error is something the model is
-        // told and the run survives.
-        let launcher = self
-            .launcher
-            .as_ref()
-            .ok_or_else(|| "this run was not started with process launching enabled".to_string())?;
-        crate::run::execute(
-            &launcher.sandbox,
-            &self.root,
-            &command,
-            &args,
-            &launcher.cancelled,
-        )
+        #[cfg(windows)]
+        {
+            let RunParams { command, args } = params.0;
+            // Unreachable while `build` is the only constructor of this field:
+            // it disables the route in exactly the `None` case. It is an
+            // `Err` rather than an `expect` because a panic inside an rmcp
+            // handler would take the session with it, where a tool error is
+            // something the model is told and the run survives.
+            let launcher = self.launcher.as_ref().ok_or_else(|| {
+                "this run was not started with process launching enabled".to_string()
+            })?;
+            crate::run::execute(
+                &launcher.sandbox,
+                &self.root,
+                &command,
+                &args,
+                &launcher.cancelled,
+            )
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = params;
+            Err(
+                "proc_run is Windows-only in v0 (ADR-0006); this route is disabled and \
+                 unreachable on this platform"
+                    .to_string(),
+            )
+        }
     }
 }
 
