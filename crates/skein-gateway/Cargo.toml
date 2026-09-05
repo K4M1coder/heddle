@@ -15,3 +15,6 @@ serde_json.workspace = true
 # only" (Constitution II) a property of the build. Do not relax this.
 ureq = { workspace = true }
 http.workspace = true
+# Parsing only: the provider table an operator writes. The workspace manifest
+# records why its default features are off.
+toml.workspace = true

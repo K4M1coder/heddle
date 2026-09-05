@@ -19,10 +19,14 @@
 //! `turn` from a spawned OS thread inside an async program, where a
 //! `block_on`-based client would panic; a blocking one cannot.
 
+mod route;
+
+pub use route::{NetworkEndpoint, ProviderKind, ProviderRoute, ProviderTable, Router};
+
 use serde::{Deserialize, Serialize};
 use skein_core::{
-    Message, ModelClient, Result, SkeinError, TextSink, ToolCall, ToolSpec, TurnRequest,
-    TurnResponse, WireExchange,
+    Message, ModelClient, Result, SecretValue, SkeinError, TextSink, ToolCall, ToolSpec,
+    TurnRequest, TurnResponse, WireExchange,
 };
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader};
@@ -146,18 +150,63 @@ impl LocalEndpoint {
     pub fn base_url(&self) -> &str {
         &self.base_url
     }
+}
+
+/// Where a client is pointed: one of the two proved-address types, never a
+/// bare string.
+///
+/// An enum rather than a `Box<dyn>` or a `String`, because the *set* of
+/// legitimate provider addresses is closed and each member carries a different
+/// proof — [`LocalEndpoint`] proves "this machine", [`NetworkEndpoint`] proves
+/// "a well-formed address the policy layer has already permitted". Collapsing
+/// them into a string would delete both proofs at the one place they are worth
+/// keeping.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Endpoint {
+    Local(LocalEndpoint),
+    Network(NetworkEndpoint),
+}
+
+impl Endpoint {
+    fn base_url(&self) -> &str {
+        match self {
+            Endpoint::Local(e) => e.base_url(),
+            Endpoint::Network(e) => e.base_url(),
+        }
+    }
 
     fn chat_completions_url(&self) -> String {
-        format!("{}/chat/completions", self.base_url)
+        format!("{}/chat/completions", self.base_url())
+    }
+
+    /// What to call the thing that did not answer, when telling the operator so.
+    ///
+    /// Kept accurate per kind rather than widened to cover both: "is a *local*
+    /// provider listening" is the sentence that sends someone to check whether
+    /// Ollama is running, and blurring it into "a provider" to save a match arm
+    /// would cost the diagnosis its only actionable word.
+    fn provider_noun(&self) -> &'static str {
+        match self {
+            Endpoint::Local(_) => "a local provider",
+            Endpoint::Network(_) => "a provider",
+        }
     }
 }
 
-/// A `ModelClient` speaking OpenAI chat-completions to a local provider.
+/// A `ModelClient` speaking OpenAI chat-completions to a configured provider.
 ///
 /// Ollama's own endpoint is OpenAI-compatible, so this reaches it directly; a
-/// LiteLLM sidecar is a different `--base-url` and no code change.
+/// LiteLLM sidecar is a different `--base-url` and no code change, and a cloud
+/// gateway is [`OpenAiCompatClient::networked`] and the same wire format again.
+/// One client, because what differs between providers is not the *protocol*:
+/// only the address rules and the presence of a credential do.
 pub struct OpenAiCompatClient {
-    endpoint: LocalEndpoint,
+    endpoint: Endpoint,
+    /// Resolved just in time by [`Router::client_for`] and held as a
+    /// [`SecretValue`] the whole way, so it is zeroized on drop and renders as
+    /// `SecretValue(***)` anywhere a formatter reaches it. Read exactly once,
+    /// in [`OpenAiCompatClient::post`], to build one header value.
+    bearer_token: Option<SecretValue>,
     model: String,
     agent: ureq::Agent,
     /// The last completed round trip, waiting for the loop to take it. `None`
@@ -170,6 +219,22 @@ pub struct OpenAiCompatClient {
     sink: Option<Box<dyn TextSink>>,
 }
 
+/// Written by hand rather than derived, and not because a derived one would
+/// leak the credential — [`SecretValue`]'s own `Debug` prevents that. It is
+/// because a derived one prints `ureq::Agent`'s entire connector and timeout
+/// configuration, which buries the three fields a reader of a failure message
+/// actually wants. Print only what was meant to be printed; the credential is
+/// the case that makes the rule non-negotiable rather than merely tidy.
+impl std::fmt::Debug for OpenAiCompatClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OpenAiCompatClient")
+            .field("endpoint", &self.endpoint)
+            .field("model", &self.model)
+            .field("bearer_token", &self.bearer_token)
+            .finish_non_exhaustive()
+    }
+}
+
 impl OpenAiCompatClient {
     /// `timeout` is the whole-request budget, and is required rather than
     /// defaulted: the failure it prevents — a provider that accepts a request
@@ -179,6 +244,26 @@ impl OpenAiCompatClient {
     /// `http_status_as_error(false)` is what lets a provider's own error body
     /// reach the operator instead of being flattened into a status code.
     pub fn new(endpoint: LocalEndpoint, model: impl Into<String>, timeout: Duration) -> Self {
+        Self::pointed_at(Endpoint::Local(endpoint), model, timeout)
+    }
+
+    /// The same client, pointed at an address that is **not** proved to be this
+    /// machine.
+    ///
+    /// Reachable in the product only through [`Router::client_for`], which
+    /// refuses a `Cloud` route before calling this whenever egress is off. That
+    /// ordering, and not this constructor, is the egress boundary — the same
+    /// division of labour [`LocalEndpoint::parse`] already documents between a
+    /// policy check and ADR-0002 D4's process-level socket deny.
+    pub fn networked(
+        endpoint: NetworkEndpoint,
+        model: impl Into<String>,
+        timeout: Duration,
+    ) -> Self {
+        Self::pointed_at(Endpoint::Network(endpoint), model, timeout)
+    }
+
+    fn pointed_at(endpoint: Endpoint, model: impl Into<String>, timeout: Duration) -> Self {
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .http_status_as_error(false)
             .timeout_connect(Some(CONNECT_TIMEOUT))
@@ -187,11 +272,23 @@ impl OpenAiCompatClient {
             .into();
         OpenAiCompatClient {
             endpoint,
+            bearer_token: None,
             model: model.into(),
             agent,
             last_exchange: None,
             sink: None,
         }
+    }
+
+    /// Authenticate every request with `Authorization: Bearer <token>`.
+    ///
+    /// Consumes `self` rather than taking `&mut self`, so a client either has a
+    /// credential from the moment a caller can use it or never gains one: there
+    /// is no window in which a usable client exists and the caller has yet to
+    /// remember to authenticate it.
+    pub fn with_bearer_token(mut self, token: SecretValue) -> Self {
+        self.bearer_token = Some(token);
+        self
     }
 
     /// Sends the request and reads the whole answer, as the two shapes the
@@ -203,17 +300,23 @@ impl OpenAiCompatClient {
     /// caller can record the bytes that arrived *before* propagating — a
     /// mid-stream failure leaves evidence rather than nothing.
     fn send(&mut self, url: &str, body: &str) -> Result<(u16, Answer)> {
-        let mut response = self
+        let mut request = self
             .agent
             .post(url)
-            .header("content-type", "application/json")
-            .send(body)
-            .map_err(|e| {
-                SkeinError::Model(format!(
-                    "POST {url} failed: {e}; is a local provider listening at {}?",
-                    self.endpoint.base_url
-                ))
-            })?;
+            .header("content-type", "application/json");
+        // The one place `expose()` is called. The value goes straight into the
+        // header and is never bound to a local, so there is no variable a later
+        // `format!` in this function could pick up by accident.
+        if let Some(token) = &self.bearer_token {
+            request = request.header("authorization", format!("Bearer {}", token.expose()));
+        }
+        let mut response = request.send(body).map_err(|e| {
+            SkeinError::Model(format!(
+                "POST {url} failed: {e}; is {} listening at {}?",
+                self.endpoint.provider_noun(),
+                self.endpoint.base_url()
+            ))
+        })?;
         let status = response.status().as_u16();
 
         if !(200..300).contains(&status) {
@@ -242,7 +345,7 @@ impl OpenAiCompatClient {
     fn unrecognised(&self, detail: impl std::fmt::Display) -> SkeinError {
         SkeinError::Model(format!(
             "{} returned an unrecognised chat-completions response: {detail}",
-            self.endpoint.base_url
+            self.endpoint.base_url()
         ))
     }
 
@@ -258,7 +361,7 @@ impl OpenAiCompatClient {
                 "{} answered without token metering (no usage.total_tokens and no \
                  usage.prompt_tokens + usage.completion_tokens); the loop's token budget cannot \
                  be enforced against a fabricated count",
-                self.endpoint.base_url
+                self.endpoint.base_url()
             ))
         };
         let usage = usage.ok_or_else(missing)?;
@@ -319,7 +422,7 @@ impl ModelClient for OpenAiCompatClient {
         if !(200..300).contains(&status) {
             return Err(SkeinError::Model(format!(
                 "{} returned {status}: {}",
-                self.endpoint.base_url,
+                self.endpoint.base_url(),
                 truncated(text)
             )));
         }
@@ -328,7 +431,7 @@ impl ModelClient for OpenAiCompatClient {
             Some(StreamFault::Unreadable(why)) => {
                 return Err(SkeinError::Model(format!(
                     "{} stopped mid-stream: {why}",
-                    self.endpoint.base_url
+                    self.endpoint.base_url()
                 )))
             }
             Some(StreamFault::Unparseable(event)) => {
@@ -345,7 +448,7 @@ impl ModelClient for OpenAiCompatClient {
                 // the operator's own stop button.
                 return Err(SkeinError::Model(format!(
                     "{} stopped mid-stream: the client cancelled the turn",
-                    self.endpoint.base_url
+                    self.endpoint.base_url()
                 )));
             }
             None => {}

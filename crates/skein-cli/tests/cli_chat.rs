@@ -16,8 +16,9 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::Arc;
 use std::time::Duration;
 use tempfile::TempDir;
 
@@ -35,6 +36,7 @@ const OBSERVE_TIMEOUT: Duration = Duration::from_secs(30);
 struct StubProvider {
     base_url: String,
     requests: Receiver<String>,
+    connections: Arc<AtomicUsize>,
 }
 
 impl StubProvider {
@@ -42,11 +44,16 @@ impl StubProvider {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
         let addr = listener.local_addr().expect("the bound address");
         let (tx, requests) = mpsc::channel();
+        let connections = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&connections);
         std::thread::spawn(move || {
             for body in bodies {
                 let Ok((mut socket, _)) = listener.accept() else {
                     return;
                 };
+                // Counted on accept and before the request is read, so a child
+                // that connects and says nothing is still recorded as egress.
+                counted.fetch_add(1, Ordering::SeqCst);
                 let Some(seen) = read_request(&mut socket) else {
                     return;
                 };
@@ -66,7 +73,15 @@ impl StubProvider {
         StubProvider {
             base_url: format!("http://{addr}/v1"),
             requests,
+            connections,
         }
+    }
+
+    /// How many connections this stub has accepted. Read after a refusal to
+    /// prove the **child process** opened no socket, which is the end-to-end
+    /// form of the claim `provider_routing.rs` makes about the router.
+    fn connection_count(&self) -> usize {
+        self.connections.load(Ordering::SeqCst)
     }
 
     /// The next request's body, parsed. This is how a test asserts what the
@@ -990,4 +1005,278 @@ fn chat_with_an_fs_root_that_is_a_git_repository_advertises_the_git_tools_and_re
         &run_id,
     ]);
     assert_eq!(stdout(&verify), format!("{run_id}\tok\t14 steps\n"));
+}
+
+// ---------------------------------------------------------------------------
+// Named-provider routing (spec 021). Every test here still drives the real
+// binary as a process: the thing being proved is that `--provider` reaches the
+// route's address through argument parsing, file reading and the egress policy
+// as an operator would meet them, not that a function in `wiring` returns the
+// right value.
+//
+// Every existing test above passes no `--provider` and is unchanged, which is
+// the backward-compatibility claim: the flag is additive, and the provider file
+// is not read when it is absent.
+// ---------------------------------------------------------------------------
+
+/// Writes a provider table into a temp dir and hands back its path.
+fn providers_file(dir: &Path, toml: &str) -> String {
+    let path = dir.join("providers.toml");
+    std::fs::write(&path, toml).expect("the provider table is written");
+    path.to_str().expect("a utf-8 temp path").to_string()
+}
+
+#[test]
+fn chat_routes_through_a_named_local_provider() {
+    let provider = StubProvider::serving(vec![reply("routed by name", "stop", 12)]);
+    let (_dir, root) = temp_root();
+    let table = providers_file(
+        &root,
+        &format!(
+            r#"
+[[provider]]
+name = "local-ollama"
+kind = "local"
+base_url = "{}"
+model = "llama3.1"
+"#,
+            provider.base_url
+        ),
+    );
+
+    let out = skein(&[
+        "chat",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "named",
+        // Deliberately a model the route does not name, so the assertion below
+        // proves the route won rather than that both happened to agree.
+        "--model",
+        "ignored-when-a-provider-is-named",
+        "--provider",
+        "local-ollama",
+        "--providers-file",
+        &table,
+        "--prompt",
+        "who answered?",
+    ]);
+
+    assert_eq!(stdout(&out), "routed by name\n");
+    assert_eq!(out.status.code(), Some(0), "stderr:\n{}", stderr(&out));
+    assert_eq!(
+        provider.request_body()["model"],
+        "llama3.1",
+        "the model on the wire is the route's, not --model's"
+    );
+
+    // The run is on the chain like any other: routing changed where the bytes
+    // went, not whether they were recorded.
+    let run_id = reported_run_id(&out);
+    let verify = skein(&[
+        "ledger",
+        "verify",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "named",
+        "--run",
+        &run_id,
+    ]);
+    assert_eq!(stdout(&verify), format!("{run_id}\tok\t6 steps\n"));
+}
+
+#[test]
+fn chat_refuses_a_cloud_provider_without_allow_egress_and_opens_no_socket() {
+    // The stub is live and listening, so nothing but the egress policy stops the
+    // child from reaching it.
+    let provider = StubProvider::serving(vec![reply("must never be reached", "stop", 1)]);
+    let (_dir, root) = temp_root();
+    let table = providers_file(
+        &root,
+        &format!(
+            r#"
+[[provider]]
+name = "cloud-primary"
+kind = "cloud"
+base_url = "{}"
+model = "gpt-4o-mini"
+"#,
+            provider.base_url
+        ),
+    );
+
+    let out = skein(&[
+        "chat",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "egress-off",
+        "--model",
+        "llama3.1",
+        "--provider",
+        "cloud-primary",
+        "--providers-file",
+        &table,
+        "--prompt",
+        "may I leave?",
+    ]);
+
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(stdout(&out), "", "a refused run prints no answer");
+    let err = stderr(&out);
+    assert!(
+        err.contains("cloud-primary") && err.contains("egress") && err.contains("--allow-egress"),
+        "stderr must name the provider, the policy and the way to permit it, got:\n{err}"
+    );
+    assert_eq!(
+        provider.connection_count(),
+        0,
+        "the child opened no socket at all"
+    );
+    // Refused before the silo, so no chain records an attempt that never left
+    // the process — the ordering `chat.rs` documents, proved end to end.
+    assert!(
+        !root.join("egress-off").exists(),
+        "a refusal before the silo leaves no silo behind"
+    );
+}
+
+#[test]
+fn chat_reaches_a_cloud_provider_when_egress_is_allowed() {
+    let provider = StubProvider::serving(vec![reply("egress permitted", "stop", 7)]);
+    let (_dir, root) = temp_root();
+    let table = providers_file(
+        &root,
+        &format!(
+            r#"
+[[provider]]
+name = "cloud-primary"
+kind = "cloud"
+base_url = "{}"
+model = "gpt-4o-mini"
+"#,
+            provider.base_url
+        ),
+    );
+
+    let out = skein(&[
+        "chat",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "egress-on",
+        "--model",
+        "llama3.1",
+        "--provider",
+        "cloud-primary",
+        "--providers-file",
+        &table,
+        "--allow-egress",
+        "--prompt",
+        "may I leave?",
+    ]);
+
+    assert_eq!(stdout(&out), "egress permitted\n");
+    assert_eq!(out.status.code(), Some(0), "stderr:\n{}", stderr(&out));
+    assert_eq!(provider.request_body()["model"], "gpt-4o-mini");
+    assert_eq!(provider.connection_count(), 1);
+}
+
+#[test]
+fn chat_refuses_an_unknown_provider_name() {
+    let (_dir, root) = temp_root();
+    let table = providers_file(
+        &root,
+        r#"
+[[provider]]
+name = "local-ollama"
+kind = "local"
+base_url = "http://127.0.0.1:11434/v1"
+model = "llama3.1"
+"#,
+    );
+
+    let out = skein(&[
+        "chat",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "typo",
+        "--model",
+        "llama3.1",
+        "--provider",
+        "local-olama",
+        "--providers-file",
+        &table,
+        "--prompt",
+        "hello?",
+    ]);
+
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(stdout(&out), "");
+    let err = stderr(&out);
+    assert!(
+        err.contains("local-olama") && err.contains("local-ollama"),
+        "stderr must name the miss and what is configured, got:\n{err}"
+    );
+}
+
+#[test]
+fn chat_refuses_a_providers_file_it_cannot_read() {
+    let (_dir, root) = temp_root();
+    let missing = root.join("nowhere").join("providers.toml");
+
+    let out = skein(&[
+        "chat",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "no-file",
+        "--model",
+        "llama3.1",
+        "--provider",
+        "local-ollama",
+        "--providers-file",
+        missing.to_str().expect("a utf-8 temp path"),
+        "--prompt",
+        "hello?",
+    ]);
+
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(stdout(&out), "");
+    let err = stderr(&out);
+    assert!(
+        err.contains("providers.toml") && err.contains("could not read"),
+        "stderr must name the path it tried, got:\n{err}"
+    );
+}
+
+#[test]
+fn chat_without_a_provider_never_reads_the_providers_file() {
+    // The backward-compatibility claim, made explicit rather than left implied
+    // by the older tests: --providers-file points at a file that would fail to
+    // parse, and the run succeeds because it is never opened.
+    let provider = StubProvider::serving(vec![reply("old path intact", "stop", 4)]);
+    let (_dir, root) = temp_root();
+    let table = providers_file(&root, "this is not valid TOML at all [[[");
+
+    let out = skein(&[
+        "chat",
+        "--root",
+        &root_arg(&root),
+        "--silo",
+        "untouched",
+        "--model",
+        "llama3.1",
+        "--base-url",
+        &provider.base_url,
+        "--providers-file",
+        &table,
+        "--prompt",
+        "still working?",
+    ]);
+
+    assert_eq!(stdout(&out), "old path intact\n");
+    assert_eq!(out.status.code(), Some(0), "stderr:\n{}", stderr(&out));
 }

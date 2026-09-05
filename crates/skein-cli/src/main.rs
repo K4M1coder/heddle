@@ -124,6 +124,12 @@ impl SiloArgs {
 pub struct ChatArgs {
     #[command(flatten)]
     model: wiring::ModelArgs,
+    /// Flattened here and into **no other** subcommand in this slice:
+    /// `wiring::ProviderArgs` holds the reason, and "what a session may switch
+    /// mid-conversation" being an unanswered question for `skein acp-agent` is
+    /// most of it.
+    #[command(flatten)]
+    provider: wiring::ProviderArgs,
     #[command(flatten)]
     redact: wiring::RedactArgs,
     #[command(flatten)]
