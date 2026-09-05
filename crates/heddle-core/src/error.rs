@@ -13,6 +13,18 @@ pub enum HeddleError {
     Storage(String),
     #[error("not found: {0}")]
     NotFound(String),
+    /// A config setting was addressed at a scope that does not exist in this
+    /// mode — a Team-level value in Local mode, which has no Team level
+    /// (design §5.5).
+    #[error("config: {0}")]
+    Config(String),
+    /// A scope tried to override a value an ancestor scope locked (spec 002's
+    /// Edge Cases: "a lower level attempts to override a setting locked higher
+    /// up → explicit refusal"). Separate from [`HeddleError::Config`] because
+    /// the caller's remedy is different: this one is answered by the owner of
+    /// `locked_at`, not by rewriting the request.
+    #[error("config scope {scope} may not override the value locked at {locked_at}")]
+    ConfigLocked { scope: String, locked_at: String },
     /// A secret reference could not be resolved: unknown scheme, malformed URI,
     /// or no such credential in the backing store.
     #[error("secret: {0}")]

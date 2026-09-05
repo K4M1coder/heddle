@@ -9,8 +9,8 @@
 use crate::node::Node;
 use crate::Workflow;
 use heddle_core::{
-    HeddleError, Ledger, Message, ModelClient, Redactor, Result, StepKind, ToolCall, ToolGateway,
-    ToolTransport, TurnRequest,
+    HeddleError, Ledger, Message, ModelClient, NewTask, NoTracker, Redactor, Result, StepKind,
+    TaskId, TaskStatus, TaskTracker, ToolCall, ToolGateway, ToolTransport, TurnRequest,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -31,6 +31,20 @@ const REJECTED: &str = "rejected";
 struct NodeRecord {
     node_id: String,
     outcome: String,
+}
+
+/// The `StateChange` step's payload: which node opened which task.
+///
+/// The binding is written to the chain rather than derived from `node_id`
+/// because a tracker assigns its own ids — Jira answers `PROJ-123`, the local
+/// one answers a row id — so there is nothing to derive from. Recording it is
+/// also what makes it *survive*: a resumed run in a different process learns
+/// which task is already open by reading the chain, which is the same way it
+/// learns which nodes are already done (Constitution V).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TaskBinding {
+    node_id: String,
+    task_id: String,
 }
 
 /// The workflow-level `Approval` step's payload.
@@ -86,19 +100,56 @@ pub struct WorkflowRun {
 ///
 /// [`NativeLoop`]: heddle_core::NativeLoop
 /// [`NativeLoop::new`]: heddle_core::NativeLoop::new
-pub struct WorkflowEngine<C: ModelClient, T: ToolTransport> {
+pub struct WorkflowEngine<C: ModelClient, T: ToolTransport, K: TaskTracker = NoTracker> {
     pub client: C,
     pub gateway: ToolGateway<T>,
     redactor: Redactor,
+    /// The resolved tracker (design §4.13), or `None` for a run nobody asked to
+    /// track. *Which* tracker this is was decided by
+    /// [`Hierarchy`](heddle_core::Hierarchy) before the engine was built — the
+    /// engine receives the answer and never the question, so it names no
+    /// backend and holds no config (Constitution IV).
+    ///
+    /// `NoTracker` is uninhabited, so the default type parameter makes
+    /// `WorkflowEngine<C, T>` a type in which "tracked" is not merely unset but
+    /// unrepresentable.
+    tracker: Option<K>,
 }
 
-impl<C: ModelClient, T: ToolTransport> WorkflowEngine<C, T> {
+impl<C: ModelClient, T: ToolTransport> WorkflowEngine<C, T, NoTracker> {
+    /// An engine that tracks nothing. The chain it writes is exactly the chain
+    /// this crate wrote before task tracking existed — no binding steps, since
+    /// there is nothing to bind to.
     pub fn new(client: C, gateway: ToolGateway<T>, redactor: Redactor) -> Self {
         WorkflowEngine {
             client,
             gateway,
             redactor,
+            tracker: None,
         }
+    }
+}
+
+impl<C: ModelClient, T: ToolTransport, K: TaskTracker> WorkflowEngine<C, T, K> {
+    /// An engine that reflects each node's progress into `tracker` (spec 002
+    /// User Story 3).
+    pub fn with_tracker(
+        client: C,
+        gateway: ToolGateway<T>,
+        redactor: Redactor,
+        tracker: K,
+    ) -> Self {
+        WorkflowEngine {
+            client,
+            gateway,
+            redactor,
+            tracker: Some(tracker),
+        }
+    }
+
+    /// The tracker this engine was given, if it was given one.
+    pub fn tracker(&self) -> Option<&K> {
+        self.tracker.as_ref()
     }
 
     /// Execute every node of `workflow` that the Ledger does not already record
@@ -117,6 +168,7 @@ impl<C: ModelClient, T: ToolTransport> WorkflowEngine<C, T> {
     ) -> Result<WorkflowRun> {
         let completed = completed_nodes(ledger, run_id)?;
         let decisions = last_decisions(ledger, run_id);
+        let bound = task_bindings(ledger, run_id);
         let mut final_outcome = None;
 
         for node in &workflow.graph {
@@ -129,6 +181,12 @@ impl<C: ModelClient, T: ToolTransport> WorkflowEngine<C, T> {
                 continue;
             }
 
+            // Opened *before* the executor, so a run that dies inside a node
+            // leaves that node's task visibly in progress rather than absent.
+            // A node the chain already binds to a task reuses it, which is what
+            // keeps polling a slow human from opening a task per poll.
+            let task = self.open_task(run_id, workflow, node, &bound, ledger)?;
+
             let outcome = match node {
                 Node::Agent { prompt, .. } => self.run_agent(run_id, prompt, ledger)?,
                 Node::Tool { call, .. } => self.run_tool(run_id, call, ledger)?,
@@ -137,6 +195,7 @@ impl<C: ModelClient, T: ToolTransport> WorkflowEngine<C, T> {
                         // Nobody has been asked yet: ask, once.
                         None => {
                             self.append_decision(run_id, id, PENDING, ledger)?;
+                            self.move_task(&task, TaskStatus::Blocked)?;
                             return Ok(WorkflowRun {
                                 exit: WorkflowExit::AwaitingApproval {
                                     node_id: id.clone(),
@@ -147,20 +206,25 @@ impl<C: ModelClient, T: ToolTransport> WorkflowEngine<C, T> {
                         // Asked and unanswered. Nothing is appended — otherwise
                         // every poll of a slow human would grow the chain.
                         Some(PENDING) => {
+                            self.move_task(&task, TaskStatus::Blocked)?;
                             return Ok(WorkflowRun {
                                 exit: WorkflowExit::AwaitingApproval {
                                     node_id: id.clone(),
                                 },
                                 final_outcome,
-                            })
+                            });
                         }
                         Some(REJECTED) => {
+                            // Cancelled, not Blocked: a human who said no has
+                            // answered the question the node asked, and a task
+                            // left blocked would claim they still owe one.
+                            self.move_task(&task, TaskStatus::Cancelled)?;
                             return Ok(WorkflowRun {
                                 exit: WorkflowExit::Rejected {
                                     node_id: id.clone(),
                                 },
                                 final_outcome,
-                            })
+                            });
                         }
                         // Decided: the gate completes and the walk continues in
                         // *this* call. An approval already given should not need
@@ -188,6 +252,11 @@ impl<C: ModelClient, T: ToolTransport> WorkflowEngine<C, T> {
             };
 
             self.append_completion(run_id, node.id(), &outcome, ledger)?;
+            // Spec 002 User Story 3, whole: "when a node completes, the
+            // corresponding task moves to the appropriate status". After the
+            // completion step, so the chain is the thing that is true first and
+            // the tracker is the projection of it.
+            self.move_task(&task, TaskStatus::Done)?;
             final_outcome = Some(outcome);
         }
 
@@ -270,6 +339,66 @@ impl<C: ModelClient, T: ToolTransport> WorkflowEngine<C, T> {
         Ok(captured.content)
     }
 
+    /// Ensure this node has a task, and return its id.
+    ///
+    /// Three cases, and only the middle one costs anything: no tracker at all
+    /// (`None`, and the caller's status changes become no-ops); a node the chain
+    /// already binds to a task (re-asserted, not re-created); and a node seen
+    /// for the first time (created, and the binding appended).
+    ///
+    /// The binding step is appended **after** the tracker has answered, so a
+    /// tracker that refuses leaves no chain entry pointing at a task that was
+    /// never opened.
+    fn open_task(
+        &mut self,
+        run_id: &str,
+        workflow: &Workflow,
+        node: &Node,
+        bound: &HashMap<String, String>,
+        ledger: &mut Ledger,
+    ) -> Result<Option<TaskId>> {
+        let Some(tracker) = self.tracker.as_mut() else {
+            return Ok(None);
+        };
+
+        if let Some(task_id) = bound.get(node.id()) {
+            let id = TaskId::new(task_id);
+            tracker.update(&id, TaskStatus::InProgress)?;
+            return Ok(Some(id));
+        }
+
+        // The title is the caller's only handle on this task in a tracker that
+        // knows nothing about workflows; the links are what let that same
+        // caller ask for "this run's tasks" without the tracker learning what a
+        // run is.
+        let id = tracker.create(
+            NewTask::new(format!("{}: {}", workflow.name, node.id()))
+                .with_status(TaskStatus::InProgress)
+                .with_link(run_id)
+                .with_link(node.id()),
+        )?;
+        let binding = TaskBinding {
+            node_id: node.id().to_string(),
+            task_id: id.to_string(),
+        };
+        ledger.append(
+            run_id,
+            StepKind::StateChange,
+            serde_json::to_string(&binding)?,
+        )?;
+        Ok(Some(id))
+    }
+
+    /// Move a task, if there is one. Both `None`s — no tracker, or a node the
+    /// tracker never saw — mean the same thing here, so the caller writes one
+    /// unconditional line at each exit instead of guarding every one of them.
+    fn move_task(&mut self, task: &Option<TaskId>, status: TaskStatus) -> Result<()> {
+        if let (Some(tracker), Some(id)) = (self.tracker.as_mut(), task.as_ref()) {
+            tracker.update(id, status)?;
+        }
+        Ok(())
+    }
+
     fn append_completion(
         &mut self,
         run_id: &str,
@@ -343,6 +472,26 @@ fn completed_nodes(ledger: &Ledger, run_id: &str) -> Result<HashMap<String, Stri
 /// shared with the gateway, so *most* steps of this kind in a real run are
 /// `ApprovalRecord`s about tool calls and are correctly none of this scan's
 /// business.
+/// Every `node_id -> task_id` binding the chain records.
+///
+/// Lenient like [`last_decisions`] and for the same reason: `StepKind::StateChange`
+/// is the core's vocabulary and this crate is not its only writer, so a payload
+/// that does not parse is somebody else's state change rather than a corrupt
+/// one. The last binding for a node wins, matching the append-only chain's way
+/// of recording a change.
+fn task_bindings(ledger: &Ledger, run_id: &str) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    for step in ledger.log(run_id) {
+        if step.kind != StepKind::StateChange {
+            continue;
+        }
+        if let Ok(binding) = serde_json::from_str::<TaskBinding>(&step.payload) {
+            out.insert(binding.node_id, binding.task_id);
+        }
+    }
+    out
+}
+
 fn last_decisions(ledger: &Ledger, run_id: &str) -> HashMap<String, String> {
     let mut out = HashMap::new();
     for step in ledger.log(run_id) {
