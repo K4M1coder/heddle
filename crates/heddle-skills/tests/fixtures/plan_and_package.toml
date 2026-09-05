@@ -1,0 +1,56 @@
+# A made-up Spec-Kit-style recipe: the one worked example this slice ships.
+#
+# Its first three steps are deliberately the same shape as
+# `crates/heddle-workflow/tests/sequential.rs`'s hand-built `three_node_workflow`
+# (agent -> tool -> agent), so the end-to-end test can assert the *same*
+# guarantees against a compiled recipe that the engine's own suite already
+# asserts against a hand-built `Workflow`. That similarity is the proof: what
+# the engine does is unchanged by where the graph came from.
+#
+# The fourth step is an `approval`. It exists so the compile test can prove the
+# compiler emits `Node::Approval`, and it is sliced off before the end-to-end
+# run — the engine returns `AwaitingApproval` at an undecided gate, which is a
+# separate (already-proven) behaviour and not this slice's claim.
+
+name = "plan-and-package"
+description = "Draft a plan from a spec file, then package it — a made-up Spec-Kit-style recipe."
+
+# The recipe-level persona, prepended to every agent step's own prompt. Written
+# with placeholders so the same recipe serves any project without being edited.
+prompt = "You are drafting a {{kind}} for the project named {{project}}."
+
+# `read_file` and nothing more: the tool this recipe cannot run without. It is
+# checked against what the target gateway actually advertises *before* a single
+# node is built, so a missing connector is a refusal to compile rather than a
+# workflow that fails part-way through a run.
+required_extensions = ["read_file"]
+
+[[params]]
+name = "project"
+description = "The project this recipe runs against."
+
+[[params]]
+name = "kind"
+description = "What is being drafted."
+default = "plan"
+
+[[instructions]]
+kind = "agent"
+id = "plan"
+prompt = "Draft a plan."
+
+[[instructions]]
+kind = "tool"
+id = "read-spec"
+tool = "read_file"
+args = { path = "spec.md" }
+
+[[instructions]]
+kind = "agent"
+id = "package"
+prompt = "Package it."
+
+[[instructions]]
+kind = "approval"
+id = "ship"
+message = "Ready to ship the package for {{project}}?"

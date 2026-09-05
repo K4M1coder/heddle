@@ -1,0 +1,22 @@
+[package]
+name = "heddle-skills"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# The compile target and the shared vocabulary, in that order. Nothing else:
+# no connector, no gateway, no CLI (Constitution IV). `cargo tree -p
+# heddle-skills` is the check, and it is a structural one — a compiler that
+# could name a provider would be a second place for routing to live.
+heddle-workflow = { path = "../heddle-workflow" }
+heddle-core = { path = "../heddle-core" }
+serde.workspace = true
+serde_json.workspace = true
+# Parsing only: the recipe an operator writes. Same dependency and same reason
+# as `heddle-gateway`'s provider table — the workspace manifest records why its
+# default features (a TOML *writer*) are off, and a recipe is read, never
+# written, by this crate.
+toml.workspace = true
+thiserror.workspace = true
