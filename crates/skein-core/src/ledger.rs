@@ -24,6 +24,13 @@ pub enum StepKind {
     BudgetSpent,
     Exit,
     Approval,
+    /// One workflow node completed. Additive, and additive is the whole point:
+    /// no existing variant's meaning changes, and both match sites on this enum
+    /// already tolerate a new one — `skein-acp`'s projection has a catch-all
+    /// arm, and `skein-cli` names a kind through serde rather than a second
+    /// mapping. The payload lives in `skein-workflow`, beside the code that
+    /// writes it, exactly as `ApprovalRecord` lives in `tool.rs`.
+    WorkflowNode,
 }
 
 /// One immutable ledger step. `id` is the content hash chained onto `parent`,
