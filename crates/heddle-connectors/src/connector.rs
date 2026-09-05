@@ -7,11 +7,14 @@
 //! guarantee `heddle-gateway` makes a property of the build (Constitution II,
 //! NON-NEGOTIABLE).
 
+use crate::atlassian::{AtlassianConfig, AtlassianServer};
 use crate::fs::FsRoot;
 use crate::server::{EmbeddedServer, RunAccess};
-use heddle_core::{HeddleError, Result, ToolCall, ToolOutcome, ToolSpec, ToolTransport};
+use heddle_core::{
+    HeddleError, Result, SecretProvider, ToolCall, ToolOutcome, ToolSpec, ToolTransport,
+};
 use heddle_mcp::RmcpToolTransport;
-use rmcp::ServiceExt;
+use rmcp::{ServerHandler, ServiceExt};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -40,6 +43,16 @@ pub struct LocalConnector {
     _runtime: Runtime,
 }
 
+/// Written by hand: neither field derives `Debug`, and a caller only ever
+/// needs this to name what failed to build, not to inspect a live connector —
+/// `expect_err` in the Atlassian connector's egress-refusal tests is the only
+/// caller.
+impl std::fmt::Debug for LocalConnector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LocalConnector").finish_non_exhaustive()
+    }
+}
+
 /// One [`EmbeddedServer`] over `root`, connected in-process.
 ///
 /// The server gets its **own** runtime rather than sharing the client's,
@@ -63,7 +76,28 @@ pub fn local_connector_with_run(
     serve(EmbeddedServer::with_run(root, run, cancelled)?)
 }
 
-fn serve(server: EmbeddedServer) -> Result<LocalConnector> {
+/// One [`AtlassianServer`] over `config`, connected in-process, exactly as
+/// [`local_connector`] connects one [`EmbeddedServer`] over a root.
+///
+/// Fallible where `local_connector` is not: [`AtlassianServer::connect`] is
+/// the egress gate (ADR-0002 D4), and a network connector this crate is asked
+/// to build without permission to leave the machine is refused here, before
+/// any socket exists — matching `EmbeddedServer::with_run`'s reasoning for a
+/// sandbox that cannot be built.
+pub fn atlassian_connector(
+    config: AtlassianConfig,
+    secrets: &dyn SecretProvider,
+    egress_allowed: bool,
+) -> Result<LocalConnector> {
+    serve(AtlassianServer::connect(config, secrets, egress_allowed)?)
+}
+
+/// Generic over the handler, and that is the whole of what the Atlassian
+/// connector needed from this file: [`EmbeddedServer`] and
+/// [`crate::AtlassianServer`] are both `ServerHandler`s over the same duplex
+/// shape, so a second copy of these fifteen lines would be a second place the
+/// runtime-ownership rule above could go wrong.
+pub(crate) fn serve<S: ServerHandler>(server: S) -> Result<LocalConnector> {
     let runtime = Runtime::new().map_err(|e| HeddleError::Tool(e.to_string()))?;
     let (server_side, client_side) = runtime.block_on(async { tokio::io::duplex(DUPLEX_BUFFER) });
 

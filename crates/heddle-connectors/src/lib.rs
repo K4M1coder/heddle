@@ -5,6 +5,7 @@
 //! `heddle-core` reaches a connector through the `ToolTransport` port it defines
 //! and never depends on this crate, exactly as it never depends on `heddle-mcp`.
 
+mod atlassian;
 mod connector;
 mod fs;
 mod git;
@@ -12,7 +13,10 @@ mod git;
 mod run;
 mod server;
 
-pub use connector::{local_connector, local_connector_with_run, LocalConnector};
+pub use atlassian::{AtlassianConfig, AtlassianServer};
+pub use connector::{
+    atlassian_connector, local_connector, local_connector_with_run, LocalConnector,
+};
 pub use fs::{FsRoot, RunDirs};
 pub use git::is_git_repository;
 pub use server::{
