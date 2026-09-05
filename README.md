@@ -21,6 +21,8 @@ A `heddle-skills` crate now compiles a **recipe** — a small TOML file naming i
 
 An Atlassian connector now joins `fs`/`git`/`shell`: search, read, create and comment on Jira issues, and read/create Confluence pages, over the same governed Tool Gateway. Like every network connector it ships disabled and is refused before any socket opens unless the run's egress policy allows it — see [`specs/039-atlassian-connector/spec.md`](specs/039-atlassian-connector/spec.md).
 
+A Microsoft 365 connector now joins them: read and send Outlook mail, read one SharePoint file, and read/send Teams channel messages over Microsoft Graph, through the same governed Tool Gateway. It ships disabled on the same terms — refused before any socket opens unless the run's egress policy allows it, and its access token is resolved by reference and scrubbed out of every message it produces — see [`specs/040-m365-connector/spec.md`](specs/040-m365-connector/spec.md).
+
 Key documents:
 
 - [Master design](docs/superpowers/specs/2026-07-15-heddle-design.md)

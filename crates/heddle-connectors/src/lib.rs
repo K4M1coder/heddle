@@ -9,16 +9,18 @@ mod atlassian;
 mod connector;
 mod fs;
 mod git;
+mod m365;
 #[cfg(windows)]
 mod run;
 mod server;
 
 pub use atlassian::{AtlassianConfig, AtlassianServer};
 pub use connector::{
-    atlassian_connector, local_connector, local_connector_with_run, LocalConnector,
+    atlassian_connector, local_connector, local_connector_with_run, m365_connector, LocalConnector,
 };
 pub use fs::{FsRoot, RunDirs};
 pub use git::is_git_repository;
+pub use m365::{M365Config, M365Server};
 pub use server::{
     EmbeddedServer, ListParams, LogParams, ReadParams, RunAccess, RunParams, WriteParams,
     LOG_COUNT_CAP, READ_BYTE_CAP, RUN_OUTPUT_BYTE_CAP, RUN_TIMEOUT, STATUS_ENTRY_CAP,
