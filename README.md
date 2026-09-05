@@ -13,6 +13,8 @@ Skein is created and owned by **Cédric Thedrez**:
 
 v0 — the strict-local coding agent scoped by [ADR-0004 D3](docs/superpowers/adr/0004-solo-v0-calibration.md) — is implemented: a Skein-owned native loop behind an ACP boundary, MCP tools for `fs` and `git` plus a Windows-first sandboxed `shell` connector ([ADR-0006](docs/superpowers/adr/0006-shell-connector-windows-first-sandbox.md)), one local model path via an Ollama-compatible gateway, a silo-backed event-sourced Ledger and OS-keychain `SecretProvider`, and the `skein` CLI (`chat`, `acp-agent`, `ledger`, `secret`, `sandbox`). Each implemented slice has its own spec, plan and task record under [`specs/`](specs/), numbered in build order; the design docs below remain the source of intent behind them.
 
+A first Phase-1 desktop slice now sits on top of that core: a Tauri Chat window (`ui/`) drives the same `skein acp-agent` an editor would, so every UI action is a call the CLI already serves — see [the UI guide](docs/UI.md) for how to run it and what each button sends. The Code view and the settings/connector screens are deliberately not in it yet.
+
 Key documents:
 
 - [Master design](docs/superpowers/specs/2026-07-15-skein-design.md)
@@ -22,6 +24,7 @@ Key documents:
 - [Design completeness policy](docs/DESIGN-COMPLETENESS-POLICY.md)
 - [Platform landscape and reuse strategy](docs/research/agent-platform-landscape.md)
 - [Development environment](docs/DEVELOPMENT.md)
+- [Desktop UI](docs/UI.md)
 
 ## Development language policy
 

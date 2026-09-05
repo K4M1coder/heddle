@@ -1,0 +1,161 @@
+/* One screen, no framework, no web fonts: everything the window loads is on
+   disk (Constitution II). */
+
+:root {
+  --bg: #14161a;
+  --panel: #1c1f25;
+  --line: #2b2f37;
+  --text: #e6e8ec;
+  --muted: #9aa2b1;
+  --accent: #4f8cff;
+  --ok: #3fbf7f;
+  --bad: #e5606d;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 12px 16px 16px;
+  gap: 12px;
+}
+
+.chat__header h1 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.chat__status {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.transcript {
+  flex: 1;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.entry {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 8px 10px;
+  max-width: 80%;
+}
+
+.entry__body,
+.entry__title {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.entry--user {
+  align-self: flex-end;
+  border-color: var(--accent);
+}
+
+.entry--assistant {
+  align-self: flex-start;
+}
+
+.entry--tool {
+  align-self: flex-start;
+  max-width: 100%;
+  border-style: dashed;
+}
+
+.entry__title {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.entry--tool-completed .entry__title {
+  color: var(--ok);
+}
+
+.entry--tool-failed .entry__title {
+  color: var(--bad);
+}
+
+.entry__output {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  background: #0f1115;
+  border-radius: 6px;
+  font: 12px/1.45 ui-monospace, "Cascadia Mono", Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.composer {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.composer__input {
+  flex: 1;
+  resize: vertical;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: inherit;
+  font: inherit;
+}
+
+.composer__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.button {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.button--primary {
+  border-color: var(--accent);
+}
+
+.button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

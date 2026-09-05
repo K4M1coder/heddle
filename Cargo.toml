@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["crates/*"]
+# `ui/src-tauri` is named explicitly because `members` is a glob over
+# `crates/` only, and the Tauri shell deliberately does not live there: it is
+# the UI layer, not a product crate (Constitution I). Naming it here is what
+# puts it under the same `cargo fmt --all` / `cargo clippy --workspace` /
+# `cargo test --workspace` gates as everything else.
+members = ["crates/*", "ui/src-tauri"]
 exclude = ["spikes"]
 
 [workspace.package]
@@ -79,3 +84,9 @@ windows = { version = "0.61", default-features = false, features = [
   "Win32_System_Pipes",
 ] }
 win32job = "2.0"
+# The UI shell's only two dependencies that no other crate has. Pinned here
+# rather than in `ui/src-tauri/Cargo.toml` because this table is where this
+# workspace records every third-party version, single-consumer or not.
+# MSRV 1.77.2, comfortably under the 1.97 `rust-toolchain.toml` pin.
+tauri = { version = "2" }
+tauri-build = { version = "2" }

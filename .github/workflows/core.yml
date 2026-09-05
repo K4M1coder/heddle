@@ -2,11 +2,21 @@ name: core
 # Tri-OS gate for the product crates (ADR-0004 D1(d)). spikes.yml covers only
 # spikes/**, so until now crates/ was never built on any OS in CI.
 # No --locked: the root Cargo.lock is git-ignored.
+#
+# `ui/**` is here because `ui/src-tauri` is a workspace member: `cargo fmt
+# --all`, `cargo clippy --workspace` and `cargo test --workspace` below already
+# cover it, so a change under ui/ that did not trigger this workflow would merge
+# unverified. The two net-new steps are the Linux webview toolchain (Tauri
+# cannot build without it) and the frontend build — in that order, because
+# `tauri.conf.json`'s `frontendDist` points at `ui/dist` and `tauri-build` reads
+# it at compile time. Without it every cargo step below fails on Linux.
 on:
   push:
-    paths: ["crates/**", "Cargo.toml", "rust-toolchain.toml", ".github/workflows/core.yml"]
+    paths:
+      ["crates/**", "ui/**", "Cargo.toml", "rust-toolchain.toml", ".github/workflows/core.yml"]
   pull_request:
-    paths: ["crates/**", "Cargo.toml", "rust-toolchain.toml", ".github/workflows/core.yml"]
+    paths:
+      ["crates/**", "ui/**", "Cargo.toml", "rust-toolchain.toml", ".github/workflows/core.yml"]
   workflow_dispatch: {}
 
 jobs:
@@ -21,6 +31,28 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.97
         with:
           components: rustfmt, clippy
+      # Windows has WebView2 preinstalled and macOS has system WebKit; Linux
+      # does not ship a webview, so `tauri` will not compile there without this.
+      - name: Linux webview toolchain
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev libgtk-3-dev librsvg2-dev \
+            libayatana-appindicator3-dev libxdo-dev
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - name: Frontend install
+        working-directory: ui
+        run: npm ci
+      - name: Frontend test
+        working-directory: ui
+        run: npm test
+      # Produces ui/dist, which every cargo step after this one needs.
+      - name: Frontend build
+        working-directory: ui
+        run: npm run build
       - name: Format
         run: cargo fmt --all --check
       - name: Lint
