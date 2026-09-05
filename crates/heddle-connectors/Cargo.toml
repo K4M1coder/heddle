@@ -33,8 +33,9 @@ cap-std.workspace = true
 # `EmbeddedServer::with_run` needs in order to fail there rather than serve a
 # silently missing tool.
 heddle-sandbox = { path = "../heddle-sandbox" }
-# `src/atlassian/` is the only module in the workspace that names either of
-# these, and the boundary is the same one `git2` and `cap-std` above get.
+# `src/atlassian/` and `src/m365/` are the only modules in the workspace that
+# name either of these, and the boundary is the same one `git2` and `cap-std`
+# above get.
 #
 # No default features, deliberately, and the reason is `heddle-gateway`'s
 # verbatim: `default = ["rustls", "gzip"]` would compile a TLS backend in, and
@@ -45,11 +46,11 @@ heddle-sandbox = { path = "../heddle-sandbox" }
 # HTTPS too and retire spec 012 SC-007 for the shipped binary. Do not relax
 # this in one crate.
 ureq = { workspace = true }
-# Parsing only: the `--atlassian-base-url` an operator names, checked before a
-# socket exists, exactly as `LocalEndpoint::parse` checks a provider's.
+# Parsing only: the Atlassian site or Graph endpoint an operator names, checked
+# before a socket exists, exactly as `LocalEndpoint::parse` checks a provider's.
 http.workspace = true
-# Jira and Confluence speak JSON, so this is a product dependency here and not
-# only a test one.
+# Jira, Confluence and Microsoft Graph all speak JSON, so this is a product
+# dependency here and not only a test one.
 serde_json.workspace = true
 
 [dev-dependencies]

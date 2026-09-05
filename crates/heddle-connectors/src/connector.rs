@@ -9,6 +9,7 @@
 
 use crate::atlassian::{AtlassianConfig, AtlassianServer};
 use crate::fs::FsRoot;
+use crate::m365::{M365Config, M365Server};
 use crate::server::{EmbeddedServer, RunAccess};
 use heddle_core::{
     HeddleError, Result, SecretProvider, ToolCall, ToolOutcome, ToolSpec, ToolTransport,
@@ -90,6 +91,21 @@ pub fn atlassian_connector(
     egress_allowed: bool,
 ) -> Result<LocalConnector> {
     serve(AtlassianServer::connect(config, secrets, egress_allowed)?)
+}
+
+/// One [`M365Server`] over `config`, connected in-process, exactly as
+/// [`atlassian_connector`] connects one [`AtlassianServer`] over a site.
+///
+/// Fallible for the same reason and at the same point:
+/// [`M365Server::connect`] is the egress gate (ADR-0002 D4), and a connector
+/// this crate is asked to build without permission to reach Microsoft Graph is
+/// refused there, before any socket exists.
+pub fn m365_connector(
+    config: M365Config,
+    secrets: &dyn SecretProvider,
+    egress_allowed: bool,
+) -> Result<LocalConnector> {
+    serve(M365Server::connect(config, secrets, egress_allowed)?)
 }
 
 /// Generic over the handler, and that is the whole of what the Atlassian
