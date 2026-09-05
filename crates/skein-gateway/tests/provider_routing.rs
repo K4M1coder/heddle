@@ -98,7 +98,7 @@ impl Stub {
                 // pool.
                 let _ = socket.write_all(
                     format!(
-                        "HTTP/1.1 {}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                        "HTTP/1.1 {}\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
                         reply.status,
                         reply.body.len(),
                         reply.body
@@ -167,16 +167,28 @@ fn read_request(socket: &mut TcpStream) -> Option<String> {
     Some(raw)
 }
 
-/// A response shaped the way Ollama's OpenAI-compatible endpoint shapes one.
+/// SSE framing as the real provider writes it, with a bare `\n\n` separator and
+/// a terminating `[DONE]`.
+fn sse(events: Vec<serde_json::Value>) -> String {
+    let mut raw = String::new();
+    for event in events {
+        raw.push_str(&format!("data: {event}\n\n"));
+    }
+    raw.push_str("data: [DONE]\n\n");
+    raw
+}
+
+/// A response shaped the way Ollama's OpenAI-compatible endpoint streams one.
 fn provider_reply(content: &str) -> String {
-    serde_json::json!({
-        "choices": [{
-            "message": {"role": "assistant", "content": content},
-            "finish_reason": "stop"
-        }],
-        "usage": {"total_tokens": 18}
-    })
-    .to_string()
+    sse(vec![
+        serde_json::json!({
+            "choices": [{"index": 0, "delta": {"role": "assistant", "content": content}}]
+        }),
+        serde_json::json!({
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]
+        }),
+        serde_json::json!({"choices": [], "usage": {"total_tokens": 18}}),
+    ])
 }
 
 /// A `SecretProvider` that is the trait and nothing else.
