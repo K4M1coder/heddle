@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-15
 
-**Status**: Planned
+**Status**: Implemented — User Story 1 (sequential/approval nodes, Ledger resumability) landed in `crates/heddle-workflow`; User Stories 2 and 3 (TaskTracker, hierarchy resolution, workflow-to-tracker wiring) landed as a follow-up slice recorded in [`specs/038-tasktracker-hierarchy`](../038-tasktracker-hierarchy/spec.md). The engine's ground-truth loop-node types (ReAct/Reflexion/Self-Refine) from FR-017 remain unimplemented.
 
 **Input**: Epic 6 (`_bmad-output/planning-artifacts/epics.md`); design §4.12, §4.13, §5.5.
 
