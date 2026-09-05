@@ -9,5 +9,7 @@
 //! Nothing in `crates/` depends on this crate, and nothing may: the UI is the
 //! outermost layer (Constitution I and IV).
 
+pub mod code;
 pub mod config;
 pub mod session;
+pub mod settings;
