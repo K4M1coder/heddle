@@ -6,7 +6,7 @@ Heddle is an independent open-source, local-first agentic platform designed to u
 
 Heddle is created and owned by **Cédric Thedrez**:
 
-- GitHub: **[`kamicoder`](https://github.com/kamicoder)**
+- GitHub: **[`K4M1coder`](https://github.com/K4M1coder/heddle)**
 - Other public identity: **`cethgame`**
 
 ## Current status

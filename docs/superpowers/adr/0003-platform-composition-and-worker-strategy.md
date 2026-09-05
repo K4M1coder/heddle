@@ -4,7 +4,7 @@
 
 **Rationale for accepting before Spike 5:** the one-way-door questions ADR-0003 exists to answer — who owns the loop, tool governance, workflow reuse, context strategy — are all resolved by Spikes 1–4. Spike 5 tests packaging/portability, which can revise the *bootstrap*, never the *architecture*. Deferring acceptance for it would be process theater (ADR-0004 D1).  
 **Date:** 2026-07-15  
-**Decider:** Cédric Thedrez (`kamicoder`)  
+**Decider:** Cédric Thedrez (`K4M1coder`)  
 **Research:** `docs/research/agent-platform-landscape.md`
 
 ## Context

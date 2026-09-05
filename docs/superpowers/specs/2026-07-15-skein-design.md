@@ -3,7 +3,7 @@
 - **Codename**: Heddle *("a heddle of geese" = a flight of geese, a nod to Goose; and a heddle of intertwined threads = the connectors/models woven together)*
 - **Date**: 2026-07-15
 - **Status**: Design validated — awaiting review before implementation plan
-- **Author and project owner**: Cédric Thedrez (`kamicoder` on GitHub, `cethgame` elsewhere)
+- **Author and project owner**: Cédric Thedrez (`K4M1coder` on GitHub, `cethgame` elsewhere)
 - **Project status**: independent open-source project
 - **Method**: written in the **Spec-Kit** style (Spec → Plan → Tasks → Implement); verifiable artifacts in the **BMAD** style.
 

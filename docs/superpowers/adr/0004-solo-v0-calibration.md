@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-07-16
-**Decider:** Cédric Thedrez (`kamicoder`)
+**Decider:** Cédric Thedrez (`K4M1coder`)
 **Supersedes/amends:** calibrates `docs/QUALITY-GATES.md` (G0–G6) and the PRD MVP scope for the v0 reality; does not change ADR-0003's architecture direction.
 
 ## Context

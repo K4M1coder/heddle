@@ -19,7 +19,7 @@ This file is not the canonical PRD and does not authorize product implementation
 
 ## 2. Product Vision
 
-Heddle is an independent open-source, local-first agentic work platform created by Cédric Thedrez (`kamicoder` on GitHub and `cethgame` elsewhere). It presents one coherent experience across chat, software development, and computer-assisted work while retaining user and team control over models, tools, workflows, context, permissions, evidence, and data location.
+Heddle is an independent open-source, local-first agentic work platform created by Cédric Thedrez (`K4M1coder` on GitHub and `cethgame` elsewhere). It presents one coherent experience across chat, software development, and computer-assisted work while retaining user and team control over models, tools, workflows, context, permissions, evidence, and data location.
 
 Heddle's differentiation is not a claim to contain every model or replace every existing tool. It is a governed control plane that can compose supported local and remote capabilities behind versioned contracts. A capability is supported only when its version, platform, modality, trust level, limitations, and conformance evidence appear in the release's capability registry.
 

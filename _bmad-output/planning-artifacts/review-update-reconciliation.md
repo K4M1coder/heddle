@@ -59,7 +59,7 @@ It is not yet a complete reconciliation of durable user intent. Four blocking co
 
 ### H-01 — Ownership is present, but the explicit non-affiliation and repository-language prohibitions have no durable destination
 
-The PRD correctly identifies Cédric Thedrez, `kamicoder`, and `cethgame` and calls Heddle independent/open source (`PRD.update-draft.md:20-24`). The forbidden organizational association does not appear in either draft, which is correct, but no governance requirement prevents its future introduction. English-only persistent code/documentation is absent from both drafts despite `reconcile-user-conversations.md:281-282`. These are project-governance rules rather than product FRs, but they still require explicit placement before readiness.
+The PRD correctly identifies Cédric Thedrez, `K4M1coder`, and `cethgame` and calls Heddle independent/open source (`PRD.update-draft.md:20-24`). The forbidden organizational association does not appear in either draft, which is correct, but no governance requirement prevents its future introduction. English-only persistent code/documentation is absent from both drafts despite `reconcile-user-conversations.md:281-282`. These are project-governance rules rather than product FRs, but they still require explicit placement before readiness.
 
 **Required disposition:** Put ownership, non-affiliation, English-only repository content, and French-only user conversation policy in project governance/contribution/release metadata, referenced by the build gate. Do not insert the forbidden organization name into normal project materials.
 
@@ -151,7 +151,7 @@ The addendum presents one installer experience while also requiring optional hea
 
 | Required verification | Status | Adversarial conclusion |
 |---|---|---|
-| Identity and ownership | Pass | Cédric Thedrez, `kamicoder`, `cethgame`, independent open-source identity are explicit in the PRD. |
+| Identity and ownership | Pass | Cédric Thedrez, `K4M1coder`, `cethgame`, independent open-source identity are explicit in the PRD. |
 | Prohibited organizational association | Partial | Forbidden association is absent, as required, but no durable governance prohibition prevents later introduction. |
 | English-only persistent code and documentation | Fail | Not stated or assigned to a governance artifact. |
 | Local/Server/Remote modes | Partial | Explicit selection and isolation exist; lifecycle, discovery, loss, and active-backend semantics remain unresolved. |

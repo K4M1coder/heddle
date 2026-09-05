@@ -9,7 +9,7 @@ build_authorization: NOT_READY
 
 ## Identity and Independence
 
-Heddle is an independent open-source project created and owned by Cédric Thedrez, known as `kamicoder` on GitHub and `cethgame` elsewhere. Project metadata, contribution material, generated artifacts, releases, and public statements shall not assert or imply an organizational affiliation unless the owner deliberately amends this policy with verifiable authority.
+Heddle is an independent open-source project created and owned by Cédric Thedrez, known as `K4M1coder` on GitHub and `cethgame` elsewhere. Project metadata, contribution material, generated artifacts, releases, and public statements shall not assert or imply an organizational affiliation unless the owner deliberately amends this policy with verifiable authority.
 
 ## Repository Language
 

@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-09-03
-**Decider:** Cédric Thedrez (`kamicoder`)
+**Decider:** Cédric Thedrez (`K4M1coder`)
 **Supersedes/amends:** supersedes ADR-0005's blanket deferral of `shell`. Does not reopen
 ADR-0004 D3's other items.
 

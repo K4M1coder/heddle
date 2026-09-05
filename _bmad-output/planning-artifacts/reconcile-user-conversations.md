@@ -36,7 +36,7 @@ Source labels:
 |---|---|---|---|---|---|
 | ID-01 | P | The project name/codename is **Heddle**. | Title; §1 | Covered | Preserve the name unless the owner explicitly reopens naming. |
 | ID-02 | P | Heddle is an independent open-source project owned by Cédric Thedrez. | None | Missing | Ownership and provenance must not be inferred from repository location or prior employers. |
-| ID-03 | P | Owner identity: Cédric Thedrez, GitHub alias `kamicoder`, alias `cethgame` elsewhere. | None | Missing | Needed for project metadata, copyright, governance, and release ownership. |
+| ID-03 | P | Owner identity: Cédric Thedrez, GitHub alias `K4M1coder`, alias `cethgame` elsewhere. | None | Missing | Needed for project metadata, copyright, governance, and release ownership. |
 | ID-04 | P | Heddle has no relationship with SodiusWillert or any of its entities. | None | Missing | Explicit prohibition: do not mention or imply affiliation. |
 | ID-05 | P | All source code and persistent documentation must be in English. | None | Missing | Applies to code, comments, schemas, examples, scripts, operational docs, and generated repository artifacts. |
 | ID-06 | P | Conversation with the owner may be in French. | None | Missing | Interaction preference, not a product localization requirement by itself. |

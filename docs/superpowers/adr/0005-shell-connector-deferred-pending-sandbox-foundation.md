@@ -2,7 +2,7 @@
 
 **Status:** Superseded by [ADR-0006](0006-shell-connector-windows-first-sandbox.md)
 **Date:** 2026-09-03
-**Decider:** Cédric Thedrez (`kamicoder`)
+**Decider:** Cédric Thedrez (`K4M1coder`)
 **Supersedes/amends:** narrows ADR-0004 D3's "MCP tools (fs/git/shell)" item; does not reopen D3's other items.
 
 > **Superseded:** this ADR's research (no crate covers Windows+Linux+macOS process sandboxing at

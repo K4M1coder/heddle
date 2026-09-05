@@ -2,7 +2,7 @@
 
 **Status:** Research baseline  
 **Date:** 2026-07-15  
-**Owner:** Cédric Thedrez (`kamicoder` on GitHub, `cethgame` elsewhere)  
+**Owner:** Cédric Thedrez (`K4M1coder` on GitHub, `cethgame` elsewhere)  
 **Project:** Heddle — independent open-source project
 
 ## Purpose
