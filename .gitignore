@@ -22,3 +22,7 @@ ui/src-tauri/gen/
 .archon/artifacts/
 .archon/logs/
 .archon/state/
+
+# Playwright MCP's page snapshots/console logs, written to the cwd it was
+# invoked from -- local-only, never part of the product.
+.playwright-mcp/
